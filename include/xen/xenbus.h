@@ -41,6 +41,7 @@
 #include <linux/completion.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/semaphore.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/grant_table.h>
 #include <xen/interface/io/xenbus.h>
@@ -84,7 +85,7 @@ struct xenbus_device {
 	enum xenbus_state state;
 	struct completion down;
 	struct work_struct work;
-	spinlock_t reclaim_lock;
+	struct semaphore reclaim_sem;
 };
 
 static inline struct xenbus_device *to_xenbus_device(struct device *dev)
