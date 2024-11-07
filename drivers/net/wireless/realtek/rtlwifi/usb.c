@@ -1162,7 +1162,6 @@ error_out:
 	rtl_deinit_core(hw);
 	_rtl_usb_io_handler_release(hw);
 	usb_put_dev(udev);
-	complete(&rtlpriv->firmware_loading_complete);
 	kfree(rtlpriv->usb_data);
 	return -ENODEV;
 }
