@@ -347,10 +347,15 @@ nilfs_find_entry(struct inode *dir, const struct qstr *qstr,
 		start = 0;
 	n = start;
 	do {
-		char *kaddr = nilfs_get_page(dir, n);
+		char *kaddr;
 
-		if (IS_ERR(kaddr))
-			return ERR_CAST(kaddr);
+		page = nilfs_get_page(dir, n);
+		if (IS_ERR(page))
+			return ERR_CAST(page);
+
+		kaddr = page_address(page);
+		if (!kaddr)
+			return ERR_PTR(-ENOMEM);
 
 		de = (struct nilfs_dir_entry *)kaddr;
 		kaddr += nilfs_last_byte(dir, n) - reclen;
