@@ -111,6 +111,14 @@ enum system_states system_state __read_mostly;
 EXPORT_SYMBOL(system_state);
 
 /*
+ * This corresponds to system_state >= SYSTEM_SCHEDULING in the mainline.
+ * On PREEMPT_RT kernels, slab allocator requires this state to check if
+ * the allocation must be run with IRQ enabled or not.
+ */
+bool system_scheduling __read_mostly = false;
+EXPORT_SYMBOL(system_scheduling);
+
+/*
  * Boot command-line arguments
  */
 #define MAX_INIT_ARGS CONFIG_INIT_ENV_ARG_LIMIT
@@ -401,6 +409,10 @@ static noinline void __init_refok rest_init(void)
 	rcu_read_lock();
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
+
+	/* Corresponds to system_state = SYSTEM_SCHEDULING in the mainline */
+	system_scheduling = true;
+
 	complete(&kthreadd_done);
 
 	/*
