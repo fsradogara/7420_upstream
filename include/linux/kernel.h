@@ -490,6 +490,7 @@ extern enum system_states {
 	SYSTEM_RESTART,
 	SYSTEM_SUSPEND,
 } system_state;
+extern bool system_scheduling;
 
 #define TAINT_PROPRIETARY_MODULE	0
 #define TAINT_FORCED_MODULE		1
