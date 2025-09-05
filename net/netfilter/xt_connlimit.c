@@ -22,13 +22,12 @@
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/rbtree.h>
+
 #include <linux/module.h>
-#include <linux/random.h>
 #include <linux/skbuff.h>
-#include <linux/spinlock.h>
-#include <linux/netfilter/nf_conntrack_tcp.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_connlimit.h>
+
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_core.h>
 #include <net/netfilter/nf_conntrack_tuple.h>
@@ -477,19 +476,20 @@ static int count_them(struct net *net,
 
 	return count;
 }
+#include <net/netfilter/nf_conntrack_count.h>
 
 static bool
 connlimit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
 	struct net *net = xt_net(par);
 	const struct xt_connlimit_info *info = par->matchinfo;
-	union nf_inet_addr addr;
 	struct nf_conntrack_tuple tuple;
 	const struct nf_conntrack_tuple *tuple_ptr = &tuple;
 	const struct nf_conntrack_zone *zone = &nf_ct_zone_dflt;
 	enum ip_conntrack_info ctinfo;
 	const struct nf_conn *ct;
 	unsigned int connections;
+	u32 key[5];
 
 	ct = nf_ct_get(skb, &ctinfo);
 	if (ct != NULL) {
@@ -502,22 +502,32 @@ connlimit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 
 	if (xt_family(par) == NFPROTO_IPV6) {
 		const struct ipv6hdr *iph = ipv6_hdr(skb);
+		union nf_inet_addr addr;
+		unsigned int i;
+
 		memcpy(&addr.ip6, (info->flags & XT_CONNLIMIT_DADDR) ?
 		       &iph->daddr : &iph->saddr, sizeof(addr.ip6));
+
+		for (i = 0; i < ARRAY_SIZE(addr.ip6); ++i)
+			addr.ip6[i] &= info->mask.ip6[i];
+		memcpy(key, &addr, sizeof(addr.ip6));
+		key[4] = zone->id;
 	} else {
 		const struct iphdr *iph = ip_hdr(skb);
-		addr.ip = (info->flags & XT_CONNLIMIT_DADDR) ?
+		key[0] = (info->flags & XT_CONNLIMIT_DADDR) ?
 			  iph->daddr : iph->saddr;
+
+		key[0] &= info->mask.ip;
+		key[1] = zone->id;
 	}
 
-	connections = count_them(net, info->data, tuple_ptr, &addr,
-	                         &info->mask, xt_family(par), zone);
+	connections = nf_conncount_count(net, info->data, key, tuple_ptr,
+					 zone);
 	if (connections == 0)
 		/* kmalloc failed, drop it entirely */
 		goto hotdrop;
 
-	return (connections > info->limit) ^
-	       !!(info->flags & XT_CONNLIMIT_INVERT);
+	return (connections > info->limit) ^ !!(info->flags & XT_CONNLIMIT_INVERT);
 
  hotdrop:
 	par->hotdrop = true;
@@ -527,17 +537,13 @@ connlimit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 static int connlimit_mt_check(const struct xt_mtchk_param *par)
 {
 	struct xt_connlimit_info *info = par->matchinfo;
-	unsigned int i;
-	int ret;
+	unsigned int keylen;
 
-	net_get_random_once(&connlimit_rnd, sizeof(connlimit_rnd));
-
-	ret = nf_ct_netns_get(par->net, par->family);
-	if (ret < 0) {
-		pr_info("cannot load conntrack support for "
-			"address family %u\n", par->family);
-		return ret;
-	}
+	keylen = sizeof(u32);
+	if (par->family == NFPROTO_IPV6)
+		keylen += sizeof(struct in6_addr);
+	else
+		keylen += sizeof(struct in_addr);
 
 	/* init private data */
 	info->data = kmalloc(sizeof(struct xt_connlimit_data), GFP_KERNEL);
@@ -574,43 +580,16 @@ connlimit_mt_destroy(const struct xt_match *match, void *matchinfo)
 		nf_ct_netns_put(par->net, par->family);
 		return -ENOMEM;
 	}
+	info->data = nf_conncount_init(par->net, par->family, keylen);
 
-	for (i = 0; i < ARRAY_SIZE(info->data->climit_root); ++i)
-		info->data->climit_root[i] = RB_ROOT;
-
-	return 0;
-}
-
-static void destroy_tree(struct rb_root *r)
-{
-	struct xt_connlimit_conn *conn;
-	struct xt_connlimit_rb *rbconn;
-	struct hlist_node *n;
-	struct rb_node *node;
-
-	while ((node = rb_first(r)) != NULL) {
-		rbconn = rb_entry(node, struct xt_connlimit_rb, node);
-
-		rb_erase(node, r);
-
-		hlist_for_each_entry_safe(conn, n, &rbconn->hhead, node)
-			kmem_cache_free(connlimit_conn_cachep, conn);
-
-		kmem_cache_free(connlimit_rb_cachep, rbconn);
-	}
+	return PTR_ERR_OR_ZERO(info->data);
 }
 
 static void connlimit_mt_destroy(const struct xt_mtdtor_param *par)
 {
 	const struct xt_connlimit_info *info = par->matchinfo;
-	unsigned int i;
 
-	nf_ct_netns_put(par->net, par->family);
-
-	for (i = 0; i < ARRAY_SIZE(info->data->climit_root); ++i)
-		destroy_tree(&info->data->climit_root[i]);
-
-	kfree(info->data);
+	nf_conncount_destroy(par->net, par->family, info->data);
 }
 
 static struct xt_match connlimit_mt_reg[] __read_mostly = {
@@ -675,14 +654,13 @@ static int __init connlimit_mt_init(void)
 		kmem_cache_destroy(connlimit_rb_cachep);
 	}
 	return ret;
+	return xt_register_match(&connlimit_mt_reg);
 }
 
 static void __exit connlimit_mt_exit(void)
 {
 	xt_unregister_matches(connlimit_mt_reg, ARRAY_SIZE(connlimit_mt_reg));
 	xt_unregister_match(&connlimit_mt_reg);
-	kmem_cache_destroy(connlimit_conn_cachep);
-	kmem_cache_destroy(connlimit_rb_cachep);
 }
 
 module_init(connlimit_mt_init);

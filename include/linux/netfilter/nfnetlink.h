@@ -96,8 +96,10 @@ extern int nfnetlink_send(struct sk_buff *skb, u32 pid, unsigned group,
 extern int nfnetlink_unicast(struct sk_buff *skb, u_int32_t pid, int flags);
 	int (*commit)(struct sk_buff *skb);
 	int (*abort)(struct sk_buff *skb);
+	struct module *owner;
 	int (*commit)(struct net *net, struct sk_buff *skb);
 	int (*abort)(struct net *net, struct sk_buff *skb);
+	void (*cleanup)(struct net *net);
 	bool (*valid_genid)(struct net *net, u32 genid);
 };
 
@@ -134,8 +136,7 @@ static inline bool lockdep_nfnl_is_held(__u8 subsys_id)
  * @ss: The nfnetlink subsystem ID
  *
  * Return the value of the specified RCU-protected pointer, but omit
- * both the smp_read_barrier_depends() and the ACCESS_ONCE(), because
- * caller holds the NFNL subsystem mutex.
+ * the READ_ONCE(), because caller holds the NFNL subsystem mutex.
  */
 #define nfnl_dereference(p, ss)					\
 	rcu_dereference_protected(p, lockdep_nfnl_is_held(ss))

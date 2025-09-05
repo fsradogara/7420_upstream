@@ -295,15 +295,17 @@ affs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
 	struct inode *inode = NULL;
+	struct dentry *res;
 
 	pr_debug("AFFS: lookup(\"%.*s\")\n",(int)dentry->d_name.len,dentry->d_name.name);
 	pr_debug("%s(\"%pd\")\n", __func__, dentry);
 
 	affs_lock_dir(dir);
 	bh = affs_find_entry(dir, dentry);
-	affs_unlock_dir(dir);
-	if (IS_ERR(bh))
+	if (IS_ERR(bh)) {
+		affs_unlock_dir(dir);
 		return ERR_CAST(bh);
+	}
 	if (bh) {
 		u32 ino = bh->b_blocknr;
 
@@ -323,8 +325,11 @@ affs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 	dentry->d_op = AFFS_SB(sb)->s_flags & SF_INTL ? &affs_intl_dentry_operations : &affs_dentry_operations;
 			return ERR_CAST(inode);
 	}
-	d_add(dentry, inode);
-	return NULL;
+	res = d_splice_alias(inode, dentry);
+	if (!IS_ERR_OR_NULL(res))
+		res->d_fsdata = dentry->d_fsdata;
+	affs_unlock_dir(dir);
+	return res;
 }
 
 int

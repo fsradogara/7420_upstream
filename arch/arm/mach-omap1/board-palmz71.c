@@ -335,6 +335,7 @@ static struct omap_mmc_config palmz71_mmc_config __initdata = {
 };
 
 static struct omap_lcd_config palmz71_lcd_config __initdata = {
+static const struct omap_lcd_config palmz71_lcd_config __initconst = {
 	.ctrl_name = "internal",
 };
 

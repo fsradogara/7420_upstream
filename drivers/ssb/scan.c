@@ -13,6 +13,8 @@
  * Licensed under the GNU/GPL. See COPYING for details.
  */
 
+#include "ssb_private.h"
+
 #include <linux/ssb/ssb.h>
 #include <linux/ssb/ssb_regs.h>
 #include <linux/pci.h>
@@ -22,8 +24,6 @@
 #include <pcmcia/cs.h>
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ds.h>
-
-#include "ssb_private.h"
 
 
 const char *ssb_core_name(u16 coreid)
@@ -131,6 +131,7 @@ static u16 pcidev_to_chipid(struct pci_dev *pci_dev)
 		ssb_printk(KERN_ERR PFX
 			   "PCI-ID not in fallback list\n");
 		ssb_err("PCI-ID not in fallback list\n");
+		dev_err(&pci_dev->dev, "PCI-ID not in fallback list\n");
 	}
 
 	return chipid_fallback;
@@ -159,6 +160,7 @@ static u8 chipid_to_nrcores(u16 chipid)
 		ssb_printk(KERN_ERR PFX
 			   "CHIPID not in nrcores fallback list\n");
 		ssb_err("CHIPID not in nrcores fallback list\n");
+		pr_err("CHIPID not in nrcores fallback list\n");
 	}
 
 	return 1;
@@ -218,7 +220,7 @@ void ssb_iounmap(struct ssb_bus *bus)
 #ifdef CONFIG_SSB_PCIHOST
 		pci_iounmap(bus->host_pci, bus->mmio);
 #else
-		SSB_BUG_ON(1); /* Can't reach this code. */
+		WARN_ON(1); /* Can't reach this code. */
 #endif
 		break;
 	case SSB_BUSTYPE_SDIO:
@@ -244,7 +246,7 @@ static void __iomem *ssb_ioremap(struct ssb_bus *bus,
 #ifdef CONFIG_SSB_PCIHOST
 		mmio = pci_iomap(bus->host_pci, 0, ~0UL);
 #else
-		SSB_BUG_ON(1); /* Can't reach this code. */
+		WARN_ON(1); /* Can't reach this code. */
 #endif
 		break;
 	case SSB_BUSTYPE_SDIO:
@@ -337,11 +339,13 @@ int ssb_bus_scan(struct ssb_bus *bus,
 			   SSB_MAX_NR_CORES, bus->nr_devices);
 	ssb_info("Found chip with id 0x%04X, rev 0x%02X and package 0x%02X\n",
 		 bus->chip_id, bus->chip_rev, bus->chip_package);
+	pr_info("Found chip with id 0x%04X, rev 0x%02X and package 0x%02X\n",
+		bus->chip_id, bus->chip_rev, bus->chip_package);
 	if (!bus->nr_devices)
 		bus->nr_devices = chipid_to_nrcores(bus->chip_id);
 	if (bus->nr_devices > ARRAY_SIZE(bus->devices)) {
-		ssb_err("More than %d ssb cores found (%d)\n",
-			SSB_MAX_NR_CORES, bus->nr_devices);
+		pr_err("More than %d ssb cores found (%d)\n",
+		       SSB_MAX_NR_CORES, bus->nr_devices);
 		goto err_unmap;
 	}
 	if (bus->bustype == SSB_BUSTYPE_SSB) {
@@ -378,6 +382,9 @@ int ssb_bus_scan(struct ssb_bus *bus,
 			    "(cc 0x%03X, rev 0x%02X, vendor 0x%04X)\n",
 			    i, ssb_core_name(dev->id.coreid),
 			    dev->id.coreid, dev->id.revision, dev->id.vendor);
+		pr_debug("Core %d found: %s (cc 0x%03X, rev 0x%02X, vendor 0x%04X)\n",
+			 i, ssb_core_name(dev->id.coreid),
+			 dev->id.coreid, dev->id.revision, dev->id.vendor);
 
 		switch (dev->id.coreid) {
 		case SSB_DEV_80211:
@@ -387,6 +394,7 @@ int ssb_bus_scan(struct ssb_bus *bus,
 					ssb_dprintk(KERN_INFO PFX "Ignoring additional "
 						    "802.11 core\n");
 					ssb_dbg("Ignoring additional 802.11 core\n");
+					pr_debug("Ignoring additional 802.11 core\n");
 					continue;
 				}
 			}
@@ -397,6 +405,7 @@ int ssb_bus_scan(struct ssb_bus *bus,
 				ssb_printk(KERN_WARNING PFX
 					   "WARNING: Multiple EXTIFs found\n");
 				ssb_warn("WARNING: Multiple EXTIFs found\n");
+				pr_warn("WARNING: Multiple EXTIFs found\n");
 				break;
 			}
 			bus->extif.dev = dev;
@@ -407,6 +416,7 @@ int ssb_bus_scan(struct ssb_bus *bus,
 				ssb_printk(KERN_WARNING PFX
 					   "WARNING: Multiple ChipCommon found\n");
 				ssb_warn("WARNING: Multiple ChipCommon found\n");
+				pr_warn("WARNING: Multiple ChipCommon found\n");
 				break;
 			}
 			bus->chipco.dev = dev;
@@ -418,6 +428,7 @@ int ssb_bus_scan(struct ssb_bus *bus,
 				ssb_printk(KERN_WARNING PFX
 					   "WARNING: Multiple MIPS cores found\n");
 				ssb_warn("WARNING: Multiple MIPS cores found\n");
+				pr_warn("WARNING: Multiple MIPS cores found\n");
 				break;
 			}
 			bus->mipscore.dev = dev;
@@ -445,6 +456,7 @@ int ssb_bus_scan(struct ssb_bus *bus,
 				ssb_printk(KERN_WARNING PFX
 					   "WARNING: Multiple PCI(E) cores found\n");
 				ssb_warn("WARNING: Multiple PCI(E) cores found\n");
+				pr_warn("WARNING: Multiple PCI(E) cores found\n");
 				break;
 			}
 			bus->pcicore.dev = dev;

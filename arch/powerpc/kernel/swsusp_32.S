@@ -8,6 +8,7 @@
 #include <asm/asm-offsets.h>
 
 #include <asm/mmu.h>
+#include <asm/feature-fixups.h>
 
 /*
  * Structure for storing CPU registers on the save area.

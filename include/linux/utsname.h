@@ -77,6 +77,8 @@ static inline void put_uts_ns(struct uts_namespace *ns)
 {
 	kref_put(&ns->kref, free_uts_ns);
 }
+
+void uts_ns_init(void);
 #else
 static inline void get_uts_ns(struct uts_namespace *ns)
 {
@@ -95,6 +97,10 @@ static inline struct uts_namespace *copy_utsname(unsigned long flags,
 
 	return ns;
 	return old_ns;
+}
+
+static inline void uts_ns_init(void)
+{
 }
 #endif
 

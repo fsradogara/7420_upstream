@@ -62,6 +62,7 @@ enum {
 struct inet6_ifaddr {
 	struct in6_addr		addr;
 	__u32			prefix_len;
+	__u32			rt_priority;
 
 	/* In seconds, relative to tstamp. Expiry is at tstamp + HZ * lft. */
 	__u32			valid_lft;
@@ -84,7 +85,7 @@ struct inet6_ifaddr {
 	struct delayed_work	dad_work;
 
 	struct inet6_dev	*idev;
-	struct rt6_info		*rt;
+	struct fib6_info	*rt;
 
 	struct inet6_ifaddr	*lst_next;      /* next addr in addr_lst */
 	struct inet6_ifaddr	*if_next;       /* next addr in inet6_dev */
@@ -196,8 +197,7 @@ struct ifacaddr6
 {
 struct ifacaddr6 {
 	struct in6_addr		aca_addr;
-	struct inet6_dev	*aca_idev;
-	struct rt6_info		*aca_rt;
+	struct fib6_info	*aca_rt;
 	struct ifacaddr6	*aca_next;
 	int			aca_users;
 	atomic_t		aca_refcnt;

@@ -5,6 +5,8 @@
  * Copyright (C) 2004-2013 Emulex.  All rights reserved.           *
  * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
+ * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.broadcom.com                                                *
@@ -326,6 +328,15 @@ lpfc_vport_create(struct fc_vport *fc_vport, bool disable)
 				"1808 Create VPORT failed: "
 				"NPIV is not enabled: SLImode:%d\n",
 				phba->sli_rev);
+		rc = VPORT_INVAL;
+		goto error_out;
+	}
+
+	/* NPIV is not supported if HBA has NVME enabled */
+	if (phba->cfg_enable_fc4_type & LPFC_ENABLE_NVME) {
+		lpfc_printf_log(phba, KERN_ERR, LOG_VPORT,
+				"3189 Create VPORT failed: "
+				"NPIV is not supported on NVME\n");
 		rc = VPORT_INVAL;
 		goto error_out;
 	}
@@ -902,6 +913,7 @@ lpfc_create_vport_work_array(struct lpfc_hba *phba)
 	int index = 0;
 	vports = kzalloc((phba->max_vpi + 1) * sizeof(struct lpfc_vport *),
 	vports = kzalloc((phba->max_vports + 1) * sizeof(struct lpfc_vport *),
+	vports = kcalloc(phba->max_vports + 1, sizeof(struct lpfc_vport *),
 			 GFP_KERNEL);
 	if (vports == NULL)
 		return NULL;

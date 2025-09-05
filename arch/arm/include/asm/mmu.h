@@ -22,6 +22,10 @@ typedef struct {
 #ifdef CONFIG_VDSO
 	unsigned long	vdso;
 #endif
+#ifdef CONFIG_BINFMT_ELF_FDPIC
+	unsigned long	exec_fdpic_loadmap;
+	unsigned long	interp_fdpic_loadmap;
+#endif
 } mm_context_t;
 
 #ifdef CONFIG_CPU_HAS_ASID
@@ -43,6 +47,10 @@ typedef struct {
 	struct vm_list_struct	*vmlist;
 	unsigned long		end_brk;
 	unsigned long	end_brk;
+#ifdef CONFIG_BINFMT_ELF_FDPIC
+	unsigned long	exec_fdpic_loadmap;
+	unsigned long	interp_fdpic_loadmap;
+#endif
 } mm_context_t;
 
 #endif

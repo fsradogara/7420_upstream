@@ -1,7 +1,10 @@
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0 */
 /******************************************************************************
  *
  * Name: acenv.h - Generation environment specific items
  * Name: acenv.h - Host and compiler configuration
+ *
+ * Copyright (C) 2000 - 2018, Intel Corp.
  *
  *****************************************************************************/
 

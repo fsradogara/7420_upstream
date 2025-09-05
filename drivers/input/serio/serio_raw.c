@@ -360,7 +360,7 @@ out:
 	return retval;
 }
 
-static unsigned int serio_raw_poll(struct file *file, poll_table *wait)
+static __poll_t serio_raw_poll(struct file *file, poll_table *wait)
 {
 	struct serio_raw_list *list = file->private_data;
 
@@ -382,13 +382,13 @@ static const struct file_operations serio_raw_fops = {
 	.fasync =	serio_raw_fasync,
 	struct serio_raw_client *client = file->private_data;
 	struct serio_raw *serio_raw = client->serio_raw;
-	unsigned int mask;
+	__poll_t mask;
 
 	poll_wait(file, &serio_raw->wait, wait);
 
-	mask = serio_raw->dead ? POLLHUP | POLLERR : POLLOUT | POLLWRNORM;
+	mask = serio_raw->dead ? EPOLLHUP | EPOLLERR : EPOLLOUT | EPOLLWRNORM;
 	if (serio_raw->head != serio_raw->tail)
-		mask |= POLLIN | POLLRDNORM;
+		mask |= EPOLLIN | EPOLLRDNORM;
 
 	return mask;
 }

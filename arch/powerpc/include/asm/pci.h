@@ -31,8 +31,6 @@
 #define PCIBIOS_MIN_IO		0x1000
 #define PCIBIOS_MIN_MEM		0x10000000
 
-struct pci_dev;
-
 /* Values for the `which' argument to sys_pciconfig_iobase syscall.  */
 #define IOBASE_BRIDGE_NUMBER	0
 #define IOBASE_MEMORY		1
@@ -131,10 +129,11 @@ extern int pci_proc_domain(struct pci_bus *bus);
 
 struct vm_area_struct;
 
-/* Tell drivers/pci/proc.c that we have pci_mmap_page_range() and it does WC */
-#define HAVE_PCI_MMAP		1
-#define arch_can_pci_mmap_io()	1
-#define arch_can_pci_mmap_wc()	1
+/* Tell PCI code what kind of PCI resource mappings we support */
+#define HAVE_PCI_MMAP			1
+#define ARCH_GENERIC_PCI_MMAP_RESOURCE	1
+#define arch_can_pci_mmap_io()		1
+#define arch_can_pci_mmap_wc()		1
 
 #if defined(CONFIG_PPC64) || defined(CONFIG_NOT_COHERENT_CACHE)
 /*
@@ -241,6 +240,8 @@ extern void of_scan_pci_bridge(struct device_node *node,
 extern void of_scan_bus(struct device_node *node, struct pci_bus *bus);
 
 extern int pci_read_irq_line(struct pci_dev *dev);
+extern unsigned int pci_parse_of_flags(u32 addr0, int bridge);
+
 extern void of_scan_pci_bridge(struct pci_dev *dev);
 
 extern void of_scan_bus(struct device_node *node, struct pci_bus *bus);

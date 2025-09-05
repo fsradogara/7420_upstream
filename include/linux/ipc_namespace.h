@@ -19,7 +19,7 @@
 #include <linux/nsproxy.h>
 #include <linux/ns_common.h>
 #include <linux/refcount.h>
-#include <linux/rhashtable.h>
+#include <linux/rhashtable-types.h>
 
 struct user_namespace;
 
@@ -36,7 +36,10 @@ struct ipc_namespace {
 	bool tables_initialized;
 	struct rw_semaphore rwsem;
 	struct idr ipcs_idr;
+	int max_idx;
+#ifdef CONFIG_CHECKPOINT_RESTORE
 	int next_id;
+#endif
 	struct rhashtable key_ht;
 };
 

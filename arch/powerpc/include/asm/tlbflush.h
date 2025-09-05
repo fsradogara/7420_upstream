@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_POWERPC_TLBFLUSH_H
 #define _ASM_POWERPC_TLBFLUSH_H
 
@@ -96,11 +97,11 @@ extern void flush_tlb_mm(struct mm_struct *mm);
 extern void flush_tlb_page(struct vm_area_struct *vma, unsigned long vmaddr);
 extern void __flush_tlb_page(struct mm_struct *mm, unsigned long vmaddr,
 			     int tsize, int ind);
+#ifdef CONFIG_PPC_BOOK3S
+#include <asm/book3s/tlbflush.h>
 #else
-#define flush_tlb_mm(mm)		local_flush_tlb_mm(mm)
-#define flush_tlb_page(vma,addr)	local_flush_tlb_page(vma,addr)
-#define __flush_tlb_page(mm,addr,p,i)	__local_flush_tlb_page(mm,addr,p,i)
-#endif
+#include <asm/nohash/tlbflush.h>
+#endif /* !CONFIG_PPC_BOOK3S */
 
 #elif defined(CONFIG_PPC_STD_MMU_32)
 

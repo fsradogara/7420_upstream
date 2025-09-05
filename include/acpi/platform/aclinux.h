@@ -1,7 +1,10 @@
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0 */
 /******************************************************************************
  *
  * Name: aclinux.h - OS specific defines, etc.
  * Name: aclinux.h - OS specific defines, etc. for Linux
+ *
+ * Copyright (C) 2000 - 2018, Intel Corp.
  *
  *****************************************************************************/
 
@@ -61,6 +64,7 @@
 
 #define ACPI_USE_SYSTEM_CLIBRARY
 #define ACPI_USE_DO_WHILE_0
+#define ACPI_IGNORE_PACKAGE_RESOLUTION_ERRORS
 
 #ifdef __KERNEL__
 
@@ -87,6 +91,7 @@
 /* Full namespace pathname length limit - arbitrary */
 #define ACPI_PATHNAME_MAX              256
 #define ACPI_USE_SYSTEM_INTTYPES
+#define ACPI_USE_GPE_POLLING
 
 /* Kernel specific ACPICA configuration */
 
@@ -159,6 +164,7 @@
 
 #define acpi_cache_t                        struct kmem_cache
 #define acpi_spinlock                       spinlock_t *
+#define acpi_raw_spinlock                   raw_spinlock_t *
 #define acpi_cpu_flags                      unsigned long
 
 /* Use native linux version of acpi_os_allocate_zeroed */
@@ -176,6 +182,10 @@
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_acquire_object
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_get_thread_id
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_create_lock
+#define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_create_raw_lock
+#define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_delete_raw_lock
+#define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_acquire_raw_lock
+#define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_release_raw_lock
 
 /*
  * OSL interfaces used by debugger/disassembler
@@ -232,7 +242,7 @@
 #define ACPI_FLUSH_CPU_CACHE()
 #define ACPI_CAST_PTHREAD_T(pthread) ((acpi_thread_id) (pthread))
 
-#if defined(__ia64__)    || defined(__x86_64__) ||\
+#if defined(__ia64__)    || (defined(__x86_64__) && !defined(__ILP32__)) ||\
 	defined(__aarch64__) || defined(__PPC64__) ||\
 	defined(__s390x__)
 #define ACPI_MACHINE_WIDTH          64

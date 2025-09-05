@@ -1,5 +1,6 @@
 /*
  * Copyright 2015 Advanced Micro Devices, Inc.
+ * Copyright 2017 Valve Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -105,4 +106,83 @@ int amdgpu_sched_ib_submit_kernel_helper(struct amdgpu_device *adev,
 	}
 
 	return 0;
+}
+ * Authors: Andres Rodriguez <andresx7@gmail.com>
+ */
+
+#include <linux/fdtable.h>
+#include <linux/pid.h>
+#include <drm/amdgpu_drm.h>
+#include "amdgpu.h"
+
+#include "amdgpu_vm.h"
+
+enum drm_sched_priority amdgpu_to_sched_priority(int amdgpu_priority)
+{
+	switch (amdgpu_priority) {
+	case AMDGPU_CTX_PRIORITY_VERY_HIGH:
+		return DRM_SCHED_PRIORITY_HIGH_HW;
+	case AMDGPU_CTX_PRIORITY_HIGH:
+		return DRM_SCHED_PRIORITY_HIGH_SW;
+	case AMDGPU_CTX_PRIORITY_NORMAL:
+		return DRM_SCHED_PRIORITY_NORMAL;
+	case AMDGPU_CTX_PRIORITY_LOW:
+	case AMDGPU_CTX_PRIORITY_VERY_LOW:
+		return DRM_SCHED_PRIORITY_LOW;
+	case AMDGPU_CTX_PRIORITY_UNSET:
+		return DRM_SCHED_PRIORITY_UNSET;
+	default:
+		WARN(1, "Invalid context priority %d\n", amdgpu_priority);
+		return DRM_SCHED_PRIORITY_INVALID;
+	}
+}
+
+static int amdgpu_sched_process_priority_override(struct amdgpu_device *adev,
+						  int fd,
+						  enum drm_sched_priority priority)
+{
+	struct file *filp = fget(fd);
+	struct drm_file *file;
+	struct amdgpu_fpriv *fpriv;
+	struct amdgpu_ctx *ctx;
+	uint32_t id;
+
+	if (!filp)
+		return -EINVAL;
+
+	file = filp->private_data;
+	fpriv = file->driver_priv;
+	idr_for_each_entry(&fpriv->ctx_mgr.ctx_handles, ctx, id)
+		amdgpu_ctx_priority_override(ctx, priority);
+
+	fput(filp);
+
+	return 0;
+}
+
+int amdgpu_sched_ioctl(struct drm_device *dev, void *data,
+		       struct drm_file *filp)
+{
+	union drm_amdgpu_sched *args = data;
+	struct amdgpu_device *adev = dev->dev_private;
+	enum drm_sched_priority priority;
+	int r;
+
+	priority = amdgpu_to_sched_priority(args->in.priority);
+	if (args->in.flags || priority == DRM_SCHED_PRIORITY_INVALID)
+		return -EINVAL;
+
+	switch (args->in.op) {
+	case AMDGPU_SCHED_OP_PROCESS_PRIORITY_OVERRIDE:
+		r = amdgpu_sched_process_priority_override(adev,
+							   args->in.fd,
+							   priority);
+		break;
+	default:
+		DRM_ERROR("Invalid sched op specified: %d\n", args->in.op);
+		r = -EINVAL;
+		break;
+	}
+
+	return r;
 }

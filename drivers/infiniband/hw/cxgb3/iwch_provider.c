@@ -469,7 +469,9 @@ static struct ib_pd *iwch_allocate_pd(struct ib_device *ibdev,
 	php->pdid = pdid;
 	php->rhp = rhp;
 	if (context) {
-		if (ib_copy_to_udata(udata, &php->pdid, sizeof (__u32))) {
+		struct iwch_alloc_pd_resp resp = {.pdid = php->pdid};
+
+		if (ib_copy_to_udata(udata, &resp, sizeof(resp))) {
 			iwch_deallocate_pd(&php->ibpd);
 			return ERR_PTR(-EFAULT);
 		}
@@ -1157,7 +1159,6 @@ static struct ib_qp *iwch_create_qp(struct ib_pd *pd,
 		insert_mmap(ucontext, mm2);
 	}
 	qhp->ibqp.qp_num = qhp->wq.qpid;
-	init_timer(&(qhp->timer));
 	pr_debug("%s sq_num_entries %d, rq_num_entries %d qpid 0x%0x qhp %p dma_addr 0x%llx size %d rq_addr 0x%x\n",
 		 __func__, qhp->attr.sq_num_entries, qhp->attr.rq_num_entries,
 		 qhp->wq.qpid, qhp, (unsigned long long)qhp->wq.dma_addr,
@@ -1300,7 +1301,8 @@ static int iwch_query_device(struct ib_device *ibdev, struct ib_device_attr *pro
 	props->max_mr_size = dev->attr.max_mr_size;
 	props->max_qp = dev->attr.max_qps;
 	props->max_qp_wr = dev->attr.max_wrs;
-	props->max_sge = dev->attr.max_sge_per_wr;
+	props->max_send_sge = dev->attr.max_sge_per_wr;
+	props->max_recv_sge = dev->attr.max_sge_per_wr;
 	props->max_sge_rd = 1;
 	props->max_qp_rd_atom = dev->attr.max_rdma_reads_per_qp;
 	props->max_qp_init_rd_atom = dev->attr.max_rdma_reads_per_qp;
@@ -1626,8 +1628,6 @@ int iwch_register_device(struct iwch_dev *dev)
 	dev->ibdev.mmap = iwch_mmap;
 	dev->ibdev.alloc_pd = iwch_allocate_pd;
 	dev->ibdev.dealloc_pd = iwch_deallocate_pd;
-	dev->ibdev.create_ah = iwch_ah_create;
-	dev->ibdev.destroy_ah = iwch_ah_destroy;
 	dev->ibdev.create_qp = iwch_create_qp;
 	dev->ibdev.modify_qp = iwch_ib_modify_qp;
 	dev->ibdev.destroy_qp = iwch_destroy_qp;
@@ -1645,9 +1645,6 @@ int iwch_register_device(struct iwch_dev *dev)
 	dev->ibdev.free_fast_reg_page_list = iwch_free_fastreg_pbl;
 	dev->ibdev.alloc_mr = iwch_alloc_mr;
 	dev->ibdev.map_mr_sg = iwch_map_mr_sg;
-	dev->ibdev.attach_mcast = iwch_multicast_attach;
-	dev->ibdev.detach_mcast = iwch_multicast_detach;
-	dev->ibdev.process_mad = iwch_process_mad;
 	dev->ibdev.req_notify_cq = iwch_arm_cq;
 	dev->ibdev.post_send = iwch_post_send;
 	dev->ibdev.post_recv = iwch_post_receive;
@@ -1673,6 +1670,7 @@ int iwch_register_device(struct iwch_dev *dev)
 	       sizeof(dev->ibdev.iwcm->ifname));
 
 	ret = ib_register_device(&dev->ibdev);
+	dev->ibdev.driver_id = RDMA_DRIVER_CXGB3;
 	ret = ib_register_device(&dev->ibdev, NULL);
 	if (ret)
 		goto bail1;

@@ -1,7 +1,6 @@
-#include <linux/delay.h>
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/pci.h>
 #include <linux/module.h>
-#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/ioport.h>
 #include <linux/wait.h>
@@ -17,9 +16,9 @@ static DEFINE_SPINLOCK(pci_lock);
 DEFINE_RAW_SPINLOCK(pci_lock);
 
 /*
- *  Wrappers for all PCI configuration access functions.  They just check
- *  alignment, do locking and call the low-level functions pointed to
- *  by pci_dev->ops.
+ * Wrappers for all PCI configuration access functions.  They just check
+ * alignment, do locking and call the low-level functions pointed to
+ * by pci_dev->ops.
  */
 
 #define PCI_byte_BAD 0
@@ -907,8 +906,10 @@ void pci_cfg_access_unlock(struct pci_dev *dev)
 
 	raw_spin_lock_irqsave(&pci_lock, flags);
 
-	/* This indicates a problem in the caller, but we don't need
-	 * to kill them, unlike a double-block above. */
+	/*
+	 * This indicates a problem in the caller, but we don't need
+	 * to kill them, unlike a double-block above.
+	 */
 	WARN_ON(!dev->block_cfg_access);
 
 	dev->block_cfg_access = 0;

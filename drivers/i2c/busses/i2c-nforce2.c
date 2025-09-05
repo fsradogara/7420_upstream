@@ -491,6 +491,7 @@ static int nforce2_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 	switch(dev->device) {
 	smbuses = kzalloc(2 * sizeof(struct nforce2_smbus), GFP_KERNEL);
+	smbuses = kcalloc(2, sizeof(struct nforce2_smbus), GFP_KERNEL);
 	if (!smbuses)
 		return -ENOMEM;
 	pci_set_drvdata(dev, smbuses);

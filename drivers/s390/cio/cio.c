@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/cio/cio.c
  *   S/390 common I/O routines -- low level i/o calls
@@ -28,7 +29,6 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/setup.h>
-#include <asm/reset.h>
 #include <asm/ipl.h>
 #include <asm/chpid.h>
 #include <asm/airq.h>
@@ -1207,6 +1207,7 @@ struct subchannel *cio_probe_console(void)
 {
 	struct subchannel_id schid;
 	struct subchannel *sch;
+	struct schib schib;
 	int sch_no, ret;
 
 	sch_no = cio_get_console_sch_no();
@@ -1216,7 +1217,11 @@ struct subchannel *cio_probe_console(void)
 	}
 	init_subchannel_id(&schid);
 	schid.sch_no = sch_no;
-	sch = css_alloc_subchannel(schid);
+	ret = stsch(schid, &schib);
+	if (ret)
+		return ERR_PTR(-ENODEV);
+
+	sch = css_alloc_subchannel(schid, &schib);
 	if (IS_ERR(sch))
 		return sch;
 
@@ -1590,7 +1595,7 @@ EXPORT_SYMBOL_GPL(cio_tm_start_key);
 
 /**
  * cio_tm_intrg - perform interrogate function
- * @sch - subchannel on which to perform the interrogate function
+ * @sch: subchannel on which to perform the interrogate function
  *
  * If the specified subchannel is running in transport-mode, perform the
  * interrogate function. Return zero on success, non-zero otherwie.

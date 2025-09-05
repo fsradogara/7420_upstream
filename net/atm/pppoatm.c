@@ -272,7 +272,7 @@ static int pppoatm_may_send(struct pppoatm_vcc *pvcc, int size)
 	 * the packet count limit, so...
 	 */
 	if (atm_may_send(pvcc->atmvcc, size) &&
-	    atomic_inc_not_zero_hint(&pvcc->inflight, NONE_INFLIGHT))
+	    atomic_inc_not_zero(&pvcc->inflight))
 		return 1;
 
 	/*
@@ -401,6 +401,7 @@ static int pppoatm_send(struct ppp_channel *chan, struct sk_buff *skb)
 	return ATM_SKB(skb)->vcc->send(ATM_SKB(skb)->vcc, skb)
 	    ? DROP_PACKET : 1;
     nospace:
+	atm_account_tx(vcc, skb);
 	pr_debug("atm_skb(%p)->vcc(%p)->dev(%p)\n",
 		 skb, ATM_SKB(skb)->vcc, ATM_SKB(skb)->vcc->dev);
 	ret = ATM_SKB(skb)->vcc->send(ATM_SKB(skb)->vcc, skb)

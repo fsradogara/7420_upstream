@@ -2,6 +2,8 @@
 	- this file
 PCI-DMA-mapping.txt
 	- info for PCI drivers using DMA portably across all platforms
+acpi-info.txt
+	- info on how PCI host bridges are represented in ACPI
 MSI-HOWTO.txt
 	- the Message Signaled Interrupts (MSI) Driver Guide HOWTO and FAQ.
 PCIEBUS-HOWTO.txt

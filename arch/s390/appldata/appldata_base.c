@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * arch/s390/appldata/appldata_base.c
  *
@@ -287,8 +288,21 @@ appldata_timer_handler(ctl_table *ctl, int write, struct file *filp,
 appldata_timer_handler(struct ctl_table *ctl, int write,
 			   void __user *buffer, size_t *lenp, loff_t *ppos)
 {
-	unsigned int len;
-	char buf[2];
+	int timer_active = appldata_timer_active;
+	int zero = 0;
+	int one = 1;
+	int rc;
+	struct ctl_table ctl_entry = {
+		.procname	= ctl->procname,
+		.data		= &timer_active,
+		.maxlen		= sizeof(int),
+		.extra1		= &zero,
+		.extra2		= &one,
+	};
+
+	rc = proc_douintvec_minmax(&ctl_entry, write, buffer, lenp, ppos);
+	if (rc < 0 || !write)
+		return rc;
 
 	if (!*lenp || *ppos) {
 		*lenp = 0;
@@ -310,9 +324,9 @@ appldata_timer_handler(struct ctl_table *ctl, int write,
 		return -EFAULT;
 	get_online_cpus();
 	spin_lock(&appldata_timer_lock);
-	if (buf[0] == '1')
+	if (timer_active)
 		__appldata_vtimer_setup(APPLDATA_ADD_TIMER);
-	else if (buf[0] == '0')
+	else
 		__appldata_vtimer_setup(APPLDATA_DEL_TIMER);
 	spin_unlock(&appldata_timer_lock);
 	put_online_cpus();
@@ -336,9 +350,15 @@ appldata_interval_handler(ctl_table *ctl, int write, struct file *filp,
 appldata_interval_handler(struct ctl_table *ctl, int write,
 			   void __user *buffer, size_t *lenp, loff_t *ppos)
 {
-	unsigned int len;
-	int interval;
-	char buf[16];
+	int interval = appldata_interval;
+	int one = 1;
+	int rc;
+	struct ctl_table ctl_entry = {
+		.procname	= ctl->procname,
+		.data		= &interval,
+		.maxlen		= sizeof(int),
+		.extra1		= &one,
+	};
 
 	if (!*lenp || *ppos) {
 		*lenp = 0;
@@ -362,6 +382,9 @@ appldata_interval_handler(struct ctl_table *ctl, int write,
 	sscanf(buf, "%i", &interval);
 	if (interval <= 0)
 		return -EINVAL;
+	rc = proc_dointvec_minmax(&ctl_entry, write, buffer, lenp, ppos);
+	if (rc < 0 || !write)
+		return rc;
 
 	get_online_cpus();
 	spin_lock(&appldata_timer_lock);
@@ -391,10 +414,17 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 			   void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct appldata_ops *ops = NULL, *tmp_ops;
-	unsigned int len;
-	int rc, found;
-	char buf[2];
 	struct list_head *lh;
+	int rc, found;
+	int active;
+	int zero = 0;
+	int one = 1;
+	struct ctl_table ctl_entry = {
+		.data		= &active,
+		.maxlen		= sizeof(int),
+		.extra1		= &zero,
+		.extra2		= &one,
+	};
 
 	found = 0;
 	spin_lock(&appldata_ops_lock);
@@ -421,8 +451,9 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 	}
 	mutex_unlock(&appldata_ops_mutex);
 
-	if (!*lenp || *ppos) {
-		*lenp = 0;
+	active = ops->active;
+	rc = proc_douintvec_minmax(&ctl_entry, write, buffer, lenp, ppos);
+	if (rc < 0 || !write) {
 		module_put(ops->owner);
 		return 0;
 	}
@@ -443,6 +474,7 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 			   len > sizeof(buf) ? sizeof(buf) : len)) {
 		module_put(ops->owner);
 		return -EFAULT;
+		return rc;
 	}
 
 	spin_lock(&appldata_ops_lock);
@@ -451,7 +483,7 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 		if (!try_module_get(ops->owner)) {
 			spin_unlock(&appldata_ops_lock);
 	mutex_lock(&appldata_ops_mutex);
-	if ((buf[0] == '1') && (ops->active == 0)) {
+	if (active && (ops->active == 0)) {
 		// protect work queue callback
 		if (!try_module_get(ops->owner)) {
 			mutex_unlock(&appldata_ops_mutex);
@@ -471,7 +503,7 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 			module_put(ops->owner);
 		} else
 			ops->active = 1;
-	} else if ((buf[0] == '0') && (ops->active == 1)) {
+	} else if (!active && (ops->active == 1)) {
 		ops->active = 0;
 		rc = appldata_diag(ops->record_nr, APPLDATA_STOP_REC,
 				(unsigned long) ops->data, ops->size,
@@ -487,9 +519,6 @@ appldata_generic_handler(struct ctl_table *ctl, int write,
 		module_put(ops->owner);
 	}
 	mutex_unlock(&appldata_ops_mutex);
-out:
-	*lenp = len;
-	*ppos += len;
 	module_put(ops->owner);
 	return 0;
 }
@@ -509,7 +538,7 @@ int appldata_register_ops(struct appldata_ops *ops)
 	if (ops->size > APPLDATA_MAX_REC_SIZE)
 		return -EINVAL;
 
-	ops->ctl_table = kzalloc(4 * sizeof(struct ctl_table), GFP_KERNEL);
+	ops->ctl_table = kcalloc(4, sizeof(struct ctl_table), GFP_KERNEL);
 	if (!ops->ctl_table)
 		return -ENOMEM;
 

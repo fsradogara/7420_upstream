@@ -110,7 +110,7 @@ void hpfs_error(struct super_block *s, const char *fmt, ...)
 			else {
 				pr_cont("; remounting read-only\n");
 				mark_dirty(s, 0);
-				s->s_flags |= MS_RDONLY;
+				s->s_flags |= SB_RDONLY;
 			}
 		} else if (sb_rdonly(s))
 				pr_cont("; going on - but anything won't be destroyed because it's read-only\n");
@@ -305,7 +305,6 @@ static struct inode *hpfs_alloc_inode(struct super_block *sb)
 	ei = kmem_cache_alloc(hpfs_inode_cachep, GFP_NOFS);
 	if (!ei)
 		return NULL;
-	ei->vfs_inode.i_version = 1;
 	return &ei->vfs_inode;
 }
 
@@ -574,7 +573,7 @@ static int hpfs_remount_fs(struct super_block *s, int *flags, char *data)
 
 	sync_filesystem(s);
 
-	*flags |= MS_NOATIME;
+	*flags |= SB_NOATIME;
 
 	hpfs_lock(s);
 	uid = sbi->sb_uid; gid = sbi->sb_gid;
@@ -618,7 +617,7 @@ out_err:
 	sbi->sb_eas = eas; sbi->sb_chk = chk; sbi->sb_chkdsk = chkdsk;
 	sbi->sb_err = errs; sbi->sb_timeshift = timeshift;
 
-	if (!(*flags & MS_RDONLY)) mark_dirty(s, 1);
+	if (!(*flags & SB_RDONLY)) mark_dirty(s, 1);
 
 	hpfs_unlock(s);
 	return 0;
@@ -775,7 +774,7 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 		goto bail4;
 	}
 
-	s->s_flags |= MS_NOATIME;
+	s->s_flags |= SB_NOATIME;
 
 	/* Fill superblock stuff */
 	s->s_magic = HPFS_SUPER_MAGIC;

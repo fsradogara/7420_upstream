@@ -123,9 +123,6 @@ struct acct_v3
 
 
 #ifdef CONFIG_BSD_PROCESS_ACCT
-struct vfsmount;
-struct super_block;
-struct pacct_struct;
 struct pid_namespace;
 extern void acct_auto_close_mnt(struct vfsmount *m);
 extern void acct_auto_close(struct super_block *sb);

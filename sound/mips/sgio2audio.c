@@ -736,7 +736,6 @@ static const struct snd_pcm_ops snd_sgio2audio_playback1_ops = {
 	.pointer =     snd_sgio2audio_pcm_pointer,
 	.page =        snd_sgio2audio_page,
 	.page =        snd_pcm_lib_get_vmalloc_page,
-	.mmap =        snd_pcm_lib_mmap_vmalloc,
 };
 
 static const struct snd_pcm_ops snd_sgio2audio_playback2_ops = {
@@ -750,7 +749,6 @@ static const struct snd_pcm_ops snd_sgio2audio_playback2_ops = {
 	.pointer =     snd_sgio2audio_pcm_pointer,
 	.page =        snd_sgio2audio_page,
 	.page =        snd_pcm_lib_get_vmalloc_page,
-	.mmap =        snd_pcm_lib_mmap_vmalloc,
 };
 
 static const struct snd_pcm_ops snd_sgio2audio_capture_ops = {
@@ -764,7 +762,6 @@ static const struct snd_pcm_ops snd_sgio2audio_capture_ops = {
 	.pointer =     snd_sgio2audio_pcm_pointer,
 	.page =        snd_sgio2audio_page,
 	.page =        snd_pcm_lib_get_vmalloc_page,
-	.mmap =        snd_pcm_lib_mmap_vmalloc,
 };
 
 /*
@@ -896,7 +893,7 @@ static int snd_sgio2audio_create(struct snd_card *card,
 	if (!(readq(&mace->perif.audio.control) & AUDIO_CONTROL_CODEC_PRESENT))
 		return -ENOENT;
 
-	chip = kzalloc(sizeof(struct snd_sgio2audio), GFP_KERNEL);
+	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
 	if (chip == NULL)
 		return -ENOMEM;
 

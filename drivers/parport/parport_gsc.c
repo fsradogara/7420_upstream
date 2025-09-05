@@ -264,7 +264,7 @@ struct parport *parport_gsc_probe_port(unsigned long base,
 	memcpy (ops, &parport_gsc_ops, sizeof (struct parport_operations));
 	priv->ctr = 0xc;
 	priv->ctr_writable = 0xff;
-	priv->dma_buf = 0;
+	priv->dma_buf = NULL;
 	priv->dma_handle = 0;
 	priv->dev = dev;
 	p->base = base;

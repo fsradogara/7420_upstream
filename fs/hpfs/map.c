@@ -159,7 +159,7 @@ __le32 *hpfs_load_bitmap_directory(struct super_block *s, secno bmp)
 	for (i=0;i<n;i++) {
 		secno *d = hpfs_map_sector(s, bmp+i, &bh, n - i - 1);
 	__le32 *b;
-	if (!(b = kmalloc(n * 512, GFP_KERNEL))) {
+	if (!(b = kmalloc_array(n, 512, GFP_KERNEL))) {
 		pr_err("can't allocate memory for bitmap directory\n");
 		return NULL;
 	}	
@@ -377,7 +377,7 @@ struct dnode *hpfs_map_dnode(struct super_block *s, unsigned secno,
 					goto bail;
 				}
 				if (((31 + de->namelen + de->down*4 + 3) & ~3) != le16_to_cpu(de->length)) {
-					if (((31 + de->namelen + de->down*4 + 3) & ~3) < le16_to_cpu(de->length) && s->s_flags & MS_RDONLY) goto ok;
+					if (((31 + de->namelen + de->down*4 + 3) & ~3) < le16_to_cpu(de->length) && s->s_flags & SB_RDONLY) goto ok;
 					hpfs_error(s, "namelen does not match dirent size in dnode %08x, dirent %03x, last %03x", secno, p, pp);
 					goto bail;
 				}

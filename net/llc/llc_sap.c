@@ -444,6 +444,9 @@ static void llc_sap_mcast(struct llc_sap *sap,
 	read_unlock_bh(&sap->sk_list.lock);
 	int i = 0, count = 256 / sizeof(struct sock *);
 	struct sock *sk, *stack[count];
+	int i = 0;
+	struct sock *sk;
+	struct sock *stack[256 / sizeof(struct sock *)];
 	struct llc_sock *llc;
 	struct hlist_head *dev_hb = llc_sk_dev_hash(sap, skb->dev->ifindex);
 
@@ -456,7 +459,7 @@ static void llc_sap_mcast(struct llc_sap *sap,
 			continue;
 
 		sock_hold(sk);
-		if (i < count)
+		if (i < ARRAY_SIZE(stack))
 			stack[i++] = sk;
 		else {
 			llc_do_mcast(sap, skb, stack, i);

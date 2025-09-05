@@ -122,6 +122,7 @@ static int b1pci_probe(struct capicardparams *p, struct pci_dev *pdev)
 	cinfo->capi_ctrl.procinfo      = b1pci_procinfo;
 	cinfo->capi_ctrl.ctr_read_proc = b1ctl_read_proc;
 	cinfo->capi_ctrl.proc_fops = &b1ctl_proc_fops;
+	cinfo->capi_ctrl.proc_show     = b1_proc_show;
 	strcpy(cinfo->capi_ctrl.name, card->name);
 	cinfo->capi_ctrl.owner         = THIS_MODULE;
 
@@ -270,6 +271,7 @@ static int b1pciv4_probe(struct capicardparams *p, struct pci_dev *pdev)
 	cinfo->capi_ctrl.procinfo      = b1pciv4_procinfo;
 	cinfo->capi_ctrl.ctr_read_proc = b1dmactl_read_proc;
 	cinfo->capi_ctrl.proc_fops = &b1dmactl_proc_fops;
+	cinfo->capi_ctrl.proc_show     = b1dma_proc_show;
 	strcpy(cinfo->capi_ctrl.name, card->name);
 
 	retval = attach_capi_ctr(&cinfo->capi_ctrl);

@@ -66,6 +66,7 @@ static void sas_resume_port(struct asd_sas_phy *phy)
 		rc = sas_notify_lldd_dev_found(dev);
 		if (rc) {
 			sas_unregister_dev(port, dev);
+			sas_destruct_devices(port);
 			continue;
 		}
 
@@ -83,7 +84,7 @@ static void sas_resume_port(struct asd_sas_phy *phy)
 }
 
 /**
- * sas_form_port -- add this phy to a port
+ * sas_form_port - add this phy to a port
  * @phy: the phy of interest
  *
  * This function adds this phy to an existing port, thus creating a wide
@@ -210,11 +211,13 @@ static void sas_form_port(struct asd_sas_phy *phy)
 		si->dft->lldd_port_formed(phy);
 
 	sas_discover_event(phy->port, DISCE_DISCOVER_DOMAIN);
+	flush_workqueue(sas_ha->disco_q);
 }
 
 /**
- * sas_deform_port -- remove this phy from the port it belongs to
+ * sas_deform_port - remove this phy from the port it belongs to
  * @phy: the phy of interest
+ * @gone: whether or not the PHY is gone
  *
  * This is called when the physical link to the other phy has been
  * lost (on this phy), in Event thread context. We cannot delay here.
@@ -248,6 +251,7 @@ void sas_deform_port(struct asd_sas_phy *phy, int gone)
 
 	if (port->num_phys == 1) {
 		sas_unregister_domain_devices(port, gone);
+		sas_destruct_devices(port);
 		sas_port_delete(port->port);
 		port->port = NULL;
 	} else {
@@ -296,8 +300,6 @@ void sas_porte_bytes_dmaed(struct work_struct *work)
 	struct asd_sas_event *ev = to_asd_sas_event(work);
 	struct asd_sas_phy *phy = ev->phy;
 
-	clear_bit(PORTE_BYTES_DMAED, &phy->port_events_pending);
-
 	sas_form_port(phy);
 }
 
@@ -320,6 +322,9 @@ void sas_porte_broadcast_rcvd(struct work_struct *work)
 
 	SAS_DPRINTK("broadcast received: %d\n", prim);
 	sas_discover_event(phy->port, DISCE_REVALIDATE_DOMAIN);
+
+	if (phy->port)
+		flush_workqueue(phy->port->ha->disco_q);
 }
 
 void sas_porte_link_reset_err(struct work_struct *work)
@@ -334,8 +339,6 @@ void sas_porte_link_reset_err(struct work_struct *work)
 	sas_deform_port(phy);
 	struct asd_sas_event *ev = to_asd_sas_event(work);
 	struct asd_sas_phy *phy = ev->phy;
-
-	clear_bit(PORTE_LINK_RESET_ERR, &phy->port_events_pending);
 
 	sas_deform_port(phy, 1);
 }
@@ -353,8 +356,6 @@ void sas_porte_timer_event(struct work_struct *work)
 	struct asd_sas_event *ev = to_asd_sas_event(work);
 	struct asd_sas_phy *phy = ev->phy;
 
-	clear_bit(PORTE_TIMER_EVENT, &phy->port_events_pending);
-
 	sas_deform_port(phy, 1);
 }
 
@@ -371,8 +372,6 @@ void sas_porte_hard_reset(struct work_struct *work)
 	struct asd_sas_event *ev = to_asd_sas_event(work);
 	struct asd_sas_phy *phy = ev->phy;
 
-	clear_bit(PORTE_HARD_RESET, &phy->port_events_pending);
-
 	sas_deform_port(phy, 1);
 }
 
@@ -386,6 +385,7 @@ static void sas_init_port(struct asd_sas_port *port,
 	INIT_LIST_HEAD(&port->dev_list);
 	INIT_LIST_HEAD(&port->disco_list);
 	INIT_LIST_HEAD(&port->destroy_list);
+	INIT_LIST_HEAD(&port->sas_port_del_list);
 	spin_lock_init(&port->phy_list_lock);
 	INIT_LIST_HEAD(&port->phy_list);
 	port->ha = sas_ha;
@@ -417,3 +417,11 @@ void sas_unregister_ports(struct sas_ha_struct *sas_ha)
 			sas_deform_port(sas_ha->sas_phy[i], 0);
 
 }
+
+const work_func_t sas_port_event_fns[PORT_NUM_EVENTS] = {
+	[PORTE_BYTES_DMAED] = sas_porte_bytes_dmaed,
+	[PORTE_BROADCAST_RCVD] = sas_porte_broadcast_rcvd,
+	[PORTE_LINK_RESET_ERR] = sas_porte_link_reset_err,
+	[PORTE_TIMER_EVENT] = sas_porte_timer_event,
+	[PORTE_HARD_RESET] = sas_porte_hard_reset,
+};

@@ -461,7 +461,7 @@ static struct platform_device sx1_lcd_device = {
 
 /*----------- LCD -------------------------*/
 
-static struct omap_lcd_config sx1_lcd_config __initdata = {
+static const struct omap_lcd_config sx1_lcd_config __initconst = {
 	.ctrl_name	= "internal",
 };
 

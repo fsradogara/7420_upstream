@@ -33,7 +33,7 @@ struct chp_id {
 #include <uapi/asm/chpid.h>
 #include <asm/cio.h>
 
-struct channel_path_desc {
+struct channel_path_desc_fmt0 {
 	u8 flags;
 	u8 lsn;
 	u8 desc;

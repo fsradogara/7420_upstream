@@ -306,6 +306,9 @@ static int savage_dma_init(drm_savage_private_t * dev_priv)
 					dev_priv->nr_dma_pages, DRM_MEM_DRIVER);
 	dev_priv->dma_pages = kmalloc(sizeof(drm_savage_dma_page_t) *
 				      dev_priv->nr_dma_pages, GFP_KERNEL);
+	dev_priv->dma_pages = kmalloc_array(dev_priv->nr_dma_pages,
+					    sizeof(drm_savage_dma_page_t),
+					    GFP_KERNEL);
 	if (dev_priv->dma_pages == NULL)
 		return -ENOMEM;
 

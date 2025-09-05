@@ -318,12 +318,12 @@ static irqreturn_t snd_uart16550_interrupt(int irq, void *dev_id)
 }
 
 /* When the polling mode, this function calls snd_uart16550_io_loop. */
-static void snd_uart16550_buffer_timer(unsigned long data)
+static void snd_uart16550_buffer_timer(struct timer_list *t)
 {
 	unsigned long flags;
 	struct snd_uart16550 *uart;
 
-	uart = (struct snd_uart16550 *)data;
+	uart = from_timer(uart, t, buffer_timer);
 	spin_lock_irqsave(&uart->open_lock, flags);
 	snd_uart16550_del_timer(uart);
 	snd_uart16550_io_loop(uart);
@@ -854,6 +854,7 @@ static int snd_uart16550_create(struct snd_card *card,
 	uart->buffer_timer.data = (unsigned long)uart;
 	setup_timer(&uart->buffer_timer, snd_uart16550_buffer_timer,
 		    (unsigned long)uart);
+	timer_setup(&uart->buffer_timer, snd_uart16550_buffer_timer, 0);
 	uart->timer_running = 0;
 
 	/* Register device */

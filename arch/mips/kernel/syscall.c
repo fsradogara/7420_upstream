@@ -205,7 +205,8 @@ SYSCALL_DEFINE6(mips_mmap, unsigned long, addr, unsigned long, len,
 out:
 	return result;
 		return -EINVAL;
-	return sys_mmap_pgoff(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
+	return ksys_mmap_pgoff(addr, len, prot, flags, fd,
+			       offset >> PAGE_SHIFT);
 }
 
 asmlinkage unsigned long
@@ -324,6 +325,8 @@ asmlinkage int sys_olduname(struct oldold_utsname __user * name)
 
 asmlinkage int sys_set_thread_area(unsigned long addr)
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff >> (PAGE_SHIFT-12));
+	return ksys_mmap_pgoff(addr, len, prot, flags, fd,
+			       pgoff >> (PAGE_SHIFT - 12));
 }
 
 save_static_function(sys_fork);

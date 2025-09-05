@@ -104,8 +104,6 @@ MACHINE_END
 	omapdss_early_init_of();
 
 	pdata_quirks_init(omap_dt_match_table);
-
-	omapdss_init_of();
 	omap_soc_device_init();
 }
 

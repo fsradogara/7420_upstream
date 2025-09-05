@@ -54,7 +54,7 @@ static void pptp_nat_expected(struct nf_conn *ct,
 	struct nf_conntrack_tuple t = {};
 	const struct nf_ct_pptp_master *ct_pptp_info;
 	const struct nf_nat_pptp *nat_pptp_info;
-	struct nf_nat_range range;
+	struct nf_nat_range2 range;
 	struct nf_conn_nat *nat;
 
 	ct_pptp_info = &nfct_help(master)->help.ct_pptp_info;

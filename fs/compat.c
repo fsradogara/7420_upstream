@@ -1087,9 +1087,7 @@ COMPAT_SYSCALL_DEFINE5(mount, const char __user *, dev_name,
 		goto out2;
 
 	if (kernel_type && options) {
-		if (!strcmp(kernel_type, NCPFS_NAME)) {
-			do_ncp_super_data_conv(options);
-		} else if (!strcmp(kernel_type, NFS4_NAME)) {
+		if (!strcmp(kernel_type, NFS4_NAME)) {
 			retval = -EINVAL;
 			if (do_nfs4_super_data_conv(options))
 				goto out3;

@@ -55,7 +55,7 @@ int edac_mc_get_poll_msec(void)
 	return edac_mc_poll_msec;
 }
 
-static int edac_set_poll_msec(const char *val, struct kernel_param *kp)
+static int edac_set_poll_msec(const char *val, const struct kernel_param *kp)
 {
 	long l;
 	unsigned long l;
@@ -223,7 +223,7 @@ static ssize_t csrow_mem_type_show(struct device *dev,
 {
 	struct csrow_info *csrow = to_csrow(dev);
 
-	return sprintf(data, "%s\n", mem_types[csrow->channels[0]->dimm->mtype]);
+	return sprintf(data, "%s\n", edac_mem_types[csrow->channels[0]->dimm->mtype]);
 }
 
 static ssize_t csrow_dev_type_show(struct device *dev,
@@ -876,7 +876,7 @@ static ssize_t dimmdev_mem_type_show(struct device *dev,
 {
 	struct dimm_info *dimm = to_dimm(dev);
 
-	return sprintf(data, "%s\n", mem_types[dimm->mtype]);
+	return sprintf(data, "%s\n", edac_mem_types[dimm->mtype]);
 }
 
 static ssize_t dimmdev_dev_type_show(struct device *dev,
@@ -1890,14 +1890,14 @@ int __init edac_mc_sysfs_init(void)
 
 	err = device_add(mci_pdev);
 	if (err < 0)
-		goto out_dev_free;
+		goto out_put_device;
 
 	edac_dbg(0, "device %s created\n", dev_name(mci_pdev));
 
 	return 0;
 
- out_dev_free:
-	kfree(mci_pdev);
+ out_put_device:
+	put_device(mci_pdev);
  out:
 	return err;
 }

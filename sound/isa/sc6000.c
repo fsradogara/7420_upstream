@@ -645,7 +645,7 @@ static int snd_sc6000_probe(struct device *devptr, unsigned int dev)
 	*vport = devm_ioport_map(devptr, port[dev], 0x10);
 	if (*vport == NULL) {
 		snd_printk(KERN_ERR PFX
-			   "I/O port cannot be iomaped.\n");
+			   "I/O port cannot be iomapped.\n");
 		err = -EBUSY;
 		goto err_unmap1;
 	}
@@ -661,7 +661,7 @@ static int snd_sc6000_probe(struct device *devptr, unsigned int dev)
 	if (!vport) {
 	if (!vmss_port) {
 		snd_printk(KERN_ERR PFX
-			   "MSS port I/O cannot be iomaped.\n");
+			   "MSS port I/O cannot be iomapped.\n");
 		err = -EBUSY;
 		goto err_unmap2;
 	}

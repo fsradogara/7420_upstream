@@ -85,6 +85,7 @@ struct udp_sock {
 	 * when the socket is uncorked.
 	 */
 	__u16		 len;		/* total length of pending frames */
+	__u16		 gso_size;
 	/*
 	 * Fields specific to UDP-Lite.
 	 */
@@ -103,8 +104,8 @@ struct udp_sock {
 	void (*encap_destroy)(struct sock *sk);
 
 	/* GRO functions for UDP socket */
-	struct sk_buff **	(*gro_receive)(struct sock *sk,
-					       struct sk_buff **head,
+	struct sk_buff *	(*gro_receive)(struct sock *sk,
+					       struct list_head *head,
 					       struct sk_buff *skb);
 	int			(*gro_complete)(struct sock *sk,
 						struct sk_buff *skb,
@@ -116,6 +117,8 @@ struct udp_sock {
 	/* This field is dirtied by udp_recvmsg() */
 	int		forward_deficit;
 };
+
+#define UDP_MAX_SEGMENTS	(1 << 6UL)
 
 static inline struct udp_sock *udp_sk(const struct sock *sk)
 {

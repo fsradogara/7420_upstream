@@ -118,5 +118,18 @@ extern int match_sid(struct cifs_sid *);
 extern int compare_sids(const struct cifs_sid *, const struct cifs_sid *);
 
 #endif /*  CONFIG_CIFS_EXPERIMENTAL */
+/*
+ * Minimum security identifier can be one for system defined Users
+ * and Groups such as NULL SID and World or Built-in accounts such
+ * as Administrator and Guest and consists of
+ * Revision + Num (Sub)Auths + Authority + Domain (one Subauthority)
+ */
+#define MIN_SID_LEN  (1 + 1 + 6 + 4) /* in bytes */
+
+/*
+ * Minimum security descriptor can be one without any SACL and DACL and can
+ * consist of revision, type, and two sids of minimum size for owner and group
+ */
+#define MIN_SEC_DESC_LEN  (sizeof(struct cifs_ntsd) + (2 * MIN_SID_LEN))
 
 #endif /* _CIFSACL_H */

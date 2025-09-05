@@ -71,7 +71,7 @@ static char *serial_name = "ISS serial driver";
  * initialization for the tty structure.
  */
 
-static void rs_poll(unsigned long);
+static void rs_poll(struct timer_list *);
 
 static int rs_open(struct tty_struct *tty, struct file * filp)
 {
@@ -92,8 +92,7 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	tty->port = &serial_port;
 	spin_lock_bh(&timer_lock);
 	if (tty->count == 1) {
-		setup_timer(&serial_timer, rs_poll,
-				(unsigned long)&serial_port);
+		timer_setup(&serial_timer, rs_poll, 0);
 		mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
 	}
 	spin_unlock_bh(&timer_lock);
@@ -135,12 +134,13 @@ static int rs_write(struct tty_struct * tty,
 	return count;
 }
 
-static void rs_poll(unsigned long priv)
+static void rs_poll(struct timer_list *unused)
 {
 	struct tty_struct* tty = (struct tty_struct*) priv;
 
 	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
 	struct tty_port *port = (struct tty_port *)priv;
+	struct tty_port *port = &serial_port;
 	int i = 0;
 	int rd = 1;
 	unsigned char c;
@@ -232,19 +232,6 @@ static int rs_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int rs_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, rs_proc_show, NULL);
-}
-
-static const struct file_operations rs_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= rs_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static const struct tty_operations serial_ops = {
 	.open = rs_open,
 	.close = rs_close,
@@ -257,6 +244,7 @@ static const struct tty_operations serial_ops = {
 	.wait_until_sent = rs_wait_until_sent,
 	.read_proc = rs_read_proc
 	.proc_fops = &rs_proc_fops,
+	.proc_show = rs_proc_show,
 };
 
 int __init rs_init(void)
@@ -266,7 +254,7 @@ int __init rs_init(void)
 
 	serial_driver = alloc_tty_driver(SERIAL_MAX_NUM_LINES);
 
-	printk ("%s %s\n", serial_name, serial_version);
+	pr_info("%s %s\n", serial_name, serial_version);
 
 	/* Initialize the tty_driver structure */
 
@@ -296,7 +284,7 @@ static __exit void rs_exit(void)
 	int error;
 
 	if ((error = tty_unregister_driver(serial_driver)))
-		printk("ISS_SERIAL: failed to unregister serial driver (%d)\n",
+		pr_err("ISS_SERIAL: failed to unregister serial driver (%d)\n",
 		       error);
 	put_tty_driver(serial_driver);
 	tty_port_destroy(&serial_port);

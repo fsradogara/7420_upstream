@@ -117,7 +117,8 @@ extern int css_probe_device(struct subchannel_id);
 extern struct subchannel *get_subchannel_by_schid(struct subchannel_id);
 extern int css_init_done;
 extern int css_register_subchannel(struct subchannel *);
-extern struct subchannel *css_alloc_subchannel(struct subchannel_id);
+extern struct subchannel *css_alloc_subchannel(struct subchannel_id,
+					       struct schib *schib);
 extern struct subchannel *get_subchannel_by_schid(struct subchannel_id);
 extern int css_init_done;
 extern int max_ssid;

@@ -15,6 +15,7 @@
 #define QLA_DRIVER_PATCH_VER	1
 #define QLA2XXX_VERSION      "8.07.00.26-k"
 #define QLA2XXX_VERSION      "10.00.00.01-k"
+#define QLA2XXX_VERSION      "10.00.00.08-k"
 
 #define QLA_DRIVER_MAJOR_VER	10
 #define QLA_DRIVER_MINOR_VER	0

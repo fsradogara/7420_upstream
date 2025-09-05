@@ -559,6 +559,11 @@ acpi_numa_memory_affinity_init(struct acpi_srat_mem_affinity *ma)
 		return;
 		return -1;
 
+	if (num_node_memblks >= NR_NODE_MEMBLKS) {
+		pr_err("NUMA: too many memblk ranges\n");
+		return -EINVAL;
+	}
+
 	/* record this node in proximity bitmap */
 	pxm_bit_set(pxm);
 

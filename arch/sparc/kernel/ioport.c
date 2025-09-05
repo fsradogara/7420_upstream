@@ -38,6 +38,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/scatterlist.h>
+#include <linux/dma-noncoherent.h>
 #include <linux/of_device.h>
 
 #include <asm/io.h>
@@ -131,12 +132,12 @@ static void xres_free(struct xresource *xrp) {
  *
  * Bus type is always zero on IIep.
  */
-void __iomem *ioremap(unsigned long offset, unsigned long size)
+void __iomem *ioremap(phys_addr_t offset, size_t size)
 {
 	char name[14];
 
 	sprintf(name, "phys_%08x", (u32)offset);
-	return _sparc_alloc_io(0, offset, size, name);
+	return _sparc_alloc_io(0, (unsigned long)offset, size, name);
 }
 EXPORT_SYMBOL(ioremap);
 
@@ -711,16 +712,18 @@ void *pci_alloc_consistent(struct pci_dev *pdev, size_t len, dma_addr_t *pba)
 static void *pci32_alloc_coherent(struct device *dev, size_t len,
 				  dma_addr_t *pba, gfp_t gfp,
 				  unsigned long attrs)
+void *arch_dma_alloc(struct device *dev, size_t size, dma_addr_t *dma_handle,
+		gfp_t gfp, unsigned long attrs)
 {
-	unsigned long len_total = PAGE_ALIGN(len);
+	unsigned long len_total = PAGE_ALIGN(size);
 	void *va;
 	struct resource *res;
 	int order;
 
-	if (len == 0) {
+	if (size == 0) {
 		return NULL;
 	}
-	if (len > 256*1024) {			/* __get_free_pages() limit */
+	if (size > 256*1024) {			/* __get_free_pages() limit */
 		return NULL;
 	}
 
@@ -737,12 +740,12 @@ static void *pci32_alloc_coherent(struct device *dev, size_t len,
 		return NULL;
 	va = (void *) __get_free_pages(gfp, order);
 	if (va == NULL) {
-		printk("pci_alloc_consistent: no %ld pages\n", len_total>>PAGE_SHIFT);
+		printk("%s: no %ld pages\n", __func__, len_total>>PAGE_SHIFT);
 		goto err_nopages;
 	}
 
 	if ((res = kzalloc(sizeof(struct resource), GFP_KERNEL)) == NULL) {
-		printk("pci_alloc_consistent: no core\n");
+		printk("%s: no core\n", __func__);
 		goto err_nomem;
 	}
 
@@ -762,11 +765,12 @@ static void *pci32_alloc_coherent(struct device *dev, size_t len,
 
 	*pba = virt_to_phys(va); /* equals virt_to_bus (R.I.P.) for us. */
 	return (void *) res->start;
+		printk("%s: cannot occupy 0x%lx", __func__, len_total);
 		goto err_nova;
 	}
 	srmmu_mapiorange(0, virt_to_phys(va), res->start, len_total);
 
-	*pba = virt_to_phys(va); /* equals virt_to_bus (R.I.P.) for us. */
+	*dma_handle = virt_to_phys(va);
 	return (void *) res->start;
 
 err_nova:
@@ -778,9 +782,9 @@ err_nopages:
 }
 
 /* Free and unmap a consistent DMA buffer.
- * cpu_addr is what was returned from pci_alloc_consistent,
- * size must be the same as what as passed into pci_alloc_consistent,
- * and likewise dma_addr must be the same as what *dma_addrp was set to.
+ * cpu_addr is what was returned arch_dma_alloc, size must be the same as what
+ * was passed into arch_dma_alloc, and likewise dma_addr must be the same as
+ * what *dma_ndler was set to.
  *
  * References to the memory and mappings associated with cpu_addr/dma_addr
  * past this call are illegal.
@@ -793,17 +797,19 @@ void pci_free_consistent(struct pci_dev *pdev, size_t n, void *p, dma_addr_t ba)
 	if ((res = _sparc_find_resource(&_sparc_dvma,
 static void pci32_free_coherent(struct device *dev, size_t n, void *p,
 				dma_addr_t ba, unsigned long attrs)
+void arch_dma_free(struct device *dev, size_t size, void *cpu_addr,
+		dma_addr_t dma_addr, unsigned long attrs)
 {
 	struct resource *res;
 
 	if ((res = lookup_resource(&_sparc_dvma,
-	    (unsigned long)p)) == NULL) {
-		printk("pci_free_consistent: cannot free %p\n", p);
+	    (unsigned long)cpu_addr)) == NULL) {
+		printk("%s: cannot free %p\n", __func__, cpu_addr);
 		return;
 	}
 
-	if (((unsigned long)p & (PAGE_SIZE-1)) != 0) {
-		printk("pci_free_consistent: unaligned va %p\n", p);
+	if (((unsigned long)cpu_addr & (PAGE_SIZE-1)) != 0) {
+		printk("%s: unaligned va %p\n", __func__, cpu_addr);
 		return;
 	}
 
@@ -857,15 +863,19 @@ void pci_unmap_single(struct pci_dev *hwdev, dma_addr_t ba, size_t size,
 	if (resource_size(res) != n) {
 		printk("pci_free_consistent: region 0x%lx asked 0x%lx\n",
 		    (long)resource_size(res), (long)n);
+	size = PAGE_ALIGN(size);
+	if (resource_size(res) != size) {
+		printk("%s: region 0x%lx asked 0x%zx\n", __func__,
+		    (long)resource_size(res), size);
 		return;
 	}
 
-	dma_make_coherent(ba, n);
-	srmmu_unmapiorange((unsigned long)p, n);
+	dma_make_coherent(dma_addr, size);
+	srmmu_unmapiorange((unsigned long)cpu_addr, size);
 
 	release_resource(res);
 	kfree(res);
-	free_pages((unsigned long)phys_to_virt(ba), get_order(n));
+	free_pages((unsigned long)phys_to_virt(dma_addr), get_order(size));
 }
 
 /*
@@ -879,9 +889,13 @@ static dma_addr_t pci32_map_page(struct device *dev, struct page *page,
 				 unsigned long offset, size_t size,
 				 enum dma_data_direction dir,
 				 unsigned long attrs)
+/* IIep is write-through, not flushing on cpu to device transfer. */
+
+void arch_sync_dma_for_cpu(struct device *dev, phys_addr_t paddr,
+		size_t size, enum dma_data_direction dir)
 {
-	/* IIep is write-through, not flushing. */
-	return page_to_phys(page) + offset;
+	if (dir != PCI_DMA_TODEVICE)
+		dma_make_coherent(paddr, PAGE_ALIGN(size));
 }
 
 void pci_unmap_page(struct pci_dev *hwdev,
@@ -1134,25 +1148,14 @@ static void register_proc_sparc_ioport(void)
 	create_proc_read_entry("dvma_map",0,NULL,_sparc_io_get_info,&_sparc_dvma);
 	return 0;
 }
-
-static int sparc_io_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, sparc_io_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations sparc_io_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= sparc_io_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 #endif /* CONFIG_PROC_FS */
 
 static void register_proc_sparc_ioport(void)
 {
 #ifdef CONFIG_PROC_FS
-	proc_create_data("io_map", 0, NULL, &sparc_io_proc_fops, &sparc_iomap);
-	proc_create_data("dvma_map", 0, NULL, &sparc_io_proc_fops, &_sparc_dvma);
+	proc_create_single_data("io_map", 0, NULL, sparc_io_proc_show,
+			&sparc_iomap);
+	proc_create_single_data("dvma_map", 0, NULL, sparc_io_proc_show,
+			&_sparc_dvma);
 #endif
 }

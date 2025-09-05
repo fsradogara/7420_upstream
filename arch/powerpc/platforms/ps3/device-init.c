@@ -690,6 +690,8 @@ static void ps3_find_and_add_device(u64 bus_id, u64 dev_id)
 	pr_warning("%s:%u: device %lu:%lu not found\n", __func__, __LINE__,
 	pr_warning("%s:%u: device %llu:%llu not found\n", __func__, __LINE__,
 		   bus_id, dev_id);
+	pr_warn("%s:%u: device %llu:%llu not found\n",
+		__func__, __LINE__, bus_id, dev_id);
 	return;
 
 found:
@@ -904,6 +906,9 @@ static int ps3_probe_thread(void *data)
 				   __func__, __LINE__, notify_event->event_type,
 				   notify_event->dev_id,
 				   notify_event->dev_type);
+			pr_warn("%s:%u: bad notify_event: event %llu, dev_id %llu, dev_type %llu\n",
+				__func__, __LINE__, notify_event->event_type,
+				notify_event->dev_id, notify_event->dev_type);
 			continue;
 		}
 

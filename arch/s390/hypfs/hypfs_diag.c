@@ -287,7 +287,7 @@ static void *page_align_ptr(void *ptr)
 static void *diag204_alloc_vbuf(int pages)
 {
 	/* The buffer has to be page aligned! */
-	diag204_buf_vmalloc = vmalloc(PAGE_SIZE * (pages + 1));
+	diag204_buf_vmalloc = vmalloc(array_size(PAGE_SIZE, (pages + 1)));
 	if (!diag204_buf_vmalloc)
 		return ERR_PTR(-ENOMEM);
 	diag204_buf = (void*)((unsigned long)diag204_buf_vmalloc
@@ -610,7 +610,7 @@ static int hypfs_create_cpu_files(struct dentry *cpus_dir, void *cpu_info)
 static void *hypfs_create_lpar_files(struct super_block *sb,
 				     struct dentry *systems_dir, void *part_hdr)
 	rc = hypfs_create_str(cpu_dir, "type", buffer);
-	return PTR_RET(rc);
+	return PTR_ERR_OR_ZERO(rc);
 }
 
 static void *hypfs_create_lpar_files(struct dentry *systems_dir, void *part_hdr)
@@ -677,7 +677,7 @@ static int hypfs_create_phys_cpu_files(struct dentry *cpus_dir, void *cpu_info)
 static void *hypfs_create_phys_files(struct super_block *sb,
 				     struct dentry *parent_dir, void *phys_hdr)
 	rc = hypfs_create_str(cpu_dir, "type", buffer);
-	return PTR_RET(rc);
+	return PTR_ERR_OR_ZERO(rc);
 }
 
 static void *hypfs_create_phys_files(struct dentry *parent_dir, void *phys_hdr)

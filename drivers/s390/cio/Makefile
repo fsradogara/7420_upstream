@@ -7,6 +7,7 @@ obj-y += airq.o blacklist.o chsc.o cio.o css.o chp.o idset.o isc.o scsw.o \
 	fcx.o itcw.o
 # The following is required for define_trace.h to find ./trace.h
 CFLAGS_trace.o := -I$(src)
+CFLAGS_vfio_ccw_fsm.o := -I$(src)
 
 obj-y += airq.o blacklist.o chsc.o cio.o css.o chp.o idset.o isc.o \
 	fcx.o itcw.o crw.o ccwreq.o trace.o ioasm.o

@@ -102,21 +102,8 @@ struct musb_hdrc_config {
 	unsigned	host_port_deassert_reset_at_resume:1;
 
 	u8		num_eps;	/* number of endpoints _with_ ep0 */
-	u8		dma_channels __deprecated; /* number of dma channels */
-	u8		dyn_fifo_size;	/* dynamic size in bytes */
-	u8		vendor_ctrl __deprecated; /* vendor control reg width */
-	u8		vendor_stat __deprecated; /* vendor status reg witdh */
-	u8		dma_req_chan __deprecated; /* bitmask for required dma channels */
 	u8		ram_bits;	/* ram address size */
 
-	struct musb_hdrc_eps_bits *eps_bits __deprecated;
-#ifdef CONFIG_BLACKFIN
-	/* A GPIO controlling VRSEL in Blackfin */
-	unsigned int	gpio_vrsel;
-	unsigned int	gpio_vrsel_active;
-	/* musb CLKIN in Blackfin in MHZ */
-	unsigned char   clkin;
-#endif
 	u32		maximum_speed;
 };
 

@@ -584,7 +584,7 @@ static struct cbe_iommu *cell_iommu_for_node(int nid)
 	return NULL;
 }
 
-static unsigned long cell_dma_direct_offset;
+static unsigned long cell_dma_nommu_offset;
 
 static unsigned long dma_iommu_fixed_base;
 
@@ -638,7 +638,7 @@ static void dma_fixed_free_coherent(struct device *dev, size_t size,
 				    void *vaddr, dma_addr_t dma_handle)
 					    dev_to_node(dev));
 	else
-		return dma_direct_ops.alloc(dev, size, dma_handle, flag,
+		return dma_nommu_ops.alloc(dev, size, dma_handle, flag,
 					    attrs);
 }
 
@@ -679,6 +679,7 @@ static void dma_fixed_unmap_single(struct device *dev, dma_addr_t dma_addr,
 		iommu_unmap_single(cell_get_iommu_table(dev), dma_addr, size,
 				   direction, attrs);
 		dma_direct_ops.free(dev, size, vaddr, dma_handle, attrs);
+		dma_nommu_ops.free(dev, size, vaddr, dma_handle, attrs);
 }
 
 static dma_addr_t dma_fixed_map_page(struct device *dev, struct page *page,
@@ -687,7 +688,7 @@ static dma_addr_t dma_fixed_map_page(struct device *dev, struct page *page,
 				     unsigned long attrs)
 {
 	if (iommu_fixed_is_weak == (attrs & DMA_ATTR_WEAK_ORDERING))
-		return dma_direct_ops.map_page(dev, page, offset, size,
+		return dma_nommu_ops.map_page(dev, page, offset, size,
 					       direction, attrs);
 	else
 		return iommu_map_page(dev, cell_get_iommu_table(dev), page,
@@ -700,7 +701,7 @@ static void dma_fixed_unmap_page(struct device *dev, dma_addr_t dma_addr,
 				 unsigned long attrs)
 {
 	if (iommu_fixed_is_weak == (attrs & DMA_ATTR_WEAK_ORDERING))
-		dma_direct_ops.unmap_page(dev, dma_addr, size, direction,
+		dma_nommu_ops.unmap_page(dev, dma_addr, size, direction,
 					  attrs);
 	else
 		iommu_unmap_page(cell_get_iommu_table(dev), dma_addr, size,
@@ -712,7 +713,7 @@ static int dma_fixed_map_sg(struct device *dev, struct scatterlist *sg,
 			   unsigned long attrs)
 {
 	if (iommu_fixed_is_weak == (attrs & DMA_ATTR_WEAK_ORDERING))
-		return dma_direct_ops.map_sg(dev, sg, nents, direction, attrs);
+		return dma_nommu_ops.map_sg(dev, sg, nents, direction, attrs);
 	else
 		return iommu_map_sg(dev, cell_get_iommu_table(dev), sg, nents,
 				    device_to_mask(dev), direction, attrs);
@@ -726,7 +727,7 @@ static void dma_fixed_unmap_sg(struct device *dev, struct scatterlist *sg,
 			       unsigned long attrs)
 {
 	if (iommu_fixed_is_weak == (attrs & DMA_ATTR_WEAK_ORDERING))
-		dma_direct_ops.unmap_sg(dev, sg, nents, direction, attrs);
+		dma_nommu_ops.unmap_sg(dev, sg, nents, direction, attrs);
 	else
 		iommu_unmap_sg(cell_get_iommu_table(dev), sg, nents, direction,
 			       attrs);
@@ -774,8 +775,8 @@ static void cell_dma_dev_setup(struct device *dev)
 		archdata->dma_data = (void *)cell_dma_direct_offset;
 	if (get_pci_dma_ops() == &dma_iommu_ops)
 		set_iommu_table_base(dev, cell_get_iommu_table(dev));
-	else if (get_pci_dma_ops() == &dma_direct_ops)
-		set_dma_offset(dev, cell_dma_direct_offset);
+	else if (get_pci_dma_ops() == &dma_nommu_ops)
+		set_dma_offset(dev, cell_dma_nommu_offset);
 	else
 		BUG();
 }
@@ -926,14 +927,14 @@ static int __init cell_iommu_init_disabled(void)
 	unsigned long base = 0, size;
 
 	/* When no iommu is present, we use direct DMA ops */
-	set_pci_dma_ops(&dma_direct_ops);
+	set_pci_dma_ops(&dma_nommu_ops);
 
 	/* First make sure all IOC translation is turned off */
 	cell_disable_iommus();
 
 	/* If we have no Axon, we set up the spider DMA magic offset */
 	if (of_find_node_by_name(NULL, "axon") == NULL)
-		cell_dma_direct_offset = SPIDER_DMA_OFFSET;
+		cell_dma_nommu_offset = SPIDER_DMA_OFFSET;
 
 	/* Now we need to check to see where the memory is mapped
 	 * in PCI space. We assume that all busses use the same dma
@@ -971,14 +972,15 @@ static int __init cell_iommu_init_disabled(void)
 		return -ENODEV;
 	}
 
-	cell_dma_direct_offset += base;
+	cell_dma_nommu_offset += base;
 
 	if (cell_dma_direct_offset != 0)
 		ppc_md.pci_dma_dev_setup = cell_pci_dma_dev_setup;
+	if (cell_dma_nommu_offset != 0)
 		cell_pci_controller_ops.dma_dev_setup = cell_pci_dma_dev_setup;
 
 	printk("iommu: disabled, direct DMA offset is 0x%lx\n",
-	       cell_dma_direct_offset);
+	       cell_dma_nommu_offset);
 
 	return 0;
 }

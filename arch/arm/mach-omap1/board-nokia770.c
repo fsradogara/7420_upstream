@@ -174,6 +174,7 @@ static int ads7846_get_pendown_state(void)
 {
 	return !omap_get_gpio_datain(ADS7846_PENDOWN_GPIO);
 static struct omap_lcd_config nokia770_lcd_config __initdata = {
+static const struct omap_lcd_config nokia770_lcd_config __initconst = {
 	.ctrl_name	= "hwa742",
 };
 

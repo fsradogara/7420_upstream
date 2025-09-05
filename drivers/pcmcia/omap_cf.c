@@ -82,9 +82,9 @@ static int omap_cf_ss_init(struct pcmcia_socket *s)
 }
 
 /* the timer is primarily to kick this socket's pccardd */
-static void omap_cf_timer(unsigned long _cf)
+static void omap_cf_timer(struct timer_list *t)
 {
-	struct omap_cf_socket	*cf = (void *) _cf;
+	struct omap_cf_socket	*cf = from_timer(cf, t, timer);
 	unsigned		present = omap_cf_present();
 
 	if (present != cf->present) {
@@ -104,7 +104,9 @@ static void omap_cf_timer(unsigned long _cf)
  */
 static irqreturn_t omap_cf_irq(int irq, void *_cf)
 {
-	omap_cf_timer((unsigned long)_cf);
+	struct omap_cf_socket *cf = (struct omap_cf_socket *)_cf;
+
+	omap_cf_timer(&cf->timer);
 	return IRQ_HANDLED;
 }
 
@@ -227,6 +229,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	cf->timer.function = omap_cf_timer;
 	cf->timer.data = (unsigned long) cf;
 	setup_timer(&cf->timer, omap_cf_timer, (unsigned long)cf);
+	timer_setup(&cf->timer, omap_cf_timer, 0);
 
 	cf->pdev = pdev;
 	platform_set_drvdata(pdev, cf);

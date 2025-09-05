@@ -875,7 +875,7 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 					rcode = -EINVAL;
 					goto cleanup;
 				}
-				p = kmalloc(sg_count[i], GFP_KERNEL|GFP_DMA32);
+				p = kmalloc(sg_count[i], GFP_KERNEL);
 				if (!p) {
 					dprintk((KERN_DEBUG"aacraid: Could not allocate SG buffer - size = %d buffer number %d of %d\n",
 						sg_count[i], i, usg->count));
@@ -921,7 +921,7 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 					rcode = -EINVAL;
 					goto cleanup;
 				}
-				p = kmalloc(sg_count[i], GFP_KERNEL|GFP_DMA32);
+				p = kmalloc(sg_count[i], GFP_KERNEL);
 				if (!p) {
 					dprintk((KERN_DEBUG"aacraid: Could not allocate SG buffer - size = %d buffer number %d of %d\n",
 					  sg_count[i], i, upsg->count));
@@ -1096,9 +1096,13 @@ static int aac_send_reset_adapter(struct aac_dev *dev, void __user *arg)
 	if (copy_from_user((void *)&reset, arg, sizeof(struct aac_reset_iop)))
 		return -EFAULT;
 
-	retval = aac_reset_adapter(dev, 0, reset.reset_type);
-	return retval;
+	dev->adapter_shutdown = 1;
 
+	mutex_unlock(&dev->ioctl_mutex);
+	retval = aac_reset_adapter(dev, 0, reset.reset_type);
+	mutex_lock(&dev->ioctl_mutex);
+
+	return retval;
 }
 
 int aac_do_ioctl(struct aac_dev * dev, int cmd, void __user *arg)

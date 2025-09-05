@@ -8,7 +8,8 @@
 #ifndef __ASSEMBLY__
 #include <linux/sched.h>
 #include <linux/threads.h>
-#include <asm/io.h>			/* For sub-arch specific PPC_PIN_SIZE */
+#include <asm/mmu.h>			/* For sub-arch specific PPC_PIN_SIZE */
+#include <asm/asm-405.h>
 
 extern unsigned long va_to_phys(unsigned long address);
 extern pte_t *va_to_pte(unsigned long address);
@@ -27,6 +28,7 @@ extern int icache_44x_need_flush;
 #define PGD_INDEX_SIZE	(32 - PGDIR_SHIFT)
 
 #define PMD_CACHE_INDEX	PMD_INDEX_SIZE
+#define PUD_CACHE_INDEX	PUD_INDEX_SIZE
 
 #ifndef __ASSEMBLY__
 #define PTE_TABLE_SIZE	(sizeof(pte_t) << PTE_INDEX_SIZE)
@@ -579,7 +581,7 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #ifndef __ASSEMBLY__
 
 #define pte_clear(mm, addr, ptep) \
-	do { pte_update(ptep, ~_PAGE_HASHPTE, 0); } while (0)
+	do { pte_update(ptep, ~0, 0); } while (0)
 
 #define pmd_none(pmd)		(!pmd_val(pmd))
 #define	pmd_bad(pmd)		(pmd_val(pmd) & _PMD_BAD)
@@ -758,12 +760,6 @@ static inline int __ptep_test_and_clear_young(unsigned int context, unsigned lon
 {
 	unsigned long old;
 	old = pte_update(ptep, _PAGE_ACCESSED, 0);
-#if _PAGE_HASHPTE != 0
-	if (old & _PAGE_HASHPTE) {
-		unsigned long ptephys = __pa(ptep) & PAGE_MASK;
-		flush_hash_pages(context, addr, ptephys, 1);
-	}
-#endif
 	return (old & _PAGE_ACCESSED) != 0;
 }
 #define ptep_test_and_clear_young(__vma, __addr, __ptep) \
@@ -773,7 +769,7 @@ static inline int __ptep_test_and_clear_young(unsigned int context, unsigned lon
 static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 				       pte_t *ptep)
 {
-	return __pte(pte_update(ptep, ~_PAGE_HASHPTE, 0));
+	return __pte(pte_update(ptep, ~0, 0));
 }
 
 #define __HAVE_ARCH_PTEP_SET_WRPROTECT
@@ -820,18 +816,27 @@ extern pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 
 static inline void __ptep_set_access_flags(pte_t *ptep, pte_t entry)
 static inline void __ptep_set_access_flags(struct mm_struct *mm,
+static inline void __ptep_set_access_flags(struct vm_area_struct *vma,
 					   pte_t *ptep, pte_t entry,
-					   unsigned long address)
+					   unsigned long address,
+					   int psize)
 {
 	unsigned long set = pte_val(entry) &
 		(_PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_RW | _PAGE_EXEC);
-	unsigned long clr = ~pte_val(entry) & _PAGE_RO;
+	unsigned long clr = ~pte_val(entry) & (_PAGE_RO | _PAGE_NA);
 
 	pte_update(ptep, clr, set);
+
+	flush_tlb_page(vma, address);
+}
+
+static inline int pte_young(pte_t pte)
+{
+	return pte_val(pte) & _PAGE_ACCESSED;
 }
 
 #define __HAVE_ARCH_PTE_SAME
-#define pte_same(A,B)	(((pte_val(A) ^ pte_val(B)) & ~_PAGE_HASHPTE) == 0)
+#define pte_same(A,B)	((pte_val(A) ^ pte_val(B)) == 0)
 
 /*
  * Note that on Book E processors, the pmd contains the kernel virtual
@@ -882,6 +887,7 @@ static inline void __ptep_set_access_flags(struct mm_struct *mm,
  * must not include the _PAGE_PRESENT bit, the _PAGE_FILE bit, or the
  *_PAGE_HASHPTE bit (if used).  -- paulus
  * must not include the _PAGE_PRESENT bit or the _PAGE_HASHPTE bit (if used).
+ * must not include the _PAGE_PRESENT bit.
  *   -- paulus
  */
 #define __swp_type(entry)		((entry).val & 0x1f)

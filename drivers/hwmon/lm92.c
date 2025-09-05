@@ -66,6 +66,7 @@ I2C_CLIENT_INSMOD_1(lm92);
  */
 static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b,
 						I2C_CLIENT_END };
+enum chips { lm92, max6635 };
 
 /* The LM92 registers */
 #define LM92_REG_CONFIG			0x01 /* 8-bit, RW */
@@ -536,8 +537,6 @@ static int lm92_detect(struct i2c_client *new_client,
 
 	if ((config & 0xe0) == 0x00 && man_id == 0x0180)
 		pr_info("lm92: Found National Semiconductor LM92 chip\n");
-	else if (max6635_check(new_client))
-		pr_info("lm92: Found Maxim MAX6635 chip\n");
 	else
 		return -ENODEV;
 
@@ -618,6 +617,7 @@ static const struct i2c_device_id lm92_id[] = {
 	{ "lm92", lm92 },
 	{ "lm92", 0 },
 	/* max6635 could be added here */
+	{ "max6635", max6635 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lm92_id);

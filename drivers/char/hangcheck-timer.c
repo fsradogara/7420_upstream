@@ -142,12 +142,13 @@ static inline unsigned long long monotonic_clock(void)
 /* Last time scheduled */
 static unsigned long long hangcheck_tsc, hangcheck_tsc_margin;
 
-static void hangcheck_fire(unsigned long);
+static void hangcheck_fire(struct timer_list *);
 
-static DEFINE_TIMER(hangcheck_ticktock, hangcheck_fire, 0, 0);
+static DEFINE_TIMER(hangcheck_ticktock, hangcheck_fire);
 
 
 static void hangcheck_fire(unsigned long data)
+static void hangcheck_fire(struct timer_list *unused)
 {
 	unsigned long long cur_tsc, tsc_diff;
 

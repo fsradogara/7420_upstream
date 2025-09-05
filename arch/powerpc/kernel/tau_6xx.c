@@ -27,6 +27,9 @@
 #include <asm/cache.h>
 #include <asm/8xx_immap.h>
 #include <asm/machdep.h>
+#include <asm/asm-prototypes.h>
+
+#include "setup.h"
 
 static struct tau_temp
 {
@@ -50,7 +53,7 @@ struct timer_list tau_timer;
 #define shrink_timer	2*HZ	/* period between shrinking the window */
 #define min_window	2	/* minimum window size, degrees C */
 
-void set_thresholds(unsigned long cpu)
+static void set_thresholds(unsigned long cpu)
 {
 #ifdef CONFIG_TAU_INT
 	/*
@@ -71,7 +74,7 @@ void set_thresholds(unsigned long cpu)
 #endif
 }
 
-void TAUupdate(int cpu)
+static void TAUupdate(int cpu)
 {
 	unsigned thrm;
 
@@ -189,7 +192,7 @@ static void tau_timeout(void * info)
 	local_irq_restore(flags);
 }
 
-static void tau_timeout_smp(unsigned long unused)
+static void tau_timeout_smp(struct timer_list *unused)
 {
 
 	/* schedule ourselves to be run again */
@@ -206,7 +209,7 @@ static void tau_timeout_smp(unsigned long unused)
 
 int tau_initialized = 0;
 
-void __init TAU_init_smp(void * info)
+static void __init TAU_init_smp(void *info)
 {
 	unsigned long cpu = smp_processor_id();
 
@@ -218,7 +221,7 @@ void __init TAU_init_smp(void * info)
 	set_thresholds(cpu);
 }
 
-int __init TAU_init(void)
+static int __init TAU_init(void)
 {
 	/* We assume in SMP that if one CPU has TAU support, they
 	 * all have it --BenH
@@ -231,8 +234,7 @@ int __init TAU_init(void)
 
 
 	/* first, set up the window shrinking timer */
-	init_timer(&tau_timer);
-	tau_timer.function = tau_timeout_smp;
+	timer_setup(&tau_timer, tau_timeout_smp, 0);
 	tau_timer.expires = jiffies + shrink_timer;
 	add_timer(&tau_timer);
 
@@ -261,12 +263,12 @@ u32 cpu_temp_both(unsigned long cpu)
 	return ((tau[cpu].high << 16) | tau[cpu].low);
 }
 
-int cpu_temp(unsigned long cpu)
+u32 cpu_temp(unsigned long cpu)
 {
 	return ((tau[cpu].high + tau[cpu].low) / 2);
 }
 
-int tau_interrupts(unsigned long cpu)
+u32 tau_interrupts(unsigned long cpu)
 {
 	return (tau[cpu].interrupts);
 }

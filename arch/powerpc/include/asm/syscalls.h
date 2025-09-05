@@ -51,7 +51,7 @@ asmlinkage long sys_sigaltstack(const stack_t __user *uss,
 		stack_t __user *uoss, unsigned long r5, unsigned long r6,
 		unsigned long r7, unsigned long r8, struct pt_regs *regs);
 asmlinkage long ppc64_personality(unsigned long personality);
-asmlinkage int ppc_rtas(struct rtas_args __user *uargs);
+asmlinkage long sys_rtas(struct rtas_args __user *uargs);
 
 #endif /* __KERNEL__ */
 #endif /* __ASM_POWERPC_SYSCALLS_H */

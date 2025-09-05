@@ -140,6 +140,7 @@ struct drm_device;
 #include <drm/drm_sarea.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_prime.h>
+#include <drm/drm_print.h>
 #include <drm/drm_pci.h>
 #include <drm/drm_file.h>
 #include <drm/drm_debugfs.h>
@@ -1537,6 +1538,8 @@ static inline bool drm_drv_uses_atomic_modeset(struct drm_device *dev)
 	return dev->mode_config.funcs->atomic_commit != NULL;
 }
 
+#define DRM_IF_VERSION(maj, min) (maj << 16 | min)
+
 #define DRM_SWITCH_POWER_ON 0
 #define DRM_SWITCH_POWER_OFF 1
 #define DRM_SWITCH_POWER_CHANGING 2
@@ -2143,7 +2146,7 @@ extern int drm_platform_set_busid(struct drm_device *d, struct drm_master *m);
 /*@}*/
 
 /* returns true if currently okay to sleep */
-static __inline__ bool drm_can_sleep(void)
+static inline bool drm_can_sleep(void)
 {
 	if (in_atomic() || in_dbg_master() || irqs_disabled())
 		return false;

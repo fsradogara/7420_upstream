@@ -92,13 +92,17 @@ void __init time_init(void)
 {
 	struct rtc_time time;
 void read_persistent_clock(struct timespec *ts)
+#ifdef CONFIG_M68KCLASSIC
+#if !IS_BUILTIN(CONFIG_RTC_DRV_GENERIC)
+void read_persistent_clock64(struct timespec64 *ts)
 {
 	struct rtc_time time;
+
 	ts->tv_sec = 0;
 	ts->tv_nsec = 0;
 
-	if (mach_hwclk) {
-		mach_hwclk(0, &time);
+	if (!mach_hwclk)
+		return;
 
 		if ((time.tm_year += 1900) < 1970)
 			time.tm_year += 100;
@@ -183,13 +187,18 @@ EXPORT_SYMBOL(do_settimeofday);
 		ts->tv_sec = mktime(time.tm_year, time.tm_mon, time.tm_mday,
 				      time.tm_hour, time.tm_min, time.tm_sec);
 	}
-}
+	mach_hwclk(0, &time);
 
-#if defined(CONFIG_ARCH_USES_GETTIMEOFFSET) && IS_ENABLED(CONFIG_RTC_DRV_GENERIC)
+	ts->tv_sec = mktime64(time.tm_year + 1900, time.tm_mon + 1, time.tm_mday,
+			      time.tm_hour, time.tm_min, time.tm_sec);
+}
+#endif
+
+#if IS_ENABLED(CONFIG_RTC_DRV_GENERIC)
 static int rtc_generic_get_time(struct device *dev, struct rtc_time *tm)
 {
 	mach_hwclk(0, tm);
-	return rtc_valid_tm(tm);
+	return 0;
 }
 
 static int rtc_generic_set_time(struct device *dev, struct rtc_time *tm)
@@ -243,8 +252,8 @@ static int __init rtc_init(void)
 }
 
 module_init(rtc_init);
-
-#endif /* CONFIG_ARCH_USES_GETTIMEOFFSET */
+#endif /* CONFIG_RTC_DRV_GENERIC */
+#endif /* CONFIG M68KCLASSIC */
 
 void __init time_init(void)
 {

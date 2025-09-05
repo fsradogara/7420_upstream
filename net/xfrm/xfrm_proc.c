@@ -128,8 +128,8 @@ int __init xfrm_proc_init(void)
 
 int __net_init xfrm_proc_init(struct net *net)
 {
-	if (!proc_create("xfrm_stat", S_IRUGO, net->proc_net,
-			 &xfrm_statistics_seq_fops))
+	if (!proc_create_net_single("xfrm_stat", 0444, net->proc_net,
+			 xfrm_statistics_seq_show, NULL))
 		return -ENOMEM;
 	return 0;
 }

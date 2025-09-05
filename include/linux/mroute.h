@@ -134,9 +134,10 @@ struct igmpmsg
 #include <net/sock.h>
 #include <linux/in.h>
 #include <linux/pim.h>
-#include <linux/rhashtable.h>
-#include <net/sock.h>
+#include <net/fib_rules.h>
+#include <net/fib_notifier.h>
 #include <uapi/linux/mroute.h>
+#include <linux/mroute_base.h>
 
 #ifdef CONFIG_IP_MROUTE
 static inline int ip_mroute_opt(int opt)
@@ -165,6 +166,7 @@ int ip_mroute_getsockopt(struct sock *, int, char __user *, int __user *);
 int ipmr_ioctl(struct sock *sk, int cmd, void __user *arg);
 int ipmr_compat_ioctl(struct sock *sk, unsigned int cmd, void __user *arg);
 int ip_mr_init(void);
+bool ipmr_rule_default(const struct fib_rule *rule);
 #else
 static inline int ip_mroute_setsockopt(struct sock *sock, int optname,
 				       char __user *optval, unsigned int optlen)
@@ -191,6 +193,11 @@ static inline int ip_mr_init(void)
 static inline int ip_mroute_opt(int opt)
 {
 	return 0;
+}
+
+static inline bool ipmr_rule_default(const struct fib_rule *rule)
+{
+	return true;
 }
 #endif
 
@@ -238,6 +245,8 @@ enum {
 	MFC_STATIC = BIT(0),
 };
 
+#define VIFF_STATIC 0x8000
+
 struct mfc_cache_cmp_arg {
 	__be32 mfc_mcastgrp;
 	__be32 mfc_origin;
@@ -245,27 +254,13 @@ struct mfc_cache_cmp_arg {
 
 /**
  * struct mfc_cache - multicast routing entries
- * @mnode: rhashtable list
+ * @_c: Common multicast routing information; has to be first [for casting]
  * @mfc_mcastgrp: destination multicast group address
  * @mfc_origin: source address
  * @cmparg: used for rhashtable comparisons
- * @mfc_parent: source interface (iif)
- * @mfc_flags: entry flags
- * @expires: unresolved entry expire time
- * @unresolved: unresolved cached skbs
- * @last_assert: time of last assert
- * @minvif: minimum VIF id
- * @maxvif: maximum VIF id
- * @bytes: bytes that have passed for this entry
- * @pkt: packets that have passed for this entry
- * @wrong_if: number of wrong source interface hits
- * @lastuse: time of last use of the group (traffic or update)
- * @ttls: OIF TTL threshold array
- * @list: global entry list
- * @rcu: used for entry destruction
  */
 struct mfc_cache {
-	struct rhlist_head mnode;
+	struct mr_mfc _c;
 	union {
 		struct {
 			__be32 mfc_mcastgrp;
@@ -273,27 +268,6 @@ struct mfc_cache {
 		};
 		struct mfc_cache_cmp_arg cmparg;
 	};
-	vifi_t mfc_parent;
-	int mfc_flags;
-
-	union {
-		struct {
-			unsigned long expires;
-			struct sk_buff_head unresolved;
-		} unres;
-		struct {
-			unsigned long last_assert;
-			int minvif;
-			int maxvif;
-			unsigned long bytes;
-			unsigned long pkt;
-			unsigned long wrong_if;
-			unsigned long lastuse;
-			unsigned char ttls[MAXVIFS];
-		} res;
-	} mfc_un;
-	struct list_head list;
-	struct rcu_head	rcu;
 };
 
 #define MFC_STATIC		1

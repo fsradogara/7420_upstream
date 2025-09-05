@@ -5,6 +5,8 @@
  * Copyright (C) 2004-2015 Emulex.  All rights reserved.           *
  * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
+ * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.broadcom.com                                                *
@@ -31,6 +33,7 @@
 #define LPFC_COPYRIGHT "Copyright(c) 2004-2008 Emulex.  All rights reserved."
 #define LPFC_DRIVER_VERSION "11.0.0.0."
 #define LPFC_DRIVER_VERSION "11.4.0.3"
+#define LPFC_DRIVER_VERSION "12.0.0.6"
 #define LPFC_DRIVER_NAME		"lpfc"
 
 /* Used for SLI 2/3 */
@@ -42,6 +45,6 @@
 
 #define LPFC_MODULE_DESC "Emulex LightPulse Fibre Channel SCSI driver " \
 		LPFC_DRIVER_VERSION
-#define LPFC_COPYRIGHT "Copyright (C) 2017 Broadcom. All Rights Reserved. " \
-		"The term \"Broadcom\" refers to Broadcom Limited " \
+#define LPFC_COPYRIGHT "Copyright (C) 2017-2018 Broadcom. All Rights " \
+		"Reserved. The term \"Broadcom\" refers to Broadcom Inc. " \
 		"and/or its subsidiaries."

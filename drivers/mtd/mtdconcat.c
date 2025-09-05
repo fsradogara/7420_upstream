@@ -543,7 +543,7 @@ static int concat_erase(struct mtd_info *mtd, struct erase_info *instr)
 			break;
 		}
 		length -= erase->len;
-		if ((err = concat_dev_erase(subdev, erase))) {
+		if ((err = mtd_erase(subdev, erase))) {
 			/* sanity check: should never happen since
 			 * block alignment has been checked above */
 			BUG_ON(err == -EINVAL);
@@ -563,14 +563,9 @@ static int concat_erase(struct mtd_info *mtd, struct erase_info *instr)
 		erase->addr = 0;
 		offset += subdev->size;
 	}
-	instr->state = erase->state;
 	kfree(erase);
-	if (err)
-		return err;
 
-	if (instr->callback)
-		instr->callback(instr);
-	return 0;
+	return err;
 }
 
 static int concat_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
@@ -757,32 +752,6 @@ static int concat_block_markbad(struct mtd_info *mtd, loff_t ofs)
 }
 
 /*
- * try to support NOMMU mmaps on concatenated devices
- * - we don't support subdev spanning as we can't guarantee it'll work
- */
-static unsigned long concat_get_unmapped_area(struct mtd_info *mtd,
-					      unsigned long len,
-					      unsigned long offset,
-					      unsigned long flags)
-{
-	struct mtd_concat *concat = CONCAT(mtd);
-	int i;
-
-	for (i = 0; i < concat->num_subdev; i++) {
-		struct mtd_info *subdev = concat->subdev[i];
-
-		if (offset >= subdev->size) {
-			offset -= subdev->size;
-			continue;
-		}
-
-		return mtd_get_unmapped_area(subdev, len, offset, flags);
-	}
-
-	return (unsigned long) -ENOSYS;
-}
-
-/*
  * This function constructs a virtual MTD device by concatenating
  * num_devs MTD devices. A pointer to the new device object is
  * stored to *new_dev upon success. This function does _not_
@@ -930,7 +899,6 @@ struct mtd_info *mtd_concat_create(struct mtd_info *subdev[],	/* subdevices to c
 	concat->mtd._unlock = concat_unlock;
 	concat->mtd._suspend = concat_suspend;
 	concat->mtd._resume = concat_resume;
-	concat->mtd._get_unmapped_area = concat_get_unmapped_area;
 
 	/*
 	 * Combine the erase block size info of the subdevices:
@@ -990,8 +958,9 @@ struct mtd_info *mtd_concat_create(struct mtd_info *subdev[],	/* subdevices to c
 		concat->mtd.erasesize = max_erasesize;
 		concat->mtd.numeraseregions = num_erase_region;
 		concat->mtd.eraseregions = erase_region_p =
-		    kmalloc(num_erase_region *
-			    sizeof (struct mtd_erase_region_info), GFP_KERNEL);
+		    kmalloc_array(num_erase_region,
+				  sizeof(struct mtd_erase_region_info),
+				  GFP_KERNEL);
 		if (!erase_region_p) {
 			kfree(concat);
 			printk

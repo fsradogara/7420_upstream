@@ -69,15 +69,12 @@ struct rtc_plat_data {
 	unsigned long last_jiffies;
 	void __iomem *ioaddr_nvram;
 	void __iomem *ioaddr_rtc;
-	size_t size_nvram;
 	unsigned long last_jiffies;
-	struct bin_attribute nvram_attr;
 };
 
 static int ds1742_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
+	struct rtc_plat_data *pdata = dev_get_drvdata(dev);
 	void __iomem *ioaddr = pdata->ioaddr_rtc;
 	u8 century;
 
@@ -112,8 +109,7 @@ static int ds1742_rtc_set_time(struct device *dev, struct rtc_time *tm)
 
 static int ds1742_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
+	struct rtc_plat_data *pdata = dev_get_drvdata(dev);
 	void __iomem *ioaddr = pdata->ioaddr_rtc;
 	unsigned int year, month, day, hour, minute, second, week;
 	unsigned int century;
@@ -155,7 +151,7 @@ static int ds1742_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	/* year is 1900 + tm->tm_year */
 	tm->tm_year = bcd2bin(year) + bcd2bin(century) * 100 - 1900;
 
-	return rtc_valid_tm(tm);
+	return 0;
 }
 
 static const struct rtc_class_ops ds1742_rtc_ops = {
@@ -172,17 +168,18 @@ static ssize_t ds1742_nvram_read(struct kobject *kobj,
 static ssize_t ds1742_nvram_read(struct file *filp, struct kobject *kobj,
 				 struct bin_attribute *bin_attr,
 				 char *buf, loff_t pos, size_t size)
+static int ds1742_nvram_read(void *priv, unsigned int pos, void *val,
+			     size_t bytes)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct platform_device *pdev = to_platform_device(dev);
-	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
+	struct rtc_plat_data *pdata = priv;
 	void __iomem *ioaddr = pdata->ioaddr_nvram;
-	ssize_t count;
+	u8 *buf = val;
 
 	for (count = 0; size > 0 && pos < pdata->size_nvram; count++, size--)
 	for (count = 0; count < size; count++)
+	for (; bytes; bytes--)
 		*buf++ = readb(ioaddr + pos++);
-	return count;
+	return 0;
 }
 
 static ssize_t ds1742_nvram_write(struct kobject *kobj,
@@ -194,17 +191,18 @@ static ssize_t ds1742_nvram_write(struct kobject *kobj,
 static ssize_t ds1742_nvram_write(struct file *filp, struct kobject *kobj,
 				  struct bin_attribute *bin_attr,
 				  char *buf, loff_t pos, size_t size)
+static int ds1742_nvram_write(void *priv, unsigned int pos, void *val,
+			      size_t bytes)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct platform_device *pdev = to_platform_device(dev);
-	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
+	struct rtc_plat_data *pdata = priv;
 	void __iomem *ioaddr = pdata->ioaddr_nvram;
-	ssize_t count;
+	u8 *buf = val;
 
 	for (count = 0; size > 0 && pos < pdata->size_nvram; count++, size--)
 	for (count = 0; count < size; count++)
+	for (; bytes; bytes--)
 		writeb(*buf++, ioaddr + pos++);
-	return count;
+	return 0;
 }
 
 static struct bin_attribute ds1742_nvram_attr = {
@@ -253,6 +251,12 @@ static int ds1742_rtc_probe(struct platform_device *pdev)
 	struct rtc_plat_data *pdata;
 	void __iomem *ioaddr;
 	int ret = 0;
+	struct nvmem_config nvmem_cfg = {
+		.name = "ds1742_nvram",
+		.reg_read = ds1742_nvram_read,
+		.reg_write = ds1742_nvram_write,
+	};
+
 
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
@@ -264,15 +268,10 @@ static int ds1742_rtc_probe(struct platform_device *pdev)
 		return PTR_ERR(ioaddr);
 
 	pdata->ioaddr_nvram = ioaddr;
-	pdata->size_nvram = resource_size(res) - RTC_SIZE;
-	pdata->ioaddr_rtc = ioaddr + pdata->size_nvram;
+	pdata->ioaddr_rtc = ioaddr + resource_size(res) - RTC_SIZE;
 
-	sysfs_bin_attr_init(&pdata->nvram_attr);
-	pdata->nvram_attr.attr.name = "nvram";
-	pdata->nvram_attr.attr.mode = S_IRUGO | S_IWUSR;
-	pdata->nvram_attr.read = ds1742_nvram_read;
-	pdata->nvram_attr.write = ds1742_nvram_write;
-	pdata->nvram_attr.size = pdata->size_nvram;
+	nvmem_cfg.size = resource_size(res) - RTC_SIZE;
+	nvmem_cfg.priv = pdata;
 
 	/* turn RTC on if it was not on */
 	ioaddr = pdata->ioaddr_rtc;
@@ -348,24 +347,21 @@ module_init(ds1742_init);
 module_exit(ds1742_exit);
 	pdata->last_jiffies = jiffies;
 	platform_set_drvdata(pdev, pdata);
-	rtc = devm_rtc_device_register(&pdev->dev, pdev->name,
-				  &ds1742_rtc_ops, THIS_MODULE);
+
+	rtc = devm_rtc_allocate_device(&pdev->dev);
 	if (IS_ERR(rtc))
 		return PTR_ERR(rtc);
 
-	ret = sysfs_create_bin_file(&pdev->dev.kobj, &pdata->nvram_attr);
+	rtc->ops = &ds1742_rtc_ops;
+	rtc->nvram_old_abi = true;
+
+	ret = rtc_register_device(rtc);
 	if (ret)
-		dev_err(&pdev->dev, "Unable to create sysfs entry: %s\n",
-			pdata->nvram_attr.attr.name);
+		return ret;
 
-	return 0;
-}
+	if (rtc_nvmem_register(rtc, &nvmem_cfg))
+		dev_err(&pdev->dev, "Unable to register nvmem\n");
 
-static int ds1742_rtc_remove(struct platform_device *pdev)
-{
-	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
-
-	sysfs_remove_bin_file(&pdev->dev.kobj, &pdata->nvram_attr);
 	return 0;
 }
 
@@ -377,7 +373,6 @@ MODULE_DEVICE_TABLE(of, ds1742_rtc_of_match);
 
 static struct platform_driver ds1742_rtc_driver = {
 	.probe		= ds1742_rtc_probe,
-	.remove		= ds1742_rtc_remove,
 	.driver		= {
 		.name	= "rtc-ds1742",
 		.of_match_table = of_match_ptr(ds1742_rtc_of_match),

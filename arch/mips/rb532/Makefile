@@ -5,3 +5,6 @@
 obj-y	 += irq.o time.o setup.o serial.o prom.o gpio.o devices.o
 
 EXTRA_CFLAGS += -Werror
+obj-$(CONFIG_SERIAL_8250_CONSOLE) += serial.o
+
+obj-y	 += irq.o time.o setup.o prom.o gpio.o devices.o

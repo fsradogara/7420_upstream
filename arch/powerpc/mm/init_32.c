@@ -100,11 +100,6 @@ void MMU_init(void);
 int __map_without_bats;
 int __map_without_ltlbs;
 
-/*
- * This tells the system to allow ioremapping memory marked as reserved.
- */
-int __allow_ioremap_reserved;
-
 /* max amount of low RAM to map in */
 unsigned long __max_low_memory = MAX_LOW_MEM;
 
@@ -127,7 +122,7 @@ void MMU_setup(void)
 	if (strstr(cmd_line, "noltlbs")) {
  * Check for command-line options that affect what MMU_init will do.
  */
-void __init MMU_setup(void)
+static void __init MMU_setup(void)
 {
 	/* Check for nobats option (used in mapin_ram). */
 	if (strstr(boot_command_line, "nobats")) {

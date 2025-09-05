@@ -44,7 +44,6 @@ static struct ps3av {
 	struct mutex mutex;
 	struct work_struct work;
 	struct completion done;
-	struct workqueue_struct *wq;
 	int open_count;
 	struct ps3_system_bus_device *dev;
 
@@ -491,7 +490,7 @@ static int ps3av_set_videomode(void)
 	ps3av_set_av_video_mute(PS3AV_CMD_MUTE_ON);
 
 	/* wake up ps3avd to do the actual video mode setting */
-	queue_work(ps3av->wq, &ps3av->work);
+	schedule_work(&ps3av->work);
 
 	return 0;
 }
@@ -1068,8 +1067,7 @@ static int ps3av_remove(struct ps3_system_bus_device *dev)
 	dev_dbg(&dev->core, " -> %s:%d\n", __func__, __LINE__);
 	if (ps3av) {
 		ps3av_cmd_fin();
-		if (ps3av->wq)
-			destroy_workqueue(ps3av->wq);
+		flush_work(&ps3av->work);
 		kfree(ps3av);
 		ps3av = NULL;
 	}

@@ -27,10 +27,6 @@
 int baboon_present;
 static volatile struct baboon *baboon;
 
-#if 0
-extern int macide_ack_intr(struct ata_channel *);
-#endif
-
 /*
  * Baboon initialization.
  */
@@ -46,18 +42,19 @@ void __init baboon_init(void)
 	baboon = (struct baboon *) BABOON_BASE;
 	baboon_present = 1;
 
-	printk("Baboon detected at %p\n", baboon);
+	pr_debug("Baboon detected at %p\n", baboon);
 }
 
 /*
- * Baboon interrupt handler. This works a lot like a VIA.
+ * Baboon interrupt handler.
+ * XXX how do you clear a pending IRQ? is it even necessary?
  */
 
 static irqreturn_t baboon_irq(int irq, void *dev_id)
 static void baboon_irq(struct irq_desc *desc)
 {
-	int irq_bit, irq_num;
-	unsigned char events;
+	short events, irq_bit;
+	int irq_num;
 
 #ifdef DEBUG_IRQS
 	printk("baboon_irq: mb_control %02X mb_ifr %02X mb_status %02X\n",
@@ -68,17 +65,17 @@ static void baboon_irq(struct irq_desc *desc)
 	if (!(events = baboon->mb_ifr & 0x07))
 		return IRQ_NONE;
 	events = baboon->mb_ifr & 0x07;
-	if (!events)
-		return;
-
 	irq_num = IRQ_BABOON_0;
 	irq_bit = 1;
 	do {
 	        if (events & irq_bit) {
 			baboon->mb_ifr &= ~irq_bit;
 			m68k_handle_int(irq_num);
+		if (events & irq_bit) {
+			events &= ~irq_bit;
 			generic_handle_irq(irq_num);
 		}
+		++irq_num;
 		irq_bit <<= 1;
 		irq_num++;
 	} while(events >= irq_bit);
@@ -88,6 +85,7 @@ static void baboon_irq(struct irq_desc *desc)
 	baboon->mb_ifr &= ~events;
 #endif
 	return IRQ_HANDLED;
+	} while (events);
 }
 
 /*

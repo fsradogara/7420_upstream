@@ -11,6 +11,7 @@ lkc_defs.h
 gconf.glade.h
 *.pot
 *.mo
+*.moc
 
 #
 # configuration programs
@@ -20,4 +21,3 @@ mconf
 nconf
 qconf
 gconf
-kxgettext

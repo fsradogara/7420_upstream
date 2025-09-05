@@ -196,7 +196,7 @@ const char *dbg_key_str1(const struct ubifs_info *c, const union ubifs_key *key)
 		}
 	} else
 		len -= snprintf(p, len, "bad key format %d", c->key_fmt);
-	ubifs_assert(len > 0);
+	ubifs_assert(c, len > 0);
 	return p;
 }
 
@@ -382,7 +382,7 @@ void ubifs_dump_inode(struct ubifs_info *c, const struct inode *inode)
 		return;
 
 	pr_err("List of directory entries:\n");
-	ubifs_assert(!mutex_is_locked(&c->tnc_mutex));
+	ubifs_assert(c, !mutex_is_locked(&c->tnc_mutex));
 
 	lowest_dent_key(c, &key, inode->i_ino);
 	while (1) {
@@ -1406,7 +1406,7 @@ void ubifs_dump_tnc(struct ubifs_info *c)
 	printk(KERN_DEBUG "\n");
 	pr_err("\n");
 	pr_err("(pid %d) start dumping TNC tree\n", current->pid);
-	znode = ubifs_tnc_levelorder_next(c->zroot.znode, NULL);
+	znode = ubifs_tnc_levelorder_next(c, c->zroot.znode, NULL);
 	level = znode->level;
 	pr_err("== Level %d ==\n", level);
 	while (znode) {
@@ -1415,7 +1415,7 @@ void ubifs_dump_tnc(struct ubifs_info *c)
 			pr_err("== Level %d ==\n", level);
 		}
 		ubifs_dump_znode(c, znode);
-		znode = ubifs_tnc_levelorder_next(c->zroot.znode, znode);
+		znode = ubifs_tnc_levelorder_next(c, c->zroot.znode, znode);
 	}
 	pr_err("(pid %d) finish dumping TNC tree\n", current->pid);
 }
@@ -1682,7 +1682,7 @@ static int dbg_check_key_order(struct ubifs_info *c, struct ubifs_zbranch *zbr1,
 	union ubifs_key key;
 	char key_buf[DBG_KEY_BUF_LEN];
 
-	ubifs_assert(!keys_cmp(c, &zbr1->key, &zbr2->key));
+	ubifs_assert(c, !keys_cmp(c, &zbr1->key, &zbr2->key));
 	dent1 = kmalloc(UBIFS_MAX_DENT_NODE_SZ, GFP_NOFS);
 	if (!dent1)
 		return -ENOMEM;
@@ -2007,7 +2007,7 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 	if (!dbg_is_chk_index(c))
 		return 0;
 
-	ubifs_assert(mutex_is_locked(&c->tnc_mutex));
+	ubifs_assert(c, mutex_is_locked(&c->tnc_mutex));
 	if (!c->zroot.znode)
 		return 0;
 
@@ -2033,7 +2033,7 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 		}
 
 		prev = znode;
-		znode = ubifs_tnc_postorder_next(znode);
+		znode = ubifs_tnc_postorder_next(c, znode);
 		if (!znode)
 			break;
 
@@ -2607,7 +2607,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		long long blk_offs;
 		struct ubifs_data_node *dn = node;
 
-		ubifs_assert(zbr->len >= UBIFS_DATA_NODE_SZ);
+		ubifs_assert(c, zbr->len >= UBIFS_DATA_NODE_SZ);
 
 		/*
 		 * Search the inode node this data node belongs to and insert
@@ -2642,7 +2642,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		struct ubifs_dent_node *dent = node;
 		struct fsck_inode *fscki1;
 
-		ubifs_assert(zbr->len >= UBIFS_DENT_NODE_SZ);
+		ubifs_assert(c, zbr->len >= UBIFS_DENT_NODE_SZ);
 
 		err = ubifs_validate_entry(c, dent);
 		if (err)
@@ -3264,7 +3264,7 @@ static int power_cut_emulated(struct ubifs_info *c, int lnum, int write)
 {
 	struct ubifs_debug_info *d = c->dbg;
 
-	ubifs_assert(dbg_is_tst_rcvry(c));
+	ubifs_assert(c, dbg_is_tst_rcvry(c));
 
 	if (!d->pc_cnt) {
 		/* First call - decide delay to the power cut */
@@ -3991,6 +3991,28 @@ void dbg_debugfs_exit(void)
 {
 	if (IS_ENABLED(CONFIG_DEBUG_FS))
 		debugfs_remove_recursive(dfs_rootdir);
+}
+
+void ubifs_assert_failed(struct ubifs_info *c, const char *expr,
+			 const char *file, int line)
+{
+	ubifs_err(c, "UBIFS assert failed: %s, in %s:%u", expr, file, line);
+
+	switch (c->assert_action) {
+		case ASSACT_PANIC:
+		BUG();
+		break;
+
+		case ASSACT_RO:
+		ubifs_ro_mode(c, -EINVAL);
+		break;
+
+		case ASSACT_REPORT:
+		default:
+		dump_stack();
+		break;
+
+	}
 }
 
 /**

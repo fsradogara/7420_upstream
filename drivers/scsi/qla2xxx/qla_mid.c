@@ -62,10 +62,11 @@ qla24xx_allocate_vp_id(scsi_qla_host_t *vha)
 
 	spin_lock_irqsave(&ha->vport_slock, flags);
 	list_add_tail(&vha->list, &ha->vp_list);
-
-	qlt_update_vp_map(vha, SET_VP_IDX);
-
 	spin_unlock_irqrestore(&ha->vport_slock, flags);
+
+	spin_lock_irqsave(&ha->hardware_lock, flags);
+	qlt_update_vp_map(vha, SET_VP_IDX);
+	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	mutex_unlock(&ha->vport_lock);
 	return vp_id;
@@ -193,17 +194,24 @@ int
 qla24xx_disable_vp(scsi_qla_host_t *vha)
 {
 	unsigned long flags;
-	int ret;
+	int ret = QLA_SUCCESS;
+	fc_port_t *fcport;
 
-	ret = qla24xx_control_vp(vha, VCE_COMMAND_DISABLE_VPS_LOGO_ALL);
+	if (vha->hw->flags.fw_started)
+		ret = qla24xx_control_vp(vha, VCE_COMMAND_DISABLE_VPS_LOGO_ALL);
+
 	atomic_set(&vha->loop_state, LOOP_DOWN);
 	atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
+	list_for_each_entry(fcport, &vha->vp_fcports, list)
+		fcport->logout_on_delete = 0;
+
+	qla2x00_mark_all_devices_lost(vha, 0);
 
 	/* Delete all vp's fcports from parent's list */
 	/* Remove port id from vp target map */
-	spin_lock_irqsave(&vha->hw->vport_slock, flags);
+	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
 	qlt_update_vp_map(vha, RESET_AL_PA);
-	spin_unlock_irqrestore(&vha->hw->vport_slock, flags);
+	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
 
 	qla2x00_mark_vp_devices_dead(vha);
 	atomic_set(&vha->vp_state, VP_FAILED);
@@ -362,6 +370,15 @@ void
 				    i, *mb, vha);
 				qla2x00_async_event(vha, rsp, mb);
 				break;
+			case MBA_PORT_UPDATE:
+			case MBA_RSCN_UPDATE:
+				if ((mb[3] & 0xff) == vha->vp_idx) {
+					ql_dbg(ql_dbg_async, vha, 0x5024,
+					    "Async_event for VP[%d], mb=0x%x vha=%p\n",
+					    i, *mb, vha);
+					qla2x00_async_event(vha, rsp, mb);
+				}
+				break;
 			}
 
 			spin_lock_irqsave(&ha->vport_slock, flags);
@@ -429,8 +446,6 @@ qla2x00_do_dpc_vp(scsi_qla_host_t *vha)
 	ql_dbg(ql_dbg_dpc + ql_dbg_verbose, vha, 0x4012,
 	    "Entering %s vp_flags: 0x%lx.\n", __func__, vha->vp_flags);
 
-	qla2x00_do_work(vha);
-
 	/* Check if Fw is ready to configure VP first */
 	if (test_bit(VP_CONFIG_OK, &base_vha->vp_flags)) {
 		if (test_and_clear_bit(VP_IDX_ACQUIRED, &vha->vp_flags)) {
@@ -453,15 +468,19 @@ qla2x00_do_dpc_vp(scsi_qla_host_t *vha)
 		    "FCPort update end.\n");
 	}
 
-	if ((test_and_clear_bit(RELOGIN_NEEDED, &vha->dpc_flags)) &&
-		!test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags) &&
-		atomic_read(&vha->loop_state) != LOOP_DOWN) {
+	if (test_bit(RELOGIN_NEEDED, &vha->dpc_flags) &&
+	    !test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags) &&
+	    atomic_read(&vha->loop_state) != LOOP_DOWN) {
 
-		ql_dbg(ql_dbg_dpc, vha, 0x4018,
-		    "Relogin needed scheduled.\n");
-		qla2x00_relogin(vha);
-		ql_dbg(ql_dbg_dpc, vha, 0x4019,
-		    "Relogin needed end.\n");
+		if (!vha->relogin_jif ||
+		    time_after_eq(jiffies, vha->relogin_jif)) {
+			vha->relogin_jif = jiffies + HZ;
+			clear_bit(RELOGIN_NEEDED, &vha->dpc_flags);
+
+			ql_dbg(ql_dbg_dpc, vha, 0x4018,
+			    "Relogin needed scheduled.\n");
+			qla24xx_post_relogin_work(vha);
+		}
 	}
 
 	if (test_and_clear_bit(RESET_MARKER_NEEDED, &vha->dpc_flags) &&
@@ -668,7 +687,7 @@ qla24xx_create_vhost(struct fc_vport *fc_vport)
 		    "Couldn't allocate vp_id.\n");
 		goto create_vhost_failed;
 	}
-	vha->mgmt_svr_loop_id = 10 + vha->vp_idx;
+	vha->mgmt_svr_loop_id = qla2x00_reserve_mgmt_server_loop_id(vha);
 
 	vha->dpc_flags = 0L;
 
@@ -680,7 +699,7 @@ qla24xx_create_vhost(struct fc_vport *fc_vport)
 	atomic_set(&vha->loop_state, LOOP_DOWN);
 	atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
 
-	qla2x00_start_timer(vha, qla2x00_timer, WATCH_INTERVAL);
+	qla2x00_start_timer(vha, WATCH_INTERVAL);
 
 	host->can_queue = vha->request_q_length + 128;
 	host->this_id = 255;
@@ -788,14 +807,16 @@ qla25xx_free_rsp_que(struct scsi_qla_host *vha, struct rsp_que *rsp)
 int
 qla25xx_delete_req_que(struct scsi_qla_host *vha, struct req_que *req)
 {
-	int ret = -1;
+	int ret = QLA_SUCCESS;
 
-	if (req) {
+	if (req && vha->flags.qpairs_req_created) {
 		req->options |= BIT_0;
 		ret = qla25xx_init_req_que(vha, req);
-	}
-	if (ret == QLA_SUCCESS)
+		if (ret != QLA_SUCCESS)
+			return QLA_FUNCTION_FAILED;
+
 		qla25xx_free_req_que(vha, req);
+	}
 
 	return ret;
 }
@@ -803,14 +824,16 @@ qla25xx_delete_req_que(struct scsi_qla_host *vha, struct req_que *req)
 int
 qla25xx_delete_rsp_que(struct scsi_qla_host *vha, struct rsp_que *rsp)
 {
-	int ret = -1;
+	int ret = QLA_SUCCESS;
 
-	if (rsp) {
+	if (rsp && vha->flags.qpairs_rsp_created) {
 		rsp->options |= BIT_0;
 		ret = qla25xx_init_rsp_que(vha, rsp);
-	}
-	if (ret == QLA_SUCCESS)
+		if (ret != QLA_SUCCESS)
+			return QLA_FUNCTION_FAILED;
+
 		qla25xx_free_rsp_que(vha, rsp);
+	}
 
 	return ret;
 }
@@ -825,7 +848,7 @@ qla25xx_delete_queues(struct scsi_qla_host *vha)
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_qpair *qpair, *tqpair;
 
-	if (ql2xmqsupport) {
+	if (ql2xmqsupport || ql2xnvmeenable) {
 		list_for_each_entry_safe(qpair, tqpair, &vha->qp_list,
 		    qp_list_elem)
 			qla2xxx_delete_qpair(vha, qpair);
@@ -983,18 +1006,12 @@ static void qla_do_work(struct work_struct *work)
 	struct qla_qpair *qpair = container_of(work, struct qla_qpair, q_work);
 	struct scsi_qla_host *vha;
 	struct qla_hw_data *ha = qpair->hw;
-	struct srb_iocb	*nvme, *nxt_nvme;
 
 	spin_lock_irqsave(&qpair->qp_lock, flags);
 	vha = pci_get_drvdata(ha->pdev);
 	qla24xx_process_response_queue(vha, qpair->rsp);
 	spin_unlock_irqrestore(&qpair->qp_lock, flags);
 
-	list_for_each_entry_safe(nvme, nxt_nvme, &qpair->nvme_done_list,
-		    u.nvme.entry) {
-		list_del_init(&nvme->u.nvme.entry);
-		qla_nvme_cmpl_io(nvme);
-	}
 }
 
 /* create response queue */
@@ -1102,4 +1119,80 @@ que_failed:
 	qla25xx_free_rsp_que(base_vha, rsp);
 failed:
 	return 0;
+}
+
+static void qla_ctrlvp_sp_done(void *s, int res)
+{
+	struct srb *sp = s;
+
+	complete(&sp->comp);
+	/* don't free sp here. Let the caller do the free */
+}
+
+/**
+ * qla24xx_control_vp() - Enable a virtual port for given host
+ * @vha:	adapter block pointer
+ * @cmd:	command type to be sent for enable virtual port
+ *
+ * Return:	qla2xxx local function return status code.
+ */
+int qla24xx_control_vp(scsi_qla_host_t *vha, int cmd)
+{
+	int rval = QLA_MEMORY_ALLOC_FAILED;
+	struct qla_hw_data *ha = vha->hw;
+	int	vp_index = vha->vp_idx;
+	struct scsi_qla_host *base_vha = pci_get_drvdata(ha->pdev);
+	srb_t *sp;
+
+	ql_dbg(ql_dbg_vport, vha, 0x10c1,
+	    "Entered %s cmd %x index %d.\n", __func__, cmd, vp_index);
+
+	if (vp_index == 0 || vp_index >= ha->max_npiv_vports)
+		return QLA_PARAMETER_ERROR;
+
+	sp = qla2x00_get_sp(base_vha, NULL, GFP_KERNEL);
+	if (!sp)
+		goto done;
+
+	sp->type = SRB_CTRL_VP;
+	sp->name = "ctrl_vp";
+	sp->done = qla_ctrlvp_sp_done;
+	sp->u.iocb_cmd.timeout = qla2x00_async_iocb_timeout;
+	qla2x00_init_timer(sp, qla2x00_get_async_timeout(vha) + 2);
+	sp->u.iocb_cmd.u.ctrlvp.cmd = cmd;
+	sp->u.iocb_cmd.u.ctrlvp.vp_index = vp_index;
+
+	rval = qla2x00_start_sp(sp);
+	if (rval != QLA_SUCCESS) {
+		ql_dbg(ql_dbg_async, vha, 0xffff,
+		    "%s: %s Failed submission. %x.\n",
+		    __func__, sp->name, rval);
+		goto done_free_sp;
+	}
+
+	ql_dbg(ql_dbg_vport, vha, 0x113f, "%s hndl %x submitted\n",
+	    sp->name, sp->handle);
+
+	wait_for_completion(&sp->comp);
+	rval = sp->rc;
+	switch (rval) {
+	case QLA_FUNCTION_TIMEOUT:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s Timeout. %x.\n",
+		    __func__, sp->name, rval);
+		break;
+	case QLA_SUCCESS:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s done.\n",
+		    __func__, sp->name);
+		goto done_free_sp;
+	default:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s Failed. %x.\n",
+		    __func__, sp->name, rval);
+		goto done_free_sp;
+	}
+done:
+	return rval;
+
+done_free_sp:
+	sp->free(sp);
+	return rval;
 }

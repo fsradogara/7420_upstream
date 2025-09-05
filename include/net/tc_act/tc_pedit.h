@@ -21,6 +21,7 @@ struct tcf_pedit {
 	container_of(pc, struct tcf_pedit, common)
 #define to_pedit(a) \
 	container_of(a->priv, struct tcf_pedit, common)
+
 #define to_pedit(a) ((struct tcf_pedit *)a)
 
 static inline bool is_tcf_pedit(const struct tc_action *a)

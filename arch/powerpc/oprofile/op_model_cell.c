@@ -473,7 +473,7 @@ static inline void enable_ctr(u32 cpu, u32 ctr, u32 *pm07_cntrl)
  * This routine will alternate loading the virtual counters for
  * virtual CPUs
  */
-static void cell_virtual_cntr(unsigned long data)
+static void cell_virtual_cntr(struct timer_list *unused)
 {
 	int i, prev_hdw_thread, next_hdw_thread;
 	u32 cpu;
@@ -580,9 +580,7 @@ static void cell_virtual_cntr(unsigned long data)
 
 static void start_virt_cntrs(void)
 {
-	init_timer(&timer_virt_cntr);
-	timer_virt_cntr.function = cell_virtual_cntr;
-	timer_virt_cntr.data = 0UL;
+	timer_setup(&timer_virt_cntr, cell_virtual_cntr, 0);
 	timer_virt_cntr.expires = jiffies + HZ / 10;
 	add_timer(&timer_virt_cntr);
 }
@@ -642,7 +640,7 @@ static int cell_reg_setup_spu_cycles(struct op_counter_config *ctr,
  * periodically based on kernel timer to switch which SPU is
  * being monitored in a round robbin fashion.
  */
-static void spu_evnt_swap(unsigned long data)
+static void spu_evnt_swap(struct timer_list *unused)
 {
 	int node;
 	int cur_phys_spu, nxt_phys_spu, cur_spu_evnt_phys_spu_indx;
@@ -732,9 +730,7 @@ static void spu_evnt_swap(unsigned long data)
 
 static void start_spu_event_swap(void)
 {
-	init_timer(&timer_spu_event_swap);
-	timer_spu_event_swap.function = spu_evnt_swap;
-	timer_spu_event_swap.data = 0UL;
+	timer_setup(&timer_spu_event_swap, spu_evnt_swap, 0);
 	timer_spu_event_swap.expires = jiffies + HZ / 25;
 	add_timer(&timer_spu_event_swap);
 }

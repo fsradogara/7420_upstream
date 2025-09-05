@@ -69,6 +69,7 @@
 
 #include <asm/pgtable.h>
 #include <asm/unwind.h>
+#include <asm/sections.h>
 
 #if 0
 #define DEBUGP printk
@@ -1117,3 +1118,18 @@ void *dereference_function_descriptor(void *ptr)
 }
 #endif
 }
+
+#ifdef CONFIG_64BIT
+void *dereference_module_function_descriptor(struct module *mod, void *ptr)
+{
+	unsigned long start_opd = (Elf64_Addr)mod->core_layout.base +
+				   mod->arch.fdesc_offset;
+	unsigned long end_opd = start_opd +
+				mod->arch.fdesc_count * sizeof(Elf64_Fdesc);
+
+	if (ptr < (void *)start_opd || ptr >= (void *)end_opd)
+		return ptr;
+
+	return dereference_function_descriptor(ptr);
+}
+#endif

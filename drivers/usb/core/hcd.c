@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright Linus Torvalds 1999
  * (C) Copyright Johannes Erdfelt 1999-2001
@@ -53,10 +54,10 @@
 #include <linux/phy/phy.h>
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
-#include <linux/usb/phy.h>
 #include <linux/usb/otg.h>
 
 #include "usb.h"
+#include "phy.h"
 
 
 /*-------------------------------------------------------------------------*/
@@ -733,6 +734,7 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 			else
 				goto error;
 			switch (hcd->speed) {
+			case HCD_USB32:
 			case HCD_USB31:
 				bufp = usb31_rh_dev_descriptor;
 				break;
@@ -763,6 +765,7 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 				bufp = fs_rh_config_descriptor;
 				len = sizeof fs_rh_config_descriptor;
 			switch (hcd->speed) {
+			case HCD_USB32:
 			case HCD_USB31:
 			case HCD_USB3:
 				bufp = ss_rh_config_descriptor;
@@ -999,9 +1002,11 @@ void usb_hcd_poll_rh_status(struct usb_hcd *hcd)
 EXPORT_SYMBOL_GPL(usb_hcd_poll_rh_status);
 
 /* timer callback */
-static void rh_timer_func (unsigned long _hcd)
+static void rh_timer_func (struct timer_list *t)
 {
-	usb_hcd_poll_rh_status((struct usb_hcd *) _hcd);
+	struct usb_hcd *_hcd = from_timer(_hcd, t, rh_timer);
+
+	usb_hcd_poll_rh_status(_hcd);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -2726,6 +2731,10 @@ int hcd_bus_suspend(struct usb_device *rhdev, pm_message_t msg)
 	} else {
 		hcd->state = old_state;
 
+		if (!PMSG_IS_AUTO(msg))
+			usb_phy_roothub_suspend(hcd->self.sysdev,
+						hcd->phy_roothub);
+
 		/* Did we race with a root-hub wakeup event? */
 		if (rhdev->do_remote_wakeup) {
 			char	buffer[6];
@@ -2768,6 +2777,14 @@ int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 		dev_dbg(&rhdev->dev, "skipped %s of dead bus\n", "resume");
 		return 0;
 	}
+
+	if (!PMSG_IS_AUTO(msg)) {
+		status = usb_phy_roothub_resume(hcd->self.sysdev,
+						hcd->phy_roothub);
+		if (status)
+			return status;
+	}
+
 	if (!hcd->driver->bus_resume)
 		return -ENOENT;
 	if (HCD_RH_RUNNING(hcd))
@@ -2812,6 +2829,7 @@ int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 		}
 	} else {
 		hcd->state = old_state;
+		usb_phy_roothub_suspend(hcd->self.sysdev, hcd->phy_roothub);
 		dev_dbg(&rhdev->dev, "bus %s fail, err %d\n",
 				"resume", status);
 		if (status != -ESHUTDOWN)
@@ -2854,6 +2872,7 @@ void usb_hcd_resume_root_hub (struct usb_hcd *hcd)
 	if (hcd->rh_registered)
 		queue_work(ksuspend_usb_wq, &hcd->wakeup_work);
 	if (hcd->rh_registered) {
+		pm_wakeup_event(&hcd->self.root_hub->dev, 0);
 		set_bit(HCD_FLAG_WAKEUP_PENDING, &hcd->flags);
 		queue_work(pm_wq, &hcd->wakeup_work);
 	}
@@ -3081,9 +3100,7 @@ struct usb_hcd *__usb_create_hcd(const struct hc_driver *driver,
 	hcd->self.bus_name = bus_name;
 	hcd->self.uses_dma = (sysdev->dma_mask != NULL);
 
-	init_timer(&hcd->rh_timer);
-	hcd->rh_timer.function = rh_timer_func;
-	hcd->rh_timer.data = (unsigned long) hcd;
+	timer_setup(&hcd->rh_timer, rh_timer_func, 0);
 #ifdef CONFIG_PM
 	INIT_WORK(&hcd->wakeup_work, hcd_resume_work);
 #endif
@@ -3340,44 +3357,18 @@ int usb_add_hcd(struct usb_hcd *hcd,
 	if ((rhdev = usb_alloc_dev(NULL, &hcd->self, 0)) == NULL) {
 	if (IS_ENABLED(CONFIG_USB_PHY) && !hcd->usb_phy) {
 		struct usb_phy *phy = usb_get_phy_dev(hcd->self.sysdev, 0);
+	if (!hcd->skip_phy_initialization && usb_hcd_is_primary_hcd(hcd)) {
+		hcd->phy_roothub = usb_phy_roothub_alloc(hcd->self.sysdev);
+		if (IS_ERR(hcd->phy_roothub))
+			return PTR_ERR(hcd->phy_roothub);
 
-		if (IS_ERR(phy)) {
-			retval = PTR_ERR(phy);
-			if (retval == -EPROBE_DEFER)
-				return retval;
-		} else {
-			retval = usb_phy_init(phy);
-			if (retval) {
-				usb_put_phy(phy);
-				return retval;
-			}
-			hcd->usb_phy = phy;
-			hcd->remove_phy = 1;
-		}
-	}
+		retval = usb_phy_roothub_init(hcd->phy_roothub);
+		if (retval)
+			return retval;
 
-	if (IS_ENABLED(CONFIG_GENERIC_PHY) && !hcd->phy) {
-		struct phy *phy = phy_get(hcd->self.sysdev, "usb");
-
-		if (IS_ERR(phy)) {
-			retval = PTR_ERR(phy);
-			if (retval == -EPROBE_DEFER)
-				goto err_phy;
-		} else {
-			retval = phy_init(phy);
-			if (retval) {
-				phy_put(phy);
-				goto err_phy;
-			}
-			retval = phy_power_on(phy);
-			if (retval) {
-				phy_exit(phy);
-				phy_put(phy);
-				goto err_phy;
-			}
-			hcd->phy = phy;
-			hcd->remove_phy = 1;
-		}
+		retval = usb_phy_roothub_power_on(hcd->phy_roothub);
+		if (retval)
+			goto err_usb_phy_roothub_power_on;
 	}
 
 	dev_info(hcd->self.controller, "%s\n", hcd->product_desc);
@@ -3426,6 +3417,9 @@ int usb_add_hcd(struct usb_hcd *hcd,
 	hcd->self.root_hub = rhdev;
 	mutex_unlock(&usb_port_peer_mutex);
 
+	rhdev->rx_lanes = 1;
+	rhdev->tx_lanes = 1;
+
 	switch (hcd->speed) {
 	case HCD_USB11:
 		rhdev->speed = USB_SPEED_FULL;
@@ -3439,6 +3433,10 @@ int usb_add_hcd(struct usb_hcd *hcd,
 	case HCD_USB3:
 		rhdev->speed = USB_SPEED_SUPER;
 		break;
+	case HCD_USB32:
+		rhdev->rx_lanes = 2;
+		rhdev->tx_lanes = 2;
+		/* fall through */
 	case HCD_USB31:
 		rhdev->speed = USB_SPEED_SUPER_PLUS;
 		break;
@@ -3606,18 +3604,10 @@ err_register_bus:
 	return retval;
 } 
 err_create_buf:
-	if (IS_ENABLED(CONFIG_GENERIC_PHY) && hcd->remove_phy && hcd->phy) {
-		phy_power_off(hcd->phy);
-		phy_exit(hcd->phy);
-		phy_put(hcd->phy);
-		hcd->phy = NULL;
-	}
-err_phy:
-	if (hcd->remove_phy && hcd->usb_phy) {
-		usb_phy_shutdown(hcd->usb_phy);
-		usb_put_phy(hcd->usb_phy);
-		hcd->usb_phy = NULL;
-	}
+	usb_phy_roothub_power_off(hcd->phy_roothub);
+err_usb_phy_roothub_power_on:
+	usb_phy_roothub_exit(hcd->phy_roothub);
+
 	return retval;
 }
 EXPORT_SYMBOL_GPL(usb_add_hcd);
@@ -3708,17 +3698,8 @@ void usb_remove_hcd(struct usb_hcd *hcd)
 	usb_deregister_bus(&hcd->self);
 	hcd_buffer_destroy(hcd);
 
-	if (IS_ENABLED(CONFIG_GENERIC_PHY) && hcd->remove_phy && hcd->phy) {
-		phy_power_off(hcd->phy);
-		phy_exit(hcd->phy);
-		phy_put(hcd->phy);
-		hcd->phy = NULL;
-	}
-	if (hcd->remove_phy && hcd->usb_phy) {
-		usb_phy_shutdown(hcd->usb_phy);
-		usb_put_phy(hcd->usb_phy);
-		hcd->usb_phy = NULL;
-	}
+	usb_phy_roothub_power_off(hcd->phy_roothub);
+	usb_phy_roothub_exit(hcd->phy_roothub);
 
 	usb_put_invalidate_rhdev(hcd);
 	hcd->flags = 0;

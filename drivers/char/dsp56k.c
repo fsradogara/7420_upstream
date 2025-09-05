@@ -431,7 +431,7 @@ static long dsp56k_ioctl(struct file *file, unsigned int cmd,
  * Do I need this function at all???
  */
 #if 0
-static unsigned int dsp56k_poll(struct file *file, poll_table *wait)
+static __poll_t dsp56k_poll(struct file *file, poll_table *wait)
 {
 	int dev = iminor(file->f_path.dentry->d_inode) & 0x0f;
 	int dev = iminor(file_inode(file)) & 0x0f;
@@ -440,7 +440,7 @@ static unsigned int dsp56k_poll(struct file *file, poll_table *wait)
 	{
 	case DSP56K_DEV_56001:
 		/* poll_wait(file, ???, wait); */
-		return POLLIN | POLLRDNORM | POLLOUT;
+		return EPOLLIN | EPOLLRDNORM | EPOLLOUT;
 
 	default:
 		printk("DSP56k driver: Unknown minor device: %d\n", dev);

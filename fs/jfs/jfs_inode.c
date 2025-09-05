@@ -178,9 +178,10 @@ fail_drop:
 	dquot_drop(inode);
 	inode->i_flags |= S_NOQUOTA;
 	clear_nlink(inode);
-	unlock_new_inode(inode);
+	discard_new_inode(inode);
+	return ERR_PTR(rc);
+
 fail_put:
 	iput(inode);
-fail:
 	return ERR_PTR(rc);
 }

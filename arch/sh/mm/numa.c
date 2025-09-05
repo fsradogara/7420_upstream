@@ -8,7 +8,6 @@
  * for more details.
  */
 #include <linux/module.h>
-#include <linux/bootmem.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
 #include <linux/numa.h>
@@ -60,9 +59,7 @@ void __init setup_bootmem_node(int nid, unsigned long start, unsigned long end)
 	end_pfn = end >> PAGE_SHIFT;
 void __init setup_bootmem_node(int nid, unsigned long start, unsigned long end)
 {
-	unsigned long bootmap_pages;
 	unsigned long start_pfn, end_pfn;
-	unsigned long bootmem_paddr;
 
 	/* Don't allow bogus node assignment */
 	BUG_ON(nid >= MAX_NUMNODES || nid <= 0);
@@ -84,7 +81,6 @@ void __init setup_bootmem_node(int nid, unsigned long start, unsigned long end)
 					     SMP_CACHE_BYTES, end));
 	memset(NODE_DATA(nid), 0, sizeof(struct pglist_data));
 
-	NODE_DATA(nid)->bdata = &bootmem_node_data[nid];
 	NODE_DATA(nid)->node_start_pfn = start_pfn;
 	NODE_DATA(nid)->node_spanned_pages = end_pfn - start_pfn;
 

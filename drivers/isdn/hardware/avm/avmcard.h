@@ -775,6 +775,7 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr);
 int b1ctl_read_proc(char *page, char **start, off_t off,
         		int count, int *eof, struct capi_ctr *ctrl);
 extern const struct file_operations b1ctl_proc_fops;
+int b1_proc_show(struct seq_file *m, void *v);
 
 avmcard_dmainfo *avmcard_dma_alloc(char *name, struct pci_dev *,
 				   long rsize, long ssize);
@@ -800,6 +801,6 @@ int b1dmactl_read_proc(char *page, char **start, off_t off,
 			 capi_register_params *rp);
 void b1dma_release_appl(struct capi_ctr *ctrl, u16 appl);
 u16  b1dma_send_message(struct capi_ctr *ctrl, struct sk_buff *skb);
-extern const struct file_operations b1dmactl_proc_fops;
+int b1dma_proc_show(struct seq_file *m, void *v);
 
 #endif /* _AVMCARD_H_ */

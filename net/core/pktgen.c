@@ -201,6 +201,32 @@
 
 #define func_enter() pr_debug("entering %s\n", __func__);
 
+#define PKT_FLAGS							\
+	pf(IPV6)		/* Interface in IPV6 Mode */		\
+	pf(IPSRC_RND)		/* IP-Src Random  */			\
+	pf(IPDST_RND)		/* IP-Dst Random  */			\
+	pf(TXSIZE_RND)		/* Transmit size is random */		\
+	pf(UDPSRC_RND)		/* UDP-Src Random */			\
+	pf(UDPDST_RND)		/* UDP-Dst Random */			\
+	pf(UDPCSUM)		/* Include UDP checksum */		\
+	pf(NO_TIMESTAMP)	/* Don't timestamp packets (default TS) */ \
+	pf(MPLS_RND)		/* Random MPLS labels */		\
+	pf(QUEUE_MAP_RND)	/* queue map Random */			\
+	pf(QUEUE_MAP_CPU)	/* queue map mirrors smp_processor_id() */ \
+	pf(FLOW_SEQ)		/* Sequential flows */			\
+	pf(IPSEC)		/* ipsec on for flows */		\
+	pf(MACSRC_RND)		/* MAC-Src Random */			\
+	pf(MACDST_RND)		/* MAC-Dst Random */			\
+	pf(VID_RND)		/* Random VLAN ID */			\
+	pf(SVID_RND)		/* Random SVLAN ID */			\
+	pf(NODE)		/* Node memory alloc*/			\
+
+#define pf(flag)		flag##_SHIFT,
+enum pkt_flags {
+	PKT_FLAGS
+};
+#undef pf
+
 /* Device flag bits */
 #define F_IPSRC_RND   (1<<0)	/* IP-Src Random  */
 #define F_IPDST_RND   (1<<1)	/* IP-Dst Random  */
@@ -229,6 +255,17 @@
 #define F_NODE          (1<<15)	/* Node memory alloc*/
 #define F_UDPCSUM       (1<<16)	/* Include UDP checksum */
 #define F_NO_TIMESTAMP  (1<<17)	/* Don't timestamp packets (default TS) */
+#define pf(flag)		static const __u32 F_##flag = (1<<flag##_SHIFT);
+PKT_FLAGS
+#undef pf
+
+#define pf(flag)		__stringify(flag),
+static char *pkt_flag_names[] = {
+	PKT_FLAGS
+};
+#undef pf
+
+#define NR_PKT_FLAGS		ARRAY_SIZE(pkt_flag_names)
 
 /* Thread control flag bits */
 #define T_STOP        (1<<0)	/* Stop run */
@@ -485,7 +522,7 @@ struct pktgen_dev {
 	__u8	ipsmode;		/* IPSEC mode (config) */
 	__u8	ipsproto;		/* IPSEC type (config) */
 	__u32	spi;
-	struct dst_entry dst;
+	struct xfrm_dst xdst;
 	struct dst_ops dstops;
 #endif
 	char result[512];
@@ -683,7 +720,6 @@ static int pgctrl_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations pktgen_fops = {
-	.owner   = THIS_MODULE,
 	.open    = pgctrl_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
@@ -700,6 +736,7 @@ static int pktgen_if_show(struct seq_file *seq, void *v)
 	DECLARE_MAC_BUF(mac);
 	const struct pktgen_dev *pkt_dev = seq->private;
 	ktime_t stopped;
+	unsigned int i;
 	u64 idle;
 
 	seq_printf(seq,
@@ -920,68 +957,21 @@ static int pktgen_if_show(struct seq_file *seq, void *v)
 
 	seq_puts(seq, "     Flags: ");
 
-	if (pkt_dev->flags & F_IPV6)
-		seq_puts(seq, "IPV6  ");
+	for (i = 0; i < NR_PKT_FLAGS; i++) {
+		if (i == F_FLOW_SEQ)
+			if (!pkt_dev->cflows)
+				continue;
 
-	if (pkt_dev->flags & F_IPSRC_RND)
-		seq_puts(seq, "IPSRC_RND  ");
-
-	if (pkt_dev->flags & F_IPDST_RND)
-		seq_puts(seq, "IPDST_RND  ");
-
-	if (pkt_dev->flags & F_TXSIZE_RND)
-		seq_puts(seq, "TXSIZE_RND  ");
-
-	if (pkt_dev->flags & F_UDPSRC_RND)
-		seq_puts(seq, "UDPSRC_RND  ");
-
-	if (pkt_dev->flags & F_UDPDST_RND)
-		seq_puts(seq, "UDPDST_RND  ");
-
-	if (pkt_dev->flags & F_UDPCSUM)
-		seq_puts(seq, "UDPCSUM  ");
-
-	if (pkt_dev->flags & F_NO_TIMESTAMP)
-		seq_puts(seq, "NO_TIMESTAMP  ");
-
-	if (pkt_dev->flags & F_MPLS_RND)
-		seq_puts(seq,  "MPLS_RND  ");
-
-	if (pkt_dev->flags & F_QUEUE_MAP_RND)
-		seq_puts(seq,  "QUEUE_MAP_RND  ");
-
-	if (pkt_dev->flags & F_QUEUE_MAP_CPU)
-		seq_puts(seq,  "QUEUE_MAP_CPU  ");
-
-	if (pkt_dev->cflows) {
-		if (pkt_dev->flags & F_FLOW_SEQ)
-			seq_puts(seq,  "FLOW_SEQ  "); /*in sequence flows*/
-		else
-			seq_puts(seq,  "FLOW_RND  ");
-	}
+		if (pkt_dev->flags & (1 << i))
+			seq_printf(seq, "%s  ", pkt_flag_names[i]);
+		else if (i == F_FLOW_SEQ)
+			seq_puts(seq, "FLOW_RND  ");
 
 #ifdef CONFIG_XFRM
-	if (pkt_dev->flags & F_IPSEC_ON) {
-		seq_puts(seq,  "IPSEC  ");
-		if (pkt_dev->spi)
+		if (i == F_IPSEC && pkt_dev->spi)
 			seq_printf(seq, "spi:%u", pkt_dev->spi);
-	}
 #endif
-
-	if (pkt_dev->flags & F_MACSRC_RND)
-		seq_puts(seq, "MACSRC_RND  ");
-
-	if (pkt_dev->flags & F_MACDST_RND)
-		seq_puts(seq, "MACDST_RND  ");
-
-	if (pkt_dev->flags & F_VID_RND)
-		seq_puts(seq, "VID_RND  ");
-
-	if (pkt_dev->flags & F_SVID_RND)
-		seq_puts(seq, "SVID_RND  ");
-
-	if (pkt_dev->flags & F_NODE)
-		seq_puts(seq, "NODE_ALLOC  ");
+	}
 
 	seq_puts(seq, "\n");
 
@@ -1174,6 +1164,35 @@ static ssize_t get_labels(const char __user *buffer, struct pktgen_dev *pkt_dev)
 	return i;
 }
 
+static __u32 pktgen_read_flag(const char *f, bool *disable)
+{
+	__u32 i;
+
+	if (f[0] == '!') {
+		*disable = true;
+		f++;
+	}
+
+	for (i = 0; i < NR_PKT_FLAGS; i++) {
+		if (!IS_ENABLED(CONFIG_XFRM) && i == IPSEC_SHIFT)
+			continue;
+
+		/* allow only disabling ipv6 flag */
+		if (!*disable && i == IPV6_SHIFT)
+			continue;
+
+		if (strcmp(f, pkt_flag_names[i]) == 0)
+			return 1 << i;
+	}
+
+	if (strcmp(f, "FLOW_RND") == 0) {
+		*disable = !*disable;
+		return F_FLOW_SEQ;
+	}
+
+	return 0;
+}
+
 static ssize_t pktgen_if_write(struct file *file,
 			       const char __user * user_buffer, size_t count,
 			       loff_t * offset)
@@ -1251,6 +1270,14 @@ static ssize_t pktgen_if_write(struct file *file,
 		tb[copy] = 0;
 		pr_debug("%s,%lu  buffer -:%s:-\n",
 			 name, (unsigned long)count, tb);
+		size_t copy = min_t(size_t, count + 1, 1024);
+		char *tp = strndup_user(user_buffer, copy);
+
+		if (IS_ERR(tp))
+			return PTR_ERR(tp);
+
+		pr_debug("%s,%zu  buffer -:%s:-\n", name, count, tp);
+		kfree(tp);
 	}
 
 	if (!strcmp(name, "min_pkt_size")) {
@@ -1606,7 +1633,10 @@ static ssize_t pktgen_if_write(struct file *file,
 		return count;
 	}
 	if (!strcmp(name, "flag")) {
+		__u32 flag;
 		char f[32];
+		bool disable = false;
+
 		memset(f, 0, 32);
 		len = strn_len(&user_buffer[i], sizeof(f) - 1);
 		if (len < 0) {
@@ -1618,107 +1648,15 @@ static ssize_t pktgen_if_write(struct file *file,
 		if (copy_from_user(f, &user_buffer[i], len))
 			return -EFAULT;
 		i += len;
-		if (strcmp(f, "IPSRC_RND") == 0)
-			pkt_dev->flags |= F_IPSRC_RND;
 
-		else if (strcmp(f, "!IPSRC_RND") == 0)
-			pkt_dev->flags &= ~F_IPSRC_RND;
+		flag = pktgen_read_flag(f, &disable);
 
-		else if (strcmp(f, "TXSIZE_RND") == 0)
-			pkt_dev->flags |= F_TXSIZE_RND;
-
-		else if (strcmp(f, "!TXSIZE_RND") == 0)
-			pkt_dev->flags &= ~F_TXSIZE_RND;
-
-		else if (strcmp(f, "IPDST_RND") == 0)
-			pkt_dev->flags |= F_IPDST_RND;
-
-		else if (strcmp(f, "!IPDST_RND") == 0)
-			pkt_dev->flags &= ~F_IPDST_RND;
-
-		else if (strcmp(f, "UDPSRC_RND") == 0)
-			pkt_dev->flags |= F_UDPSRC_RND;
-
-		else if (strcmp(f, "!UDPSRC_RND") == 0)
-			pkt_dev->flags &= ~F_UDPSRC_RND;
-
-		else if (strcmp(f, "UDPDST_RND") == 0)
-			pkt_dev->flags |= F_UDPDST_RND;
-
-		else if (strcmp(f, "!UDPDST_RND") == 0)
-			pkt_dev->flags &= ~F_UDPDST_RND;
-
-		else if (strcmp(f, "MACSRC_RND") == 0)
-			pkt_dev->flags |= F_MACSRC_RND;
-
-		else if (strcmp(f, "!MACSRC_RND") == 0)
-			pkt_dev->flags &= ~F_MACSRC_RND;
-
-		else if (strcmp(f, "MACDST_RND") == 0)
-			pkt_dev->flags |= F_MACDST_RND;
-
-		else if (strcmp(f, "!MACDST_RND") == 0)
-			pkt_dev->flags &= ~F_MACDST_RND;
-
-		else if (strcmp(f, "MPLS_RND") == 0)
-			pkt_dev->flags |= F_MPLS_RND;
-
-		else if (strcmp(f, "!MPLS_RND") == 0)
-			pkt_dev->flags &= ~F_MPLS_RND;
-
-		else if (strcmp(f, "VID_RND") == 0)
-			pkt_dev->flags |= F_VID_RND;
-
-		else if (strcmp(f, "!VID_RND") == 0)
-			pkt_dev->flags &= ~F_VID_RND;
-
-		else if (strcmp(f, "SVID_RND") == 0)
-			pkt_dev->flags |= F_SVID_RND;
-
-		else if (strcmp(f, "!SVID_RND") == 0)
-			pkt_dev->flags &= ~F_SVID_RND;
-
-		else if (strcmp(f, "FLOW_SEQ") == 0)
-			pkt_dev->flags |= F_FLOW_SEQ;
-
-		else if (strcmp(f, "QUEUE_MAP_RND") == 0)
-			pkt_dev->flags |= F_QUEUE_MAP_RND;
-
-		else if (strcmp(f, "!QUEUE_MAP_RND") == 0)
-			pkt_dev->flags &= ~F_QUEUE_MAP_RND;
-
-		else if (strcmp(f, "QUEUE_MAP_CPU") == 0)
-			pkt_dev->flags |= F_QUEUE_MAP_CPU;
-
-		else if (strcmp(f, "!QUEUE_MAP_CPU") == 0)
-			pkt_dev->flags &= ~F_QUEUE_MAP_CPU;
-#ifdef CONFIG_XFRM
-		else if (strcmp(f, "IPSEC") == 0)
-			pkt_dev->flags |= F_IPSEC_ON;
-#endif
-
-		else if (strcmp(f, "!IPV6") == 0)
-			pkt_dev->flags &= ~F_IPV6;
-
-		else if (strcmp(f, "NODE_ALLOC") == 0)
-			pkt_dev->flags |= F_NODE;
-
-		else if (strcmp(f, "!NODE_ALLOC") == 0)
-			pkt_dev->flags &= ~F_NODE;
-
-		else if (strcmp(f, "UDPCSUM") == 0)
-			pkt_dev->flags |= F_UDPCSUM;
-
-		else if (strcmp(f, "!UDPCSUM") == 0)
-			pkt_dev->flags &= ~F_UDPCSUM;
-
-		else if (strcmp(f, "NO_TIMESTAMP") == 0)
-			pkt_dev->flags |= F_NO_TIMESTAMP;
-
-		else if (strcmp(f, "!NO_TIMESTAMP") == 0)
-			pkt_dev->flags &= ~F_NO_TIMESTAMP;
-
-		else {
+		if (flag) {
+			if (disable)
+				pkt_dev->flags &= ~flag;
+			else
+				pkt_dev->flags |= flag;
+		} else {
 			sprintf(pg_result,
 				"Flag -:%s:- unknown\nAvailable flags, (prepend ! to un-set flag):\n%s",
 				f,
@@ -1750,7 +1688,7 @@ static ssize_t pktgen_if_write(struct file *file,
 		buf[len] = 0;
 		if (strcmp(buf, pkt_dev->dst_min) != 0) {
 			memset(pkt_dev->dst_min, 0, sizeof(pkt_dev->dst_min));
-			strncpy(pkt_dev->dst_min, buf, len);
+			strcpy(pkt_dev->dst_min, buf);
 			pkt_dev->daddr_min = in_aton(pkt_dev->dst_min);
 			pkt_dev->cur_daddr = pkt_dev->daddr_min;
 		}
@@ -1770,14 +1708,12 @@ static ssize_t pktgen_if_write(struct file *file,
 		if (len < 0)
 			return len;
 
-
 		if (copy_from_user(buf, &user_buffer[i], len))
 			return -EFAULT;
-
 		buf[len] = 0;
 		if (strcmp(buf, pkt_dev->dst_max) != 0) {
 			memset(pkt_dev->dst_max, 0, sizeof(pkt_dev->dst_max));
-			strncpy(pkt_dev->dst_max, buf, len);
+			strcpy(pkt_dev->dst_max, buf);
 			pkt_dev->daddr_max = in_aton(pkt_dev->dst_max);
 			pkt_dev->cur_daddr = pkt_dev->daddr_max;
 		}
@@ -1917,7 +1853,7 @@ static ssize_t pktgen_if_write(struct file *file,
 		buf[len] = 0;
 		if (strcmp(buf, pkt_dev->src_min) != 0) {
 			memset(pkt_dev->src_min, 0, sizeof(pkt_dev->src_min));
-			strncpy(pkt_dev->src_min, buf, len);
+			strcpy(pkt_dev->src_min, buf);
 			pkt_dev->saddr_min = in_aton(pkt_dev->src_min);
 			pkt_dev->cur_saddr = pkt_dev->saddr_min;
 		}
@@ -1942,7 +1878,7 @@ static ssize_t pktgen_if_write(struct file *file,
 		buf[len] = 0;
 		if (strcmp(buf, pkt_dev->src_max) != 0) {
 			memset(pkt_dev->src_max, 0, sizeof(pkt_dev->src_max));
-			strncpy(pkt_dev->src_max, buf, len);
+			strcpy(pkt_dev->src_max, buf);
 			pkt_dev->saddr_max = in_aton(pkt_dev->src_max);
 			pkt_dev->cur_saddr = pkt_dev->saddr_max;
 		}
@@ -2376,7 +2312,6 @@ static int pktgen_if_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations pktgen_if_fops = {
-	.owner   = THIS_MODULE,
 	.open    = pktgen_if_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
@@ -2552,7 +2487,6 @@ static int pktgen_thread_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations pktgen_thread_fops = {
-	.owner   = THIS_MODULE,
 	.open    = pktgen_thread_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
@@ -2886,7 +2820,7 @@ static void pktgen_setup_inject(struct pktgen_dev *pkt_dev)
 						+ pkt_dev->pkt_overhead;
 		}
 
-		for (i = 0; i < IN6_ADDR_HSIZE; i++)
+		for (i = 0; i < sizeof(struct in6_addr); i++)
 			if (pkt_dev->cur_in6_saddr.s6_addr[i]) {
 				set = 1;
 				break;
@@ -3127,7 +3061,7 @@ static void get_ipsec_sa(struct pktgen_dev *pkt_dev, int flow)
 			x = xfrm_state_lookup_byspi(pn->net, htonl(pkt_dev->spi), AF_INET);
 		} else {
 			/* slow path: we dont already have xfrm_state */
-			x = xfrm_stateonly_find(pn->net, DUMMY_MARK,
+			x = xfrm_stateonly_find(pn->net, DUMMY_MARK, 0,
 						(xfrm_address_t *)&pkt_dev->cur_daddr,
 						(xfrm_address_t *)&pkt_dev->cur_saddr,
 						AF_INET,
@@ -3367,7 +3301,7 @@ static void mod_cur_headers(struct pktgen_dev *pkt_dev)
 				pkt_dev->flows[flow].cur_daddr =
 				    pkt_dev->cur_daddr;
 #ifdef CONFIG_XFRM
-				if (pkt_dev->flags & F_IPSEC_ON)
+				if (pkt_dev->flags & F_IPSEC)
 					get_ipsec_sa(pkt_dev, flow);
 #endif
 				pkt_dev->nflows++;
@@ -3466,7 +3400,7 @@ static inline void free_SAs(struct pktgen_dev *pkt_dev)
 	 * supports both transport/tunnel mode + ESP/AH type.
 	 */
 	if ((x->props.mode == XFRM_MODE_TUNNEL) && (pkt_dev->spi != 0))
-		skb->_skb_refdst = (unsigned long)&pkt_dev->dst | SKB_DST_NOREF;
+		skb->_skb_refdst = (unsigned long)&pkt_dev->xdst.u.dst | SKB_DST_NOREF;
 
 	rcu_read_lock_bh();
 	err = x->outer_mode->output(x, skb);
@@ -3507,7 +3441,7 @@ static inline int process_ipsec(struct pktgen_dev *pkt_dev,
 static int process_ipsec(struct pktgen_dev *pkt_dev,
 			      struct sk_buff *skb, __be16 protocol)
 {
-	if (pkt_dev->flags & F_IPSEC_ON) {
+	if (pkt_dev->flags & F_IPSEC) {
 		struct xfrm_state *x = pkt_dev->flows[pkt_dev->curfl].x;
 		int nhead = 0;
 		if (x) {
@@ -3594,7 +3528,7 @@ static inline __be16 build_tci(unsigned int id, unsigned int cfi,
 static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 				int datalen)
 {
-	struct timeval timestamp;
+	struct timespec64 timestamp;
 	struct pktgen_hdr *pgh;
 
 	pgh = skb_put(skb, sizeof(*pgh));
@@ -3656,9 +3590,17 @@ static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 		pgh->tv_sec = 0;
 		pgh->tv_usec = 0;
 	} else {
-		do_gettimeofday(&timestamp);
+		/*
+		 * pgh->tv_sec wraps in y2106 when interpreted as unsigned
+		 * as done by wireshark, or y2038 when interpreted as signed.
+		 * This is probably harmless, but if anyone wants to improve
+		 * it, we could introduce a variant that puts 64-bit nanoseconds
+		 * into the respective header bytes.
+		 * This would also be slightly faster to read.
+		 */
+		ktime_get_real_ts64(&timestamp);
 		pgh->tv_sec = htonl(timestamp.tv_sec);
-		pgh->tv_usec = htonl(timestamp.tv_usec);
+		pgh->tv_usec = htonl(timestamp.tv_nsec / NSEC_PER_USEC);
 	}
 }
 
@@ -4910,7 +4852,7 @@ static void pktgen_wait_for_skb(struct pktgen_dev *pkt_dev)
 
 static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 {
-	unsigned int burst = ACCESS_ONCE(pkt_dev->burst);
+	unsigned int burst = READ_ONCE(pkt_dev->burst);
 	struct net_device *odev = pkt_dev->odev;
 	struct netdev_queue *txq;
 	struct sk_buff *skb;
@@ -5277,7 +5219,8 @@ static int pktgen_add_device(struct pktgen_thread *t, const char *ifname)
 		return -ENOMEM;
 
 	strcpy(pkt_dev->odevname, ifname);
-	pkt_dev->flows = vzalloc_node(MAX_CFLOWS * sizeof(struct flow_state),
+	pkt_dev->flows = vzalloc_node(array_size(MAX_CFLOWS,
+						 sizeof(struct flow_state)),
 				      node);
 	if (pkt_dev->flows == NULL) {
 		kfree(pkt_dev);
@@ -5345,10 +5288,10 @@ static int pktgen_add_device(struct pktgen_thread *t, const char *ifname)
 	 * performance under such circumstance.
 	 */
 	pkt_dev->dstops.family = AF_INET;
-	pkt_dev->dst.dev = pkt_dev->odev;
-	dst_init_metrics(&pkt_dev->dst, pktgen_dst_metrics, false);
-	pkt_dev->dst.child = &pkt_dev->dst;
-	pkt_dev->dst.ops = &pkt_dev->dstops;
+	pkt_dev->xdst.u.dst.dev = pkt_dev->odev;
+	dst_init_metrics(&pkt_dev->xdst.u.dst, pktgen_dst_metrics, false);
+	pkt_dev->xdst.child = &pkt_dev->xdst.u.dst;
+	pkt_dev->xdst.u.dst.ops = &pkt_dev->dstops;
 #endif
 
 	return add_dev_to_thread(t, pkt_dev);

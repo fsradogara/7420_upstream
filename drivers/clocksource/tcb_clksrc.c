@@ -472,7 +472,7 @@ static int __init tcb_clksrc_init(void)
 
 	printk(bootinfo, clksrc.name, CONFIG_ATMEL_TCB_CLKSRC_BLOCK,
 			divided_rate / 1000000,
-			((divided_rate + 500000) % 1000000) / 1000);
+			((divided_rate % 1000000) + 500) / 1000);
 
 	/* tclib will give us three clocks no matter what the
 	 * underlying platform supports.

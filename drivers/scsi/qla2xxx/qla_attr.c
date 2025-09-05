@@ -795,6 +795,9 @@ qla2x00_sysfs_write_vpd(struct file *filp, struct kobject *kobj,
 	if (unlikely(pci_channel_offline(ha->pdev)))
 		return 0;
 
+	if (qla2x00_chip_is_down(vha))
+		return 0;
+
 	if (!capable(CAP_SYS_ADMIN) || off != 0 || count != ha->vpd_size ||
 	    !ha->isp_ops->write_nvram)
 		return 0;
@@ -863,6 +866,7 @@ qla2x00_sysfs_read_sfp(struct file *filp, struct kobject *kobj,
 		ql_log(ql_log_warn, vha, 0x706c,
 		    "Unable to allocate memory for SFP read-data.\n");
 	if (qla2x00_reset_active(vha))
+	if (qla2x00_chip_is_down(vha))
 		return 0;
 
 do_read:
@@ -1056,6 +1060,15 @@ qla2x00_issue_logo(struct file *filp, struct kobject *kobj,
 	int type;
 	port_id_t did;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return 0;
+
+	if (unlikely(pci_channel_offline(vha->hw->pdev)))
+		return 0;
+
+	if (qla2x00_chip_is_down(vha))
+		return 0;
+
 	type = simple_strtol(buf, NULL, 10);
 
 	did.b.domain = (type & 0x00ff0000) >> 16;
@@ -1092,6 +1105,12 @@ qla2x00_sysfs_read_xgmac_stats(struct file *filp, struct kobject *kobj,
 	uint16_t actual_size;
 
 	if (!capable(CAP_SYS_ADMIN) || off != 0 || count > XGMAC_DATA_SIZE)
+		return 0;
+
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		return 0;
+
+	if (qla2x00_chip_is_down(vha))
 		return 0;
 
 	if (ha->xgmac_data)
@@ -1147,6 +1166,9 @@ qla2x00_sysfs_read_dcbx_tlv(struct file *filp, struct kobject *kobj,
 
 	if (ha->dcbx_tlv)
 		goto do_read;
+
+	if (qla2x00_chip_is_down(vha))
+		return 0;
 
 	ha->dcbx_tlv = dma_alloc_coherent(&ha->pdev->dev, DCBX_TLV_DATA_SIZE,
 	    &ha->dcbx_tlv_dma, GFP_KERNEL);
@@ -1431,7 +1453,7 @@ qla2x00_link_state_show(struct device *dev, struct device_attribute *attr,
 	    vha->device_flags & DFLG_NO_CABLE)
 		len = scnprintf(buf, PAGE_SIZE, "Link Down\n");
 	else if (atomic_read(&vha->loop_state) != LOOP_READY ||
-	    qla2x00_reset_active(vha))
+	    qla2x00_chip_is_down(vha))
 		len = scnprintf(buf, PAGE_SIZE, "Unknown Link State\n");
 	else {
 		len = scnprintf(buf, PAGE_SIZE, "Link Up - ");
@@ -1585,6 +1607,7 @@ qla2x00_beacon_store(struct device *dev, struct device_attribute *attr,
 	if (test_bit(ABORT_ISP_ACTIVE, &ha->dpc_flags)) {
 		qla_printk(KERN_WARNING, ha,
 	if (test_bit(ABORT_ISP_ACTIVE, &vha->dpc_flags)) {
+	if (qla2x00_chip_is_down(vha)) {
 		ql_log(ql_log_warn, vha, 0x707a,
 		    "Abort ISP active -- ignoring beacon request.\n");
 		return -EBUSY;
@@ -1793,7 +1816,7 @@ qla2x00_thermal_temp_show(struct device *dev,
 	scsi_qla_host_t *vha = shost_priv(class_to_shost(dev));
 	uint16_t temp = 0;
 
-	if (qla2x00_reset_active(vha)) {
+	if (qla2x00_chip_is_down(vha)) {
 		ql_log(ql_log_warn, vha, 0x70dc, "ISP reset active.\n");
 		goto done;
 	}
@@ -1824,7 +1847,7 @@ qla2x00_fw_state_show(struct device *dev, struct device_attribute *attr,
 		return scnprintf(buf, PAGE_SIZE, "0x%x\n", pstate);
 	}
 
-	if (qla2x00_reset_active(vha))
+	if (qla2x00_chip_is_down(vha))
 		ql_log(ql_log_warn, vha, 0x707c,
 		    "ISP reset active.\n");
 	else if (!vha->hw->flags.eeh_busy)
@@ -2343,17 +2366,16 @@ qla2x00_get_fc_host_stats(struct Scsi_Host *shost)
 	if (unlikely(pci_channel_offline(ha->pdev)))
 		goto done;
 
-	if (qla2x00_reset_active(vha))
+	if (qla2x00_chip_is_down(vha))
 		goto done;
 
-	stats = dma_alloc_coherent(&ha->pdev->dev,
-	    sizeof(*stats), &stats_dma, GFP_KERNEL);
+	stats = dma_zalloc_coherent(&ha->pdev->dev, sizeof(*stats),
+				    &stats_dma, GFP_KERNEL);
 	if (!stats) {
 		ql_log(ql_log_warn, vha, 0x707d,
 		    "Failed to allocate memory for stats.\n");
 		goto done;
 	}
-	memset(stats, 0, sizeof(*stats));
 
 	rval = QLA_FUNCTION_FAILED;
 	if (IS_FWI2_CAPABLE(ha)) {
@@ -2739,6 +2761,7 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 		msleep(1000);
 
 	qla24xx_disable_vp(vha);
+	qla2x00_wait_for_sess_deletion(vha);
 
 	vha->flags.delete_progress = 1;
 
@@ -2768,6 +2791,8 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 
 	dma_free_coherent(&ha->pdev->dev, vha->gnl.size, vha->gnl.l,
 	    vha->gnl.ldma);
+
+	vfree(vha->scan.l);
 
 	if (vha->qpair && vha->qpair->vp_idx == vha->vp_idx) {
 		if (qla2xxx_delete_qpair(vha, vha->qpair) != QLA_SUCCESS)

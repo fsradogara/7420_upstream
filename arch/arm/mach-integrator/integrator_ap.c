@@ -54,7 +54,6 @@
 #include "hardware.h"
 #include "cm.h"
 #include "common.h"
-#include "pci_v3.h"
 #include "lm.h"
 
 /* Regmap to the AP system controller */

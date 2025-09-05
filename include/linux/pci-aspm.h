@@ -74,4 +74,8 @@ static inline void pcie_aspm_remove_sysfs_dev_files(struct pci_dev *pdev)
 {
 }
 #endif
+static inline void pci_disable_link_state(struct pci_dev *pdev, int state) { }
+static inline void pcie_no_aspm(void) { }
+#endif
+
 #endif /* LINUX_ASPM_H */

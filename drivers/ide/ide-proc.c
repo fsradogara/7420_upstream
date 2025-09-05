@@ -254,19 +254,6 @@ repeat:
 	return 0;
 }
 
-static int ide_imodel_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_imodel_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations ide_imodel_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_imodel_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static int ide_mate_proc_show(struct seq_file *m, void *v)
 {
 	ide_hwif_t	*hwif = (ide_hwif_t *) m->private;
@@ -278,19 +265,6 @@ static int ide_mate_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int ide_mate_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_mate_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations ide_mate_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_mate_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static int ide_channel_proc_show(struct seq_file *m, void *v)
 {
 	ide_hwif_t	*hwif = (ide_hwif_t *) m->private;
@@ -298,19 +272,6 @@ static int ide_channel_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "%c\n", hwif->channel ? '1' : '0');
 	return 0;
 }
-
-static int ide_channel_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_channel_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations ide_channel_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_channel_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 
 static int ide_identify_proc_show(struct seq_file *m, void *v)
 {
@@ -338,19 +299,6 @@ static int ide_identify_proc_show(struct seq_file *m, void *v)
 	kfree(buf);
 	return 0;
 }
-
-static int ide_identify_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_identify_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations ide_identify_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_identify_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 
 /**
  *	ide_find_setting	-	find a specific setting
@@ -854,27 +802,14 @@ static const struct file_operations ide_settings_proc_fops = {
 	.write		= ide_settings_proc_write,
 };
 
-static int ide_capacity_proc_show(struct seq_file *m, void *v)
+int ide_capacity_proc_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "%llu\n", (long long)0x7fffffff);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(ide_capacity_proc_show);
 
-static int ide_capacity_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_capacity_proc_show, NULL);
-}
-
-const struct file_operations ide_capacity_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_capacity_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-EXPORT_SYMBOL_GPL(ide_capacity_proc_fops);
-
-static int ide_geometry_proc_show(struct seq_file *m, void *v)
+int ide_geometry_proc_show(struct seq_file *m, void *v)
 {
 	ide_drive_t	*drive = (ide_drive_t *) m->private;
 
@@ -884,20 +819,7 @@ static int ide_geometry_proc_show(struct seq_file *m, void *v)
 			drive->bios_cyl, drive->bios_head, drive->bios_sect);
 	return 0;
 }
-
-static int ide_geometry_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_geometry_proc_show, PDE_DATA(inode));
-}
-
-const struct file_operations ide_geometry_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_geometry_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-EXPORT_SYMBOL(ide_geometry_proc_fops);
+EXPORT_SYMBOL(ide_geometry_proc_show);
 
 static int ide_dmodel_proc_show(struct seq_file *seq, void *v)
 {
@@ -907,19 +829,6 @@ static int ide_dmodel_proc_show(struct seq_file *seq, void *v)
 	seq_printf(seq, "%.40s\n", m[0] ? m : "(none)");
 	return 0;
 }
-
-static int ide_dmodel_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ide_dmodel_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations ide_dmodel_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= ide_dmodel_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 
 static int ide_driver_proc_show(struct seq_file *m, void *v)
 {
@@ -1050,11 +959,10 @@ static const struct file_operations ide_media_proc_fops = {
 };
 
 static ide_proc_entry_t generic_drive_entries[] = {
-	{ "driver",	S_IFREG|S_IRUGO,	 &ide_driver_proc_fops	},
-	{ "identify",	S_IFREG|S_IRUSR,	 &ide_identify_proc_fops},
-	{ "media",	S_IFREG|S_IRUGO,	 &ide_media_proc_fops	},
-	{ "model",	S_IFREG|S_IRUGO,	 &ide_dmodel_proc_fops	},
-	{ "settings",	S_IFREG|S_IRUSR|S_IWUSR, &ide_settings_proc_fops},
+	{ "driver",	S_IFREG|S_IRUGO,	 ide_driver_proc_show	},
+	{ "identify",	S_IFREG|S_IRUSR,	 ide_identify_proc_show	},
+	{ "media",	S_IFREG|S_IRUGO,	 ide_media_proc_show	},
+	{ "model",	S_IFREG|S_IRUGO,	 ide_dmodel_proc_show	},
 	{}
 };
 
@@ -1071,6 +979,7 @@ static void ide_add_proc_entries(struct proc_dir_entry *dir, ide_proc_entry_t *p
 		ent->read_proc = p->read_proc;
 		ent->write_proc = p->write_proc;
 		ent = proc_create_data(p->name, p->mode, dir, p->proc_fops, data);
+		ent = proc_create_single_data(p->name, p->mode, dir, p->show, data);
 		if (!ent) return;
 		p++;
 	}
@@ -1174,8 +1083,12 @@ void ide_proc_port_register_devices(ide_hwif_t *hwif)
 			continue;
 
 		drive->proc = proc_mkdir(drive->name, parent);
-		if (drive->proc)
+		if (drive->proc) {
 			ide_add_proc_entries(drive->proc, generic_drive_entries, drive);
+			proc_create_data("setting", S_IFREG|S_IRUSR|S_IWUSR,
+					drive->proc, &ide_settings_proc_fops,
+					drive);
+		}
 		sprintf(name, "ide%d/%s", (drive->name[2]-'a')/2, drive->name);
 		ent = proc_symlink(drive->name, proc_ide_root, name);
 		if (!ent) return;
@@ -1185,6 +1098,7 @@ void ide_proc_port_register_devices(ide_hwif_t *hwif)
 void ide_proc_unregister_device(ide_drive_t *drive)
 {
 	if (drive->proc) {
+		remove_proc_entry("settings", drive->proc);
 		ide_remove_proc_entries(drive->proc, generic_drive_entries);
 		remove_proc_entry(drive->name, proc_ide_root);
 		remove_proc_entry(drive->name, drive->hwif->proc);
@@ -1200,6 +1114,9 @@ static ide_proc_entry_t hwif_entries[] = {
 	{ "channel",	S_IFREG|S_IRUGO,	&ide_channel_proc_fops	},
 	{ "mate",	S_IFREG|S_IRUGO,	&ide_mate_proc_fops	},
 	{ "model",	S_IFREG|S_IRUGO,	&ide_imodel_proc_fops	},
+	{ "channel",	S_IFREG|S_IRUGO,	ide_channel_proc_show	},
+	{ "mate",	S_IFREG|S_IRUGO,	ide_mate_proc_show	},
+	{ "model",	S_IFREG|S_IRUGO,	ide_imodel_proc_show	},
 	{}
 };
 

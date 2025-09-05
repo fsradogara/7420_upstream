@@ -136,14 +136,15 @@ isdn_divert_write(struct file *file, const char __user *buf, size_t count, loff_
 /***************************************/
 static unsigned int
 isdn_divert_poll(struct file *file, poll_table * wait)
+static __poll_t
 isdn_divert_poll(struct file *file, poll_table *wait)
 {
-	unsigned int mask = 0;
+	__poll_t mask = 0;
 
 	poll_wait(file, &(rd_queue), wait);
-	/* mask = POLLOUT | POLLWRNORM; */
+	/* mask = EPOLLOUT | EPOLLWRNORM; */
 	if (*((struct divert_info **) file->private_data)) {
-		mask |= POLLIN | POLLRDNORM;
+		mask |= EPOLLIN | EPOLLRDNORM;
 	}
 	return mask;
 }				/* isdn_divert_poll */

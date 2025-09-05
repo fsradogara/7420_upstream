@@ -261,7 +261,7 @@ EXPORT_SYMBOL(pcibios_bus_to_resource);
  * pcibios_init_bridge() initializes cache line and default latency
  * for pci controllers and pci-pci bridges
  */
-void __init pcibios_init_bridge(struct pci_dev *dev)
+void __ref pcibios_init_bridge(struct pci_dev *dev)
 {
 	unsigned short bridge_ctl, bridge_ctl_new;
 

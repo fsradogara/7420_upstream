@@ -21,6 +21,7 @@
 
 /* Enables debugging of low-level hash table routines - careful! */
 #undef DEBUG
+#define pr_fmt(fmt) "lpar: " fmt
 
 #include <linux/kernel.h>
 #include <linux/dma-mapping.h>
@@ -37,7 +38,6 @@
 #include <asm/abs_addr.h>
 #include <asm/mmu_context.h>
 #include <asm/iommu.h>
-#include <asm/tlbflush.h>
 #include <asm/tlb.h>
 #include <asm/prom.h>
 #include <asm/cputable.h>
@@ -302,7 +302,7 @@ void vpa_init(int cpu)
 		return;
 	}
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	/*
 	 * PAPR says this feature is SLB-Buffer but firmware never
 	 * reports that.  All SPLPAR support SLB shadow buffer.
@@ -318,19 +318,19 @@ void vpa_init(int cpu)
 	addr = __pa(paca[cpu].slb_shadow_ptr);
 	if (firmware_has_feature(FW_FEATURE_SPLPAR)) {
 	if (!radix_enabled() && firmware_has_feature(FW_FEATURE_SPLPAR)) {
-		addr = __pa(paca[cpu].slb_shadow_ptr);
+		addr = __pa(paca_ptrs[cpu]->slb_shadow_ptr);
 		ret = register_slb_shadow(hwcpu, addr);
 		if (ret)
 			pr_err("WARNING: SLB shadow buffer registration for "
 			       "cpu %d (hw %d) of area %lx failed with %ld\n",
 			       cpu, hwcpu, addr, ret);
 	}
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 
 	/*
 	 * Register dispatch trace log, if one has been allocated.
 	 */
-	pp = &paca[cpu];
+	pp = paca_ptrs[cpu];
 	dtl = pp->dispatch_log;
 	if (dtl) {
 		pp->dtl_ridx = 0;
@@ -348,7 +348,7 @@ void vpa_init(int cpu)
 	}
 }
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 
 static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
  			      unsigned long va, unsigned long pa,
@@ -405,6 +405,7 @@ static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
 		if (!(vflags & HPTE_V_BOLTED))
 			pr_debug(" full\n");
 			pr_devel(" full\n");
+		pr_devel("Hash table group is full\n");
 		return -1;
 	}
 
@@ -421,6 +422,7 @@ static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
 	if (!(vflags & HPTE_V_BOLTED))
 		pr_debug(" -> slot: %lu\n", slot & 7);
 			pr_devel(" lpar err %ld\n", lpar_rc);
+		pr_err("Failed hash pte insert with error %ld\n", lpar_rc);
 		return -2;
 	}
 	if (!(vflags & HPTE_V_BOLTED))
@@ -517,8 +519,11 @@ static inline unsigned long hpte_encode_avpn(unsigned long va, int psize,
          */
 	for (i = 0; i < hpte_count; i += 4) {
 		lpar_rc = plpar_pte_read_4_raw(0, i, (void *)ptes);
-		if (lpar_rc != H_SUCCESS)
+		if (lpar_rc != H_SUCCESS) {
+			pr_info("Failed to read hash page table at %ld err %ld\n",
+				i, lpar_rc);
 			continue;
+		}
 		for (j = 0; j < 4; j++){
 			if ((ptes[j].pteh & HPTE_V_VRMA_MASK) ==
 				HPTE_V_VRMA_MASK)
@@ -588,13 +593,13 @@ static long pSeries_lpar_hpte_updatepp(unsigned long slot,
 	pr_debug("    update: avpnv=%016lx, hash=%016lx, f=%lx, psize: %d ...",
 	want_v = hpte_encode_avpn(vpn, psize, ssize);
 
-	pr_devel("    update: avpnv=%016lx, hash=%016lx, f=%lx, psize: %d ...",
-		 want_v, slot, flags, psize);
-
 	flags = (newpp & 7) | H_AVPN;
 	if (mmu_has_feature(MMU_FTR_KERNEL_RO))
 		/* Move pp0 into bit 8 (IBM 55) */
 		flags |= (newpp & HPTE_R_PP0) >> 55;
+
+	pr_devel("    update: avpnv=%016lx, hash=%016lx, f=%lx, psize: %d ...",
+		 want_v, slot, flags, psize);
 
 	lpar_rc = plpar_pte_protect(flags, slot, want_v);
 
@@ -627,8 +632,11 @@ static long __pSeries_lpar_hpte_find(unsigned long want_v, unsigned long hpte_gr
 	for (i = 0; i < HPTES_PER_GROUP; i += 4, hpte_group += 4) {
 
 		lpar_rc = plpar_pte_read_4(0, hpte_group, (void *)ptes);
-		if (lpar_rc != H_SUCCESS)
+		if (lpar_rc != H_SUCCESS) {
+			pr_info("Failed to read hash page table at %ld err %ld\n",
+				hpte_group, lpar_rc);
 			continue;
+		}
 
 		for (j = 0; j < 4; j++) {
 			if (HPTE_V_COMPARE(ptes[j].pteh, want_v) &&
@@ -950,8 +958,8 @@ static int __init disable_bulk_remove(char *str)
 {
 	if (strcmp(str, "off") == 0 &&
 	    firmware_has_feature(FW_FEATURE_BULK_REMOVE)) {
-			printk(KERN_INFO "Disabling BULK_REMOVE firmware feature");
-			powerpc_firmware_features &= ~FW_FEATURE_BULK_REMOVE;
+		pr_info("Disabling BULK_REMOVE firmware feature");
+		powerpc_firmware_features &= ~FW_FEATURE_BULK_REMOVE;
 	}
 	return 1;
 }
@@ -997,8 +1005,7 @@ static int pseries_lpar_resize_hpt(unsigned long shift)
 	if (!firmware_has_feature(FW_FEATURE_HPT_RESIZE))
 		return -ENODEV;
 
-	printk(KERN_INFO "lpar: Attempting to resize HPT to shift %lu\n",
-	       shift);
+	pr_info("Attempting to resize HPT to shift %lu\n", shift);
 
 	t0 = ktime_get();
 
@@ -1010,8 +1017,7 @@ static int pseries_lpar_resize_hpt(unsigned long shift)
 			/* prepare with shift==0 cancels an in-progress resize */
 			rc = plpar_resize_hpt_prepare(0, 0);
 			if (rc != H_SUCCESS)
-				printk(KERN_WARNING
-				       "lpar: Unexpected error %d cancelling timed out HPT resize\n",
+				pr_warn("Unexpected error %d cancelling timed out HPT resize\n",
 				       rc);
 			return -ETIMEDOUT;
 		}
@@ -1029,9 +1035,7 @@ static int pseries_lpar_resize_hpt(unsigned long shift)
 	case H_RESOURCE:
 		return -EPERM;
 	default:
-		printk(KERN_WARNING
-		       "lpar: Unexpected error %d from H_RESIZE_HPT_PREPARE\n",
-		       rc);
+		pr_warn("Unexpected error %d from H_RESIZE_HPT_PREPARE\n", rc);
 		return -EIO;
 	}
 
@@ -1044,35 +1048,35 @@ static int pseries_lpar_resize_hpt(unsigned long shift)
 	if (rc != 0) {
 		switch (state.commit_rc) {
 		case H_PTEG_FULL:
-			printk(KERN_WARNING
-			       "lpar: Hash collision while resizing HPT\n");
+			pr_warn("Hash collision while resizing HPT\n");
 			return -ENOSPC;
 
 		default:
-			printk(KERN_WARNING
-			       "lpar: Unexpected error %d from H_RESIZE_HPT_COMMIT\n",
-			       state.commit_rc);
+			pr_warn("Unexpected error %d from H_RESIZE_HPT_COMMIT\n",
+				state.commit_rc);
 			return -EIO;
 		};
 	}
 
-	printk(KERN_INFO
-	       "lpar: HPT resize to shift %lu complete (%lld ms / %lld ms)\n",
-	       shift, (long long) ktime_ms_delta(t1, t0),
-	       (long long) ktime_ms_delta(t2, t1));
+	pr_info("HPT resize to shift %lu complete (%lld ms / %lld ms)\n",
+		shift, (long long) ktime_ms_delta(t1, t0),
+		(long long) ktime_ms_delta(t2, t1));
 
 	return 0;
 }
 
-/* Actually only used for radix, so far */
 static int pseries_lpar_register_process_table(unsigned long base,
 			unsigned long page_size, unsigned long table_size)
 {
 	long rc;
-	unsigned long flags = PROC_TABLE_NEW;
+	unsigned long flags = 0;
 
+	if (table_size)
+		flags |= PROC_TABLE_NEW;
 	if (radix_enabled())
 		flags |= PROC_TABLE_RADIX | PROC_TABLE_GTSE;
+	else
+		flags |= PROC_TABLE_HPT_SLB;
 	for (;;) {
 		rc = plpar_hcall_norets(H_REGISTER_PROC_TBL, flags, base,
 					page_size, table_size);
@@ -1098,6 +1102,7 @@ void __init hpte_init_pseries(void)
 	mmu_hash_ops.flush_hash_range	 = pSeries_lpar_flush_hash_range;
 	mmu_hash_ops.hpte_clear_all      = pseries_hpte_clear_all;
 	mmu_hash_ops.hugepage_invalidate = pSeries_lpar_hugepage_invalidate;
+	register_process_table		 = pseries_lpar_register_process_table;
 
 	if (firmware_has_feature(FW_FEATURE_HPT_RESIZE))
 		mmu_hash_ops.resize_hpt = pseries_lpar_resize_hpt;
@@ -1119,13 +1124,13 @@ static int __init cmo_free_hint(char *str)
 	parm = strstrip(str);
 
 	if (strcasecmp(parm, "no") == 0 || strcasecmp(parm, "off") == 0) {
-		printk(KERN_INFO "cmo_free_hint: CMO free page hinting is not active.\n");
+		pr_info("%s: CMO free page hinting is not active.\n", __func__);
 		cmo_free_hint_flag = 0;
 		return 1;
 	}
 
 	cmo_free_hint_flag = 1;
-	printk(KERN_INFO "cmo_free_hint: CMO free page hinting is active.\n");
+	pr_info("%s: CMO free page hinting is active.\n", __func__);
 
 	if (strcasecmp(parm, "yes") == 0 || strcasecmp(parm, "on") == 0)
 		return 1;
@@ -1162,7 +1167,7 @@ void arch_free_page(struct page *page, int order)
 EXPORT_SYMBOL(arch_free_page);
 
 #endif /* CONFIG_PPC_SMLPAR */
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 
 #ifdef CONFIG_TRACEPOINTS
 #ifdef HAVE_JUMP_LABEL
@@ -1236,8 +1241,7 @@ out:
 	local_irq_restore(flags);
 }
 
-void __trace_hcall_exit(long opcode, unsigned long retval,
-			unsigned long *retbuf)
+void __trace_hcall_exit(long opcode, long retval, unsigned long *retbuf)
 {
 	unsigned long flags;
 	unsigned int *depth;

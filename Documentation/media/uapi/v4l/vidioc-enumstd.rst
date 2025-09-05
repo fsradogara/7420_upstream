@@ -2,20 +2,23 @@
 
 .. _VIDIOC_ENUMSTD:
 
-********************
-ioctl VIDIOC_ENUMSTD
-********************
+*******************************************
+ioctl VIDIOC_ENUMSTD, VIDIOC_SUBDEV_ENUMSTD
+*******************************************
 
 Name
 ====
 
-VIDIOC_ENUMSTD - Enumerate supported video standards
+VIDIOC_ENUMSTD - VIDIOC_SUBDEV_ENUMSTD - Enumerate supported video standards
 
 
 Synopsis
 
 .. c:function:: int ioctl( int fd, VIDIOC_ENUMSTD, struct v4l2_standard *argp )
     :name: VIDIOC_ENUMSTD
+
+.. c:function:: int ioctl( int fd, VIDIOC_SUBDEV_ENUMSTD, struct v4l2_standard *argp )
+    :name: VIDIOC_SUBDEV_ENUMSTD
 
 
 Arguments

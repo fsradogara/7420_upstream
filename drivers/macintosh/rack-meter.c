@@ -161,8 +161,8 @@ static void rackmeter_do_pause(struct rackmeter *rm, int pause)
 		DBDMA_DO_STOP(rm->dma_regs);
 		return;
 	}
-	memset(rdma->buf1, 0, ARRAY_SIZE(rdma->buf1));
-	memset(rdma->buf2, 0, ARRAY_SIZE(rdma->buf2));
+	memset(rdma->buf1, 0, sizeof(rdma->buf1));
+	memset(rdma->buf2, 0, sizeof(rdma->buf2));
 
 	rm->dma_buf_v->mark = 0;
 
@@ -448,7 +448,7 @@ static int rackmeter_probe(struct macio_dev* mdev,
 	}
 
 	/* Create and initialize our instance data */
-	rm = kzalloc(sizeof(struct rackmeter), GFP_KERNEL);
+	rm = kzalloc(sizeof(*rm), GFP_KERNEL);
 	if (rm == NULL) {
 		printk(KERN_ERR "rackmeter: failed to allocate memory !\n");
 		rc = -ENOMEM;

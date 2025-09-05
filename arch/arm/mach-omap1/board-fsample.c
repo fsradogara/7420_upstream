@@ -362,7 +362,7 @@ static void __init omap_fsample_init(void)
 		nand_data.dev_ready = nand_dev_ready;
 };
 
-static struct omap_lcd_config fsample_lcd_config = {
+static const struct omap_lcd_config fsample_lcd_config = {
 	.ctrl_name	= "internal",
 };
 

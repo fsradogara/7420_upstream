@@ -150,7 +150,8 @@ void rtc_proc_add_device(struct rtc_device *rtc)
 			ent->owner = rtc->owner;
 	}
 	if (is_rtc_hctosys(rtc))
-		proc_create_data("driver/rtc", 0, NULL, &rtc_proc_fops, rtc);
+		proc_create_single_data("driver/rtc", 0, NULL, rtc_proc_show,
+				rtc);
 }
 
 void rtc_proc_del_device(struct rtc_device *rtc)

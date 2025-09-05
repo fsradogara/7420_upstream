@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/s390/net/ctcm_main.c
  *
@@ -1493,6 +1494,7 @@ static int add_channel(struct ccw_device *cdev, enum ctcm_channel_types type,
 	ch->ccw = (struct ccw1 *)
 		kzalloc(ccw_num * sizeof(struct ccw1), GFP_KERNEL | GFP_DMA);
 	ch->ccw = kzalloc(ccw_num * sizeof(struct ccw1), GFP_KERNEL | GFP_DMA);
+	ch->ccw = kcalloc(ccw_num, sizeof(struct ccw1), GFP_KERNEL | GFP_DMA);
 	if (ch->ccw == NULL)
 					goto nomem_return;
 
@@ -1979,6 +1981,7 @@ static struct ccwgroup_driver ctcm_group_driver = {
 		.owner	= THIS_MODULE,
 		.name	= CTC_DRIVER_NAME,
 	},
+	.ccw_driver  = &ctcm_ccw_driver,
 	.setup	     = ctcm_probe_device,
 	.remove      = ctcm_remove_device,
 	.set_online  = ctcm_new_device,

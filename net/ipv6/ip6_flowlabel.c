@@ -59,8 +59,8 @@ static atomic_t fl_size = ATOMIC_INIT(0);
 static struct ip6_flowlabel *fl_ht[FL_HASH_MASK+1];
 static struct ip6_flowlabel __rcu *fl_ht[FL_HASH_MASK+1];
 
-static void ip6_fl_gc(unsigned long dummy);
-static DEFINE_TIMER(ip6_fl_gc_timer, ip6_fl_gc, 0, 0);
+static void ip6_fl_gc(struct timer_list *unused);
+static DEFINE_TIMER(ip6_fl_gc_timer, ip6_fl_gc);
 
 /* FL hash table lock: it protects only of GC */
 
@@ -159,7 +159,7 @@ static void fl_release(struct ip6_flowlabel *fl)
 	spin_unlock_bh(&ip6_fl_lock);
 }
 
-static void ip6_fl_gc(unsigned long dummy)
+static void ip6_fl_gc(struct timer_list *unused)
 {
 	int i;
 	unsigned long now = jiffies;
@@ -477,7 +477,6 @@ fl_create(struct net *net, struct sock *sk, struct in6_flowlabel_req *freq,
 	if (olen > 0) {
 		struct msghdr msg;
 		struct flowi6 flowi6;
-		struct sockcm_cookie sockc_junk;
 		struct ipcm6_cookie ipc6;
 
 		err = -ENOMEM;
@@ -501,7 +500,7 @@ fl_create(struct net *net, struct sock *sk, struct in6_flowlabel_req *freq,
 		memset(&flowi6, 0, sizeof(flowi6));
 
 		ipc6.opt = fl->opt;
-		err = ip6_datagram_send_ctl(net, sk, &msg, &flowi6, &ipc6, &sockc_junk);
+		err = ip6_datagram_send_ctl(net, sk, &msg, &flowi6, &ipc6);
 		if (err)
 			goto done;
 		err = -EINVAL;
@@ -1000,6 +999,10 @@ static void *ip6fl_seq_start(struct seq_file *seq, loff_t *pos)
 	read_lock_bh(&ip6_fl_lock);
 	__acquires(RCU)
 {
+	struct ip6fl_iter_state *state = ip6fl_seq_private(seq);
+
+	state->pid_ns = proc_pid_ns(file_inode(seq->file));
+
 	rcu_read_lock_bh();
 	return *pos ? ip6fl_get_idx(seq, *pos - 1) : SEQ_START_TOKEN;
 }
@@ -1117,8 +1120,8 @@ static int ip6_flowlabel_proc_init(struct net *net)
 
 static int __net_init ip6_flowlabel_proc_init(struct net *net)
 {
-	if (!proc_create("ip6_flowlabel", S_IRUGO, net->proc_net,
-			 &ip6fl_seq_fops))
+	if (!proc_create_net("ip6_flowlabel", 0444, net->proc_net,
+			&ip6fl_seq_ops, sizeof(struct ip6fl_iter_state)))
 		return -ENOMEM;
 	return 0;
 }

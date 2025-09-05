@@ -3,16 +3,17 @@
 #
 
 obj-$(CONFIG_SOUND) += soundcore.o
-obj-$(CONFIG_SOUND_PRIME) += oss/
-obj-$(CONFIG_DMASOUND) += oss/
+obj-$(CONFIG_DMASOUND) += oss/dmasound/
 obj-$(CONFIG_SND) += core/ i2c/ drivers/ isa/ pci/ ppc/ arm/ sh/ synth/ usb/ \
 	sparc/ spi/ parisc/ pcmcia/ mips/ soc/
 	firewire/ sparc/ spi/ parisc/ pcmcia/ mips/ soc/ atmel/ hda/
 	firewire/ sparc/ spi/ parisc/ pcmcia/ mips/ soc/ atmel/ hda/ x86/
+	firewire/ sparc/ spi/ parisc/ pcmcia/ mips/ soc/ atmel/ hda/ x86/ xen/
 obj-$(CONFIG_SND_AOA) += aoa/
 
 # This one must be compilable even if sound is configured out
 obj-$(CONFIG_AC97_BUS) += ac97_bus.o
+obj-$(CONFIG_AC97_BUS_NEW) += ac97/
 
 ifeq ($(CONFIG_SND),y)
   obj-y += last.o

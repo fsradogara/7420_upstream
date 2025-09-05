@@ -97,6 +97,7 @@ Example
 		}
 	}
 See Documentation/filesystems/dnotify_test.c for an example.
+See tools/testing/selftests/filesystems/dnotify_test.c for an example.
 
 NOTE
 ----

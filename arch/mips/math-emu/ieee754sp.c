@@ -145,7 +145,7 @@ union ieee754sp __cold ieee754sp_nanxcpt(union ieee754sp r)
 	return r;
 }
 
-static unsigned ieee754sp_get_rounding(int sn, unsigned xm)
+static unsigned int ieee754sp_get_rounding(int sn, unsigned int xm)
 {
 	/* inexact must round of 3 bits
 	 */
@@ -194,6 +194,7 @@ ieee754sp ieee754sp_format(int sn, int xe, unsigned xm)
 
 	assert((xm >> (SP_MBITS + 1 + 3)) == 0);	/* no execess */
 union ieee754sp ieee754sp_format(int sn, int xe, unsigned xm)
+union ieee754sp ieee754sp_format(int sn, int xe, unsigned int xm)
 {
 	assert(xm);		/* we don't gen exact zeros (probably should) */
 

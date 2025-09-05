@@ -112,7 +112,7 @@ static inline int smp_startup_cpu(unsigned int lcpu)
 	pcpu = get_hard_smp_processor_id(lcpu);
 
 	/* Fixup atomic count: it exited inside IRQ handler. */
-	task_thread_info(paca[lcpu].__current)->preempt_count	= 0;
+	task_thread_info(paca_ptrs[lcpu]->__current)->preempt_count	= 0;
 
 	/*
 	 * If the RTAS start-cpu token does not exist then presume the
@@ -233,6 +233,7 @@ static struct smp_ops_t bpa_iic_smp_ops = {
 	.kick_cpu	= smp_cell_kick_cpu,
 	.setup_cpu	= smp_iic_setup_cpu,
 	.cpu_bootable	= smp_cell_cpu_bootable,
+	paca_ptrs[nr]->cpu_start = 1;
 
 	return 0;
 }

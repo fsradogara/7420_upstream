@@ -401,9 +401,10 @@ hysdn_log_poll(struct file *file, poll_table * wait)
 	struct proc_dir_entry *pde = PDE(file->f_path.dentry->d_inode);
 	hysdn_card *card;
 	struct procdata *pd = NULL;
+static __poll_t
 hysdn_log_poll(struct file *file, poll_table *wait)
 {
-	unsigned int mask = 0;
+	__poll_t mask = 0;
 	hysdn_card *card = PDE_DATA(file_inode(file));
 	struct procdata *pd = card->proclog;
 
@@ -424,7 +425,7 @@ hysdn_log_poll(struct file *file, poll_table *wait)
 	poll_wait(file, &(pd->rd_queue), wait);
 
 	if (*((struct log_data **) file->private_data))
-		mask |= POLLIN | POLLRDNORM;
+		mask |= EPOLLIN | EPOLLRDNORM;
 
 	return mask;
 }				/* hysdn_log_poll */

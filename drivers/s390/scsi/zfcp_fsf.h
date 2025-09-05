@@ -7,6 +7,7 @@
  * Copyright IBM Corporation 2002, 2008
  * Copyright IBM Corp. 2002, 2010
  * Copyright IBM Corp. 2002, 2017
+ * Copyright IBM Corp. 2002, 2018
  */
 
 #ifndef FSF_H
@@ -514,7 +515,7 @@ struct fsf_qtcb_bottom_config {
 	u32 adapter_features;
 	u32 connection_features;
 	u32 fc_topology;
-	u32 fc_link_speed;
+	u32 fc_link_speed;	/* one of ZFCP_FSF_PORTSPEED_* */
 	u32 adapter_type;
 	u32 peer_d_id;
 	u8 res1[2];
@@ -548,7 +549,7 @@ struct fsf_qtcb_bottom_port {
 	u32 class_of_service;	/* should be 0x00000006 for class 2 and 3 */
 	u8 supported_fc4_types[32]; /* should be 0x00000100 for scsi fcp */
 	u8 active_fc4_types[32];
-	u32 supported_speed;	/* 0x0001 for 1 GBit/s or 0x0002 for 2 GBit/s */
+	u32 supported_speed;	/* any combination of ZFCP_FSF_PORTSPEED_* */
 	u32 maximum_frame_size;	/* fixed value of 2112 */
 	u64 seconds_since_last_reset;
 	u64 tx_frames;

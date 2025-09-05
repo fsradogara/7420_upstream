@@ -44,6 +44,7 @@ inftl-objs		:= inftlcore.o inftlmount.o
 obj-y		+= chips/ maps/ devices/ nand/ onenand/
 
 obj-y		+= chips/ lpddr/ maps/ devices/ nand/ onenand/ tests/
+obj-y		+= chips/ lpddr/ maps/ devices/ nand/ tests/
 
 obj-$(CONFIG_MTD_SPI_NOR)	+= spi-nor/
 obj-$(CONFIG_MTD_UBI)		+= ubi/

@@ -83,6 +83,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_PURR);				\
 
 _GLOBAL(plpar_hcall_norets)
 #include <asm/ptrace.h>
+#include <asm/feature-fixups.h>
 
 	.section	".text"
 	

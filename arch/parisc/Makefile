@@ -43,6 +43,7 @@ endif
 # attempt to help out folks who are cross-compiling
 ifeq ($(NATIVE),1)
 CROSS_COMPILE	:= hppa$(WIDTH)-linux-
+CHECKFLAGS	+= -D__LP64__=1
 CC_ARCHES	= hppa64
 LD_BFD		:= elf64-hppa-linux
 else # 32-bit
@@ -161,6 +162,9 @@ BOOT_TARGETS    = zImage Image palo lifimage
 INSTALL_TARGETS = zinstall install
 
 PHONY += bzImage $(BOOT_TARGETS) $(INSTALL_TARGETS)
+
+# Default kernel to build
+all: bzImage
 
 zImage: vmlinuz
 Image: vmlinux

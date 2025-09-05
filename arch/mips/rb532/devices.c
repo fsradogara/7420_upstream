@@ -400,6 +400,8 @@ static int __init plat_setup_devices(void)
 	return platform_add_devices(rb532_devs, ARRAY_SIZE(rb532_devs));
 }
 
+#ifdef CONFIG_NET
+
 static int __init setup_kmac(char *s)
 {
 	printk(KERN_INFO "korina mac = %s\n", s);
@@ -412,5 +414,7 @@ static int __init setup_kmac(char *s)
 }
 
 __setup("kmac=", setup_kmac);
+
+#endif /* CONFIG_NET */
 
 arch_initcall(plat_setup_devices);

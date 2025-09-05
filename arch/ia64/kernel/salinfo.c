@@ -289,7 +289,7 @@ salinfo_timeout_check(struct salinfo_data *data)
 }
 
 static void
-salinfo_timeout (unsigned long arg)
+salinfo_timeout(struct timer_list *unused)
 {
 	ia64_mlogbuf_dump();
 	salinfo_timeout_check(salinfo_data + SAL_INFO_TYPE_MCA);
@@ -684,6 +684,17 @@ static int salinfo_cpu_pre_down(unsigned int cpu)
 	return 0;
 }
 
+/*
+ * 'data' contains an integer that corresponds to the feature we're
+ * testing
+ */
+static int proc_salinfo_show(struct seq_file *m, void *v)
+{
+	unsigned long data = (unsigned long)v;
+	seq_puts(m, (sal_platform_features & data) ? "1\n" : "0\n");
+	return 0;
+}
+
 static int __init
 salinfo_init(void)
 {
@@ -710,6 +721,9 @@ salinfo_init(void)
 		*sdir++ = proc_create_data(salinfo_entries[i].name, 0, salinfo_dir,
 					   &proc_salinfo_fops,
 					   (void *)salinfo_entries[i].feature);
+		*sdir++ = proc_create_single_data(salinfo_entries[i].name, 0,
+				salinfo_dir, proc_salinfo_show,
+				(void *)salinfo_entries[i].feature);
 	}
 
 	for (i = 0; i < ARRAY_SIZE(salinfo_log_name); i++) {
@@ -742,9 +756,8 @@ salinfo_init(void)
 
 	*sdir++ = salinfo_dir;
 
-	init_timer(&salinfo_timer);
+	timer_setup(&salinfo_timer, salinfo_timeout, 0);
 	salinfo_timer.expires = jiffies + SALINFO_TIMER_DELAY;
-	salinfo_timer.function = &salinfo_timeout;
 	add_timer(&salinfo_timer);
 
 	register_hotcpu_notifier(&salinfo_cpu_notifier);

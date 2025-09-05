@@ -260,8 +260,7 @@ static int ds1305_get_time(struct device *dev, struct rtc_time *time)
 		time->tm_hour, time->tm_mday,
 		time->tm_mon, time->tm_year, time->tm_wday);
 
-	/* Time may not be set */
-	return rtc_valid_tm(time);
+	return 0;
 }
 
 static int ds1305_set_time(struct device *dev, struct rtc_time *time)
@@ -602,14 +601,14 @@ ds1305_nvram_read(struct kobject *kobj, struct bin_attribute *attr,
 ds1305_nvram_read(struct file *filp, struct kobject *kobj,
 		struct bin_attribute *attr,
 		char *buf, loff_t off, size_t count)
+static int ds1305_nvram_read(void *priv, unsigned int off, void *buf,
+			     size_t count)
 {
-	struct spi_device	*spi;
+	struct ds1305		*ds1305 = priv;
+	struct spi_device	*spi = ds1305->spi;
 	u8			addr;
 	struct spi_message	m;
 	struct spi_transfer	x[2];
-	int			status;
-
-	spi = to_spi_device(kobj_to_dev(kobj));
 
 	if (unlikely(off >= DS1305_NVRAM_LEN))
 		return 0;
@@ -623,10 +622,7 @@ ds1305_nvram_read(struct file *filp, struct kobject *kobj,
 	addr = DS1305_NVRAM + off;
 	msg_init(&m, x, &addr, count, NULL, buf);
 
-	status = spi_sync(spi, &m);
-	if (status < 0)
-		dev_err(&spi->dev, "nvram %s error %d\n", "read", status);
-	return (status < 0) ? status : count;
+	return spi_sync(spi, &m);
 }
 
 static ssize_t
@@ -634,14 +630,14 @@ ds1305_nvram_write(struct kobject *kobj, struct bin_attribute *attr,
 ds1305_nvram_write(struct file *filp, struct kobject *kobj,
 		struct bin_attribute *attr,
 		char *buf, loff_t off, size_t count)
+static int ds1305_nvram_write(void *priv, unsigned int off, void *buf,
+			      size_t count)
 {
-	struct spi_device	*spi;
+	struct ds1305		*ds1305 = priv;
+	struct spi_device	*spi = ds1305->spi;
 	u8			addr;
 	struct spi_message	m;
 	struct spi_transfer	x[2];
-	int			status;
-
-	spi = to_spi_device(kobj_to_dev(kobj));
 
 	if (unlikely(off >= DS1305_NVRAM_LEN))
 		return -EFBIG;
@@ -655,10 +651,7 @@ ds1305_nvram_write(struct file *filp, struct kobject *kobj,
 	addr = (DS1305_WRITE | DS1305_NVRAM) + off;
 	msg_init(&m, x, &addr, count, buf, NULL);
 
-	status = spi_sync(spi, &m);
-	if (status < 0)
-		dev_err(&spi->dev, "nvram %s error %d\n", "write", status);
-	return (status < 0) ? status : count;
+	return spi_sync(spi, &m);
 }
 
 static struct bin_attribute nvram = {
@@ -690,6 +683,14 @@ static int ds1305_probe(struct spi_device *spi)
 	u8				addr, value;
 	struct ds1305_platform_data	*pdata = dev_get_platdata(&spi->dev);
 	bool				write_ctrl = false;
+	struct nvmem_config ds1305_nvmem_cfg = {
+		.name = "ds1305_nvram",
+		.word_size = 1,
+		.stride = 1,
+		.size = DS1305_NVRAM_LEN,
+		.reg_read = ds1305_nvram_read,
+		.reg_write = ds1305_nvram_write,
+	};
 
 	/* Sanity check board setup data.  This may be hooked up
 	 * in 3wire mode, but we don't care.  Note that unless
@@ -863,11 +864,22 @@ static int ds1305_probe(struct spi_device *spi)
 	ds1305->rtc = rtc;
 	ds1305->rtc = devm_rtc_device_register(&spi->dev, "ds1305",
 			&ds1305_ops, THIS_MODULE);
+	ds1305->rtc = devm_rtc_allocate_device(&spi->dev);
 	if (IS_ERR(ds1305->rtc)) {
-		status = PTR_ERR(ds1305->rtc);
+		return PTR_ERR(ds1305->rtc);
+	}
+
+	ds1305->rtc->ops = &ds1305_ops;
+
+	ds1305_nvmem_cfg.priv = ds1305;
+	ds1305->rtc->nvram_old_abi = true;
+	status = rtc_register_device(ds1305->rtc);
+	if (status) {
 		dev_dbg(&spi->dev, "register rtc --> %d\n", status);
 		return status;
 	}
+
+	rtc_nvmem_register(ds1305->rtc, &ds1305_nvmem_cfg);
 
 	/* Maybe set up alarm IRQ; be ready to handle it triggering right
 	 * away.  NOTE that we don't share this.  The signal is active low,
@@ -923,8 +935,6 @@ static int __devexit ds1305_remove(struct spi_device *spi)
 static int ds1305_remove(struct spi_device *spi)
 {
 	struct ds1305 *ds1305 = spi_get_drvdata(spi);
-
-	sysfs_remove_bin_file(&spi->dev.kobj, &nvram);
 
 	/* carefully shut down irq and workqueue, if present */
 	if (spi->irq) {

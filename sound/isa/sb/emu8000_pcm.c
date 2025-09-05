@@ -193,9 +193,9 @@ static inline int emu8k_get_curpos(struct snd_emu8k_pcm *rec, int ch)
  * timer interrupt handler
  * check the current position and update the period if necessary.
  */
-static void emu8k_pcm_timer_func(unsigned long data)
+static void emu8k_pcm_timer_func(struct timer_list *t)
 {
-	struct snd_emu8k_pcm *rec = (struct snd_emu8k_pcm *)data;
+	struct snd_emu8k_pcm *rec = from_timer(rec, t, timer);
 	int ptr, delta;
 
 	spin_lock(&rec->timer_lock);
@@ -247,6 +247,7 @@ static int emu8k_pcm_open(struct snd_pcm_substream *subs)
 	rec->timer.function = emu8k_pcm_timer_func;
 	rec->timer.data = (unsigned long)rec;
 	setup_timer(&rec->timer, emu8k_pcm_timer_func, (unsigned long)rec);
+	timer_setup(&rec->timer, emu8k_pcm_timer_func, 0);
 
 	runtime->hw = emu8k_pcm_hw;
 	runtime->hw.buffer_bytes_max = emu->mem_size - LOOP_BLANK_SIZE * 3;
@@ -488,7 +489,7 @@ static int emu8k_pcm_copy(struct snd_pcm_substream *subs,
 	/* convert to word unit */
 	pos = (pos << 1) + rec->loop_start[voice];
 	count <<= 1;
-	LOOP_WRITE(rec, pos, src, count, COPY_UESR);
+	LOOP_WRITE(rec, pos, src, count, COPY_USER);
 	return 0;
 }
 

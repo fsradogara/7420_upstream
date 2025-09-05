@@ -82,7 +82,6 @@ struct msg_msg {
 	int m_ts;           /* message text size */
 	struct msg_msgseg* next;
 #include <linux/list.h>
-#include <linux/time64.h>
 #include <uapi/linux/msg.h>
 
 /* one msg_msg structure for each message */

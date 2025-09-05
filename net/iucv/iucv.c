@@ -2072,7 +2072,7 @@ static void iucv_pm_complete(struct device *dev)
  * Returns 0 if there are still iucv pathes defined
  *	   1 if there are no iucv pathes defined
  */
-int iucv_path_table_empty(void)
+static int iucv_path_table_empty(void)
 {
 	int i;
 

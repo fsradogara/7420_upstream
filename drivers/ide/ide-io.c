@@ -1344,7 +1344,6 @@ void do_ide_request(struct request_queue *q)
 	struct ide_host *host = hwif->host;
 	struct request	*rq = NULL;
 	ide_startstop_t	startstop;
-	unsigned long queue_run_ms = 3; /* old plug delay */
 
 	spin_unlock_irq(q->queue_lock);
 
@@ -1364,9 +1363,6 @@ repeat:
 		prev_port = hwif->host->cur_port;
 		if (drive->dev_flags & IDE_DFLAG_SLEEPING &&
 		    time_after(drive->sleep, jiffies)) {
-			unsigned long left = jiffies - drive->sleep;
-
-			queue_run_ms = jiffies_to_msecs(left + 1);
 			ide_unlock_port(hwif);
 			goto plug_device;
 		}
@@ -1604,7 +1600,7 @@ static int drive_is_ready(ide_drive_t *drive)
  *	logic that wants cleaning up.
  */
  
-void ide_timer_expiry (unsigned long data)
+void ide_timer_expiry (struct timer_list *t)
 {
 	ide_hwgroup_t	*hwgroup = (ide_hwgroup_t *) data;
 	ide_handler_t	*handler;
@@ -1617,6 +1613,7 @@ void ide_timer_expiry (unsigned long data)
 	if (((handler = hwgroup->handler) == NULL) ||
 	    (hwgroup->req_gen != hwgroup->req_gen_timer)) {
 	ide_hwif_t	*hwif = (ide_hwif_t *)data;
+	ide_hwif_t	*hwif = from_timer(hwif, t, timer);
 	ide_drive_t	*uninitialized_var(drive);
 	ide_handler_t	*handler;
 	unsigned long	flags;
@@ -1727,8 +1724,7 @@ void ide_timer_expiry (unsigned long data)
 		spin_unlock(&hwif->lock);
 		/* disable_irq_nosync ?? */
 		disable_irq(hwif->irq);
-		/* local CPU only, as if we were handling an interrupt */
-		local_irq_disable();
+
 		if (hwif->polling) {
 			startstop = handler(drive);
 		} else if (drive_is_ready(drive)) {
@@ -1747,6 +1743,7 @@ void ide_timer_expiry (unsigned long data)
 				startstop = ide_error(drive, "irq timeout",
 					hwif->tp_ops->read_status(hwif));
 		}
+		/* Disable interrupts again, `handler' might have enabled it */
 		spin_lock_irq(&hwif->lock);
 		enable_irq(hwif->irq);
 		if (startstop == ide_stopped && hwif->polling == 0) {

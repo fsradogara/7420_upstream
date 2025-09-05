@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/tape_34xx.c
  *    tape device discipline for 3480/3490 tapes.

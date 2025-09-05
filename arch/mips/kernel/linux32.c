@@ -46,17 +46,6 @@
 #include <asm/mmu_context.h>
 #include <asm/mman.h>
 
-/* Use this to get at 32-bit user passed pointers. */
-/* A() macro should be used for places where you e.g.
-   have some internal variable u32 and just want to get
-   rid of a compiler warning. AA() has to be used in
-   places where you want to convert a function argument
-   to 32bit pointer or when you e.g. access pt_regs
-   structure and want to consider 32bit registers only.
- */
-#define A(__x) ((unsigned long)(__x))
-#define AA(__x) ((unsigned long)((int)__x))
-
 #ifdef __MIPSEB__
 #define merge_64(r1, r2) ((((r1) & 0xffffffffUL) << 32) + ((r2) & 0xffffffffUL))
 #endif
@@ -169,7 +158,7 @@ asmlinkage long sys32_truncate64(const char __user * path,
 SYSCALL_DEFINE4(32_truncate64, const char __user *, path,
 	unsigned long, __dummy, unsigned long, a2, unsigned long, a3)
 {
-	return sys_truncate(path, merge_64(a2, a3));
+	return ksys_truncate(path, merge_64(a2, a3));
 }
 
 asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long __dummy,
@@ -177,7 +166,7 @@ asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long __dummy,
 SYSCALL_DEFINE4(32_ftruncate64, unsigned long, fd, unsigned long, __dummy,
 	unsigned long, a2, unsigned long, a3)
 {
-	return sys_ftruncate(fd, merge_64(a2, a3));
+	return ksys_ftruncate(fd, merge_64(a2, a3));
 }
 
 static inline long
@@ -267,7 +256,7 @@ asmlinkage ssize_t sys32_pread(unsigned int fd, char __user * buf,
 SYSCALL_DEFINE6(32_pread, unsigned long, fd, char __user *, buf, size_t, count,
 	unsigned long, unused, unsigned long, a4, unsigned long, a5)
 {
-	return sys_pread64(fd, buf, count, merge_64(a4, a5));
+	return ksys_pread64(fd, buf, count, merge_64(a4, a5));
 }
 
 asmlinkage ssize_t sys32_pwrite(unsigned int fd, const char __user * buf,
@@ -275,7 +264,7 @@ asmlinkage ssize_t sys32_pwrite(unsigned int fd, const char __user * buf,
 SYSCALL_DEFINE6(32_pwrite, unsigned int, fd, const char __user *, buf,
 	size_t, count, u32, unused, u64, a4, u64, a5)
 {
-	return sys_pwrite64(fd, buf, count, merge_64(a4, a5));
+	return ksys_pwrite64(fd, buf, count, merge_64(a4, a5));
 }
 
 asmlinkage int sys32_sched_rr_get_interval(compat_pid_t pid,
@@ -538,7 +527,7 @@ asmlinkage ssize_t sys32_readahead(int fd, u32 pad0, u64 a2, u64 a3,
                                    size_t count)
 				   size_t count)
 {
-	return sys_readahead(fd, merge_64(a2, a3), count);
+	return ksys_readahead(fd, merge_64(a2, a3), count);
 }
 
 asmlinkage long sys32_sync_file_range(int fd, int __pad,
@@ -546,7 +535,7 @@ asmlinkage long sys32_sync_file_range(int fd, int __pad,
 	unsigned long a4, unsigned long a5,
 	int flags)
 {
-	return sys_sync_file_range(fd,
+	return ksys_sync_file_range(fd,
 			merge_64(a2, a3), merge_64(a4, a5),
 			flags);
 }
@@ -556,7 +545,7 @@ asmlinkage long sys32_fadvise64_64(int fd, int __pad,
 	unsigned long a4, unsigned long a5,
 	int flags)
 {
-	return sys_fadvise64_64(fd,
+	return ksys_fadvise64_64(fd,
 			merge_64(a2, a3), merge_64(a4, a5),
 			flags);
 }
@@ -588,4 +577,6 @@ _sys32_clone(nabi_no_regargs struct pt_regs regs)
 	return do_fork(clone_flags, newsp, &regs, 0,
 	               parent_tidptr, child_tidptr);
 			     merge_64(len_a4, len_a5));
+	return ksys_fallocate(fd, mode, merge_64(offset_a2, offset_a3),
+			      merge_64(len_a4, len_a5));
 }

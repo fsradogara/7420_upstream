@@ -40,6 +40,7 @@ int compat_get_timex(struct timex *txc, const struct compat_timex __user *utp)
 {
 	struct compat_timex tx32;
 
+	memset(txc, 0, sizeof(struct timex));
 	if (copy_from_user(&tx32, utp, sizeof(struct compat_timex)))
 		return -EFAULT;
 
@@ -126,50 +127,6 @@ static int __compat_put_timespec(const struct timespec *ts, struct compat_timesp
 			__put_user(ts->tv_sec, &cts->tv_sec) ||
 			__put_user(ts->tv_nsec, &cts->tv_nsec)) ? -EFAULT : 0;
 }
-
-static int __compat_get_timespec64(struct timespec64 *ts64,
-				   const struct compat_timespec __user *cts)
-{
-	struct compat_timespec ts;
-	int ret;
-
-	ret = copy_from_user(&ts, cts, sizeof(ts));
-	if (ret)
-		return -EFAULT;
-
-	ts64->tv_sec = ts.tv_sec;
-	ts64->tv_nsec = ts.tv_nsec;
-
-	return 0;
-}
-
-static int __compat_put_timespec64(const struct timespec64 *ts64,
-				   struct compat_timespec __user *cts)
-{
-	struct compat_timespec ts = {
-		.tv_sec = ts64->tv_sec,
-		.tv_nsec = ts64->tv_nsec
-	};
-	return copy_to_user(cts, &ts, sizeof(ts)) ? -EFAULT : 0;
-}
-
-int compat_get_timespec64(struct timespec64 *ts, const void __user *uts)
-{
-	if (COMPAT_USE_64BIT_TIME)
-		return copy_from_user(ts, uts, sizeof(*ts)) ? -EFAULT : 0;
-	else
-		return __compat_get_timespec64(ts, uts);
-}
-EXPORT_SYMBOL_GPL(compat_get_timespec64);
-
-int compat_put_timespec64(const struct timespec64 *ts, void __user *uts)
-{
-	if (COMPAT_USE_64BIT_TIME)
-		return copy_to_user(uts, ts, sizeof(*ts)) ? -EFAULT : 0;
-	else
-		return __compat_put_timespec64(ts, uts);
-}
-EXPORT_SYMBOL_GPL(compat_put_timespec64);
 
 int compat_get_timeval(struct timeval *tv, const void __user *utv)
 {
@@ -857,7 +814,7 @@ COMPAT_SYSCALL_DEFINE3(sched_getaffinity, compat_pid_t,  pid, unsigned int, len,
 
 	ret = sched_getaffinity(pid, mask);
 	if (ret == 0) {
-		size_t retlen = min_t(size_t, len, cpumask_size());
+		unsigned int retlen = min(len, cpumask_size());
 
 		if (compat_put_bitmap(user_mask_ptr, cpumask_bits(mask), retlen * 8))
 			ret = -EFAULT;
@@ -1630,9 +1587,26 @@ COMPAT_SYSCALL_DEFINE2(sched_rr_get_interval,
 	ret = sys_sched_rr_get_interval(pid, (struct timespec __user *)&t);
 	set_fs(old_fs);
 	if (compat_put_timespec(&t, interval))
+int
+get_compat_sigset(sigset_t *set, const compat_sigset_t __user *compat)
+{
+#ifdef __BIG_ENDIAN
+	compat_sigset_t v;
+	if (copy_from_user(&v, compat, sizeof(compat_sigset_t)))
 		return -EFAULT;
-	return ret;
+	switch (_NSIG_WORDS) {
+	case 4: set->sig[3] = v.sig[6] | (((long)v.sig[7]) << 32 );
+	case 3: set->sig[2] = v.sig[4] | (((long)v.sig[5]) << 32 );
+	case 2: set->sig[1] = v.sig[2] | (((long)v.sig[3]) << 32 );
+	case 1: set->sig[0] = v.sig[0] | (((long)v.sig[1]) << 32 );
+	}
+#else
+	if (copy_from_user(set, compat, sizeof(compat_sigset_t)))
+		return -EFAULT;
+#endif
+	return 0;
 }
+EXPORT_SYMBOL_GPL(get_compat_sigset);
 
 /*
  * Allocate user-space memory for the duration of a single system call,

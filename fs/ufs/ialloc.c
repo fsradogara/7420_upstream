@@ -101,7 +101,7 @@ void ufs_free_inode (struct inode * inode)
 	if (!ufs_cg_chkmagic(sb, ucg))
 		ufs_panic (sb, "ufs_free_fragments", "internal error, bad cg magic number");
 
-	ucg->cg_time = cpu_to_fs32(sb, get_seconds());
+	ucg->cg_time = ufs_get_seconds(sb);
 
 	is_directory = S_ISDIR(inode->i_mode);
 
@@ -137,6 +137,7 @@ void ufs_free_inode (struct inode * inode)
 	sb->s_dirt = 1;
 	unlock_super (sb);
 	if (sb->s_flags & MS_SYNCHRONOUS)
+	if (sb->s_flags & SB_SYNCHRONOUS)
 		ubh_sync_block(UCPI_UBH(ucpi));
 	
 	ufs_mark_sb_dirty(sb);
@@ -170,7 +171,7 @@ static void ufs2_init_inodes_chunk(struct super_block *sb,
 		set_buffer_uptodate(bh);
 		mark_buffer_dirty(bh);
 		unlock_buffer(bh);
-		if (sb->s_flags & MS_SYNCHRONOUS)
+		if (sb->s_flags & SB_SYNCHRONOUS)
 			sync_dirty_buffer(bh);
 		brelse(bh);
 	}
@@ -182,6 +183,7 @@ static void ufs2_init_inodes_chunk(struct super_block *sb,
 		ubh_wait_on_buffer(UCPI_UBH(ucpi));
 	}
 	if (sb->s_flags & MS_SYNCHRONOUS)
+	if (sb->s_flags & SB_SYNCHRONOUS)
 		ubh_sync_block(UCPI_UBH(ucpi));
 
 	UFSD("EXIT\n");
@@ -334,6 +336,7 @@ cg_found:
 		inode->i_gid = current->fsgid;
 
 	if (sb->s_flags & MS_SYNCHRONOUS)
+	if (sb->s_flags & SB_SYNCHRONOUS)
 		ubh_sync_block(UCPI_UBH(ucpi));
 	ufs_mark_sb_dirty(sb);
 
@@ -380,7 +383,7 @@ cg_found:
 		ufs2_inode->ui_birthnsec = cpu_to_fs32(sb, ts.tv_nsec);
 		mark_buffer_dirty(bh);
 		unlock_buffer(bh);
-		if (sb->s_flags & MS_SYNCHRONOUS)
+		if (sb->s_flags & SB_SYNCHRONOUS)
 			sync_dirty_buffer(bh);
 		brelse(bh);
 	}
@@ -405,8 +408,7 @@ fail_without_unlock:
 	inode->i_nlink = 0;
 	mutex_unlock(&sbi->s_lock);
 	clear_nlink(inode);
-	unlock_new_inode(inode);
-	iput(inode);
+	discard_new_inode(inode);
 	UFSD("EXIT (FAILED): err %d\n", err);
 	return ERR_PTR(err);
 failed:

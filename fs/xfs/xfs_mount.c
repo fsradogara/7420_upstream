@@ -1,19 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2000-2005 Silicon Graphics, Inc.
  * All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it would be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write the Free Software Foundation,
- * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 #include "xfs.h"
 #include "xfs_fs.h"
@@ -274,6 +262,7 @@ xfs_free_perag(
 		ASSERT(pag);
 		ASSERT(atomic_read(&pag->pag_ref) == 0);
 		xfs_buf_hash_destroy(pag);
+		mutex_destroy(&pag->pag_ici_reclaim_lock);
 		call_rcu(&pag->rcu_head, __xfs_free_perag);
 	}
 }
@@ -638,6 +627,9 @@ xfs_sb_to_disk(
 		if (xfs_buf_hash_init(pag))
 			goto out_free_pag;
 		init_waitqueue_head(&pag->pagb_wait);
+		spin_lock_init(&pag->pagb_lock);
+		pag->pagb_count = 0;
+		pag->pagb_tree = RB_ROOT;
 
 		if (radix_tree_preload(GFP_NOFS))
 			goto out_hash_destroy;
@@ -668,6 +660,7 @@ xfs_sb_to_disk(
 out_hash_destroy:
 	xfs_buf_hash_destroy(pag);
 out_free_pag:
+	mutex_destroy(&pag->pag_ici_reclaim_lock);
 	kmem_free(pag);
 out_unwind_new_pags:
 	/* unwind any prior newly initialized pags */
@@ -676,6 +669,7 @@ out_unwind_new_pags:
 		if (!pag)
 			break;
 		xfs_buf_hash_destroy(pag);
+		mutex_destroy(&pag->pag_ici_reclaim_lock);
 		kmem_free(pag);
 	}
 	return error;
@@ -1312,6 +1306,57 @@ xfs_default_resblks(xfs_mount_t *mp)
 	return resblks;
 }
 
+/* Ensure the summary counts are correct. */
+STATIC int
+xfs_check_summary_counts(
+	struct xfs_mount	*mp)
+{
+	/*
+	 * The AG0 superblock verifier rejects in-progress filesystems,
+	 * so we should never see the flag set this far into mounting.
+	 */
+	if (mp->m_sb.sb_inprogress) {
+		xfs_err(mp, "sb_inprogress set after log recovery??");
+		WARN_ON(1);
+		return -EFSCORRUPTED;
+	}
+
+	/*
+	 * Now the log is mounted, we know if it was an unclean shutdown or
+	 * not. If it was, with the first phase of recovery has completed, we
+	 * have consistent AG blocks on disk. We have not recovered EFIs yet,
+	 * but they are recovered transactionally in the second recovery phase
+	 * later.
+	 *
+	 * If the log was clean when we mounted, we can check the summary
+	 * counters.  If any of them are obviously incorrect, we can recompute
+	 * them from the AGF headers in the next step.
+	 */
+	if (XFS_LAST_UNMOUNT_WAS_CLEAN(mp) &&
+	    (mp->m_sb.sb_fdblocks > mp->m_sb.sb_dblocks ||
+	     !xfs_verify_icount(mp, mp->m_sb.sb_icount) ||
+	     mp->m_sb.sb_ifree > mp->m_sb.sb_icount))
+		mp->m_flags |= XFS_MOUNT_BAD_SUMMARY;
+
+	/*
+	 * We can safely re-initialise incore superblock counters from the
+	 * per-ag data. These may not be correct if the filesystem was not
+	 * cleanly unmounted, so we waited for recovery to finish before doing
+	 * this.
+	 *
+	 * If the filesystem was cleanly unmounted or the previous check did
+	 * not flag anything weird, then we can trust the values in the
+	 * superblock to be correct and we don't need to do anything here.
+	 * Otherwise, recalculate the summary counters.
+	 */
+	if ((!xfs_sb_version_haslazysbcount(&mp->m_sb) ||
+	     XFS_LAST_UNMOUNT_WAS_CLEAN(mp)) &&
+	    !(mp->m_flags & XFS_MOUNT_BAD_SUMMARY))
+		return 0;
+
+	return xfs_initialize_perag_data(mp, mp->m_sb.sb_agcount);
+}
+
 /*
  * This function does the following on an initial mount of a file system:
  *	- reads the superblock from disk and init the mount struct
@@ -1668,6 +1713,10 @@ xfs_mountfs(
 		if (error)
 			goto out_log_dealloc;
 	}
+	/* Make sure the summary counts are ok. */
+	error = xfs_check_summary_counts(mp);
+	if (error)
+		goto out_log_dealloc;
 
 	/*
 	 * Get and sanity-check the root inode.
@@ -1678,8 +1727,12 @@ xfs_mountfs(
 		cmn_err(CE_WARN, "XFS: failed to read root inode");
 		goto error3;
 	error = xfs_iget(mp, NULL, sbp->sb_rootino, 0, XFS_ILOCK_EXCL, &rip);
+	error = xfs_iget(mp, NULL, sbp->sb_rootino, XFS_IGET_UNTRUSTED,
+			 XFS_ILOCK_EXCL, &rip);
 	if (error) {
-		xfs_warn(mp, "failed to read root inode");
+		xfs_warn(mp,
+			"Failed to read root inode 0x%llx, error %d",
+			sbp->sb_rootino, -error);
 		goto out_log_dealloc;
 	}
 
@@ -1884,11 +1937,22 @@ xfs_mountfs(
  out_rtunmount:
 	xfs_rtunmount_inodes(mp);
  out_rele_rip:
-	IRELE(rip);
-	cancel_delayed_work_sync(&mp->m_reclaim_work);
-	xfs_reclaim_inodes(mp, SYNC_WAIT);
+	xfs_irele(rip);
 	/* Clean out dquots that might be in memory after quotacheck. */
 	xfs_qm_unmount(mp);
+	/*
+	 * Cancel all delayed reclaim work and reclaim the inodes directly.
+	 * We have to do this /after/ rtunmount and qm_unmount because those
+	 * two will have scheduled delayed reclaim for the rt/quota inodes.
+	 *
+	 * This is slightly different from the unmountfs call sequence
+	 * because we could be tearing down a partially set up mount.  In
+	 * particular, if log_mount_finish fails we bail out without calling
+	 * qm_unmount_quotas and therefore rely on qm_unmount to release the
+	 * quota inodes.
+	 */
+	cancel_delayed_work_sync(&mp->m_reclaim_work);
+	xfs_reclaim_inodes(mp, SYNC_WAIT);
  out_log_dealloc:
 	mp->m_flags |= XFS_MOUNT_UNMOUNTING;
 	xfs_log_mount_cancel(mp);
@@ -1925,13 +1989,11 @@ xfs_unmountfs(
 	uint64_t		resblks;
 	int			error;
 
-	cancel_delayed_work_sync(&mp->m_eofblocks_work);
-	cancel_delayed_work_sync(&mp->m_cowblocks_work);
-
+	xfs_icache_disable_reclaim(mp);
 	xfs_fs_unreserve_ag_blocks(mp);
 	xfs_qm_unmount_quotas(mp);
 	xfs_rtunmount_inodes(mp);
-	IRELE(mp->m_rootip);
+	xfs_irele(mp->m_rootip);
 
 	/*
 	 * We can potentially deadlock here if we have an inode cluster
@@ -3406,4 +3468,17 @@ xfs_dev_is_read_only(
 		return -EROFS;
 	}
 	return 0;
+}
+
+/* Force the summary counters to be recalculated at next mount. */
+void
+xfs_force_summary_recalc(
+	struct xfs_mount	*mp)
+{
+	if (!xfs_sb_version_haslazysbcount(&mp->m_sb))
+		return;
+
+	spin_lock(&mp->m_sb_lock);
+	mp->m_flags |= XFS_MOUNT_BAD_SUMMARY;
+	spin_unlock(&mp->m_sb_lock);
 }

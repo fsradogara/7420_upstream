@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *  Kernel Probes (KProbes)
  *
@@ -281,7 +282,6 @@ void __kprobes arch_prepare_kretprobe(struct kretprobe_instance *ri,
 #include <linux/ftrace.h>
 #include <asm/set_memory.h>
 #include <asm/sections.h>
-#include <linux/uaccess.h>
 #include <asm/dis.h>
 
 DEFINE_PER_CPU(struct kprobe *, current_kprobe);
@@ -409,8 +409,6 @@ struct swap_insn_args {
 
 static int swap_instruction(void *data)
 {
-	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
-	unsigned long status = kcb->kprobe_status;
 	struct swap_insn_args *args = data;
 	struct ftrace_insn new_insn, *insn;
 	struct kprobe *p = args->p;
@@ -433,9 +431,7 @@ static int swap_instruction(void *data)
 			ftrace_generate_nop_insn(&new_insn);
 	}
 skip_ftrace:
-	kcb->kprobe_status = KPROBE_SWAP_INST;
 	s390_kernel_write(p->addr, &new_insn, len);
-	kcb->kprobe_status = status;
 	return 0;
 }
 NOKPROBE_SYMBOL(swap_instruction);
@@ -621,7 +617,7 @@ static void kprobe_reenter_check(struct kprobe_ctlblk *kcb, struct kprobe *p)
 		 * is a BUG. The code path resides in the .kprobes.text
 		 * section and is executed with interrupts disabled.
 		 */
-		printk(KERN_EMERG "Invalid kprobe detected at %p.\n", p->addr);
+		pr_err("Invalid kprobe detected.\n");
 		dump_kprobe(p);
 		BUG();
 	}
@@ -661,38 +657,20 @@ static int kprobe_handler(struct pt_regs *regs)
 			 * If we have no pre-handler or it returned 0, we
 			 * continue with single stepping. If we have a
 			 * pre-handler and it returned non-zero, it prepped
-			 * for calling the break_handler below on re-entry
-			 * for jprobe processing, so get out doing nothing
-			 * more here.
+			 * for changing execution path, so get out doing
+			 * nothing more here.
 			 */
 			push_kprobe(kcb, p);
 			kcb->kprobe_status = KPROBE_HIT_ACTIVE;
-			if (p->pre_handler && p->pre_handler(p, regs))
+			if (p->pre_handler && p->pre_handler(p, regs)) {
+				pop_kprobe(kcb);
+				preempt_enable_no_resched();
 				return 1;
+			}
 			kcb->kprobe_status = KPROBE_HIT_SS;
 		}
 		enable_singlestep(kcb, regs, (unsigned long) p->ainsn.insn);
 		return 1;
-	} else if (kprobe_running()) {
-		p = __this_cpu_read(current_kprobe);
-		if (p->break_handler && p->break_handler(p, regs)) {
-			/*
-			 * Continuation after the jprobe completed and
-			 * caused the jprobe_return trap. The jprobe
-			 * break_handler "returns" to the original
-			 * function that still has the kprobe breakpoint
-			 * installed. We continue with single stepping.
-			 */
-			kcb->kprobe_status = KPROBE_HIT_SS;
-			enable_singlestep(kcb, regs,
-					  (unsigned long) p->ainsn.insn);
-			return 1;
-		} /* else:
-		   * No kprobe at this address and the current kprobe
-		   * has no break handler (no jprobe!). The kernel just
-		   * exploded, let the standard trap handler pick up the
-		   * pieces.
-		   */
 	} /* else:
 	   * No kprobe at this address and no active kprobe. The trap has
 	   * not been caused by a kprobe breakpoint. The race of breakpoint
@@ -819,9 +797,7 @@ static int trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 
 	regs->psw.addr = orig_ret_address;
 
-	pop_kprobe(get_kprobe_ctlblk());
 	kretprobe_hash_unlock(current, &flags);
-	preempt_enable_no_resched();
 
 	hlist_for_each_entry_safe(ri, tmp, &empty_rp, hlist) {
 		hlist_del(&ri->hlist);
@@ -986,9 +962,6 @@ static int kprobe_trap_handler(struct pt_regs *regs, int trapnr)
 	const struct exception_table_entry *entry;
 
 	switch(kcb->kprobe_status) {
-	case KPROBE_SWAP_INST:
-		/* We are here because the instruction replacement failed */
-		return 0;
 	case KPROBE_HIT_SS:
 	case KPROBE_REENTER:
 		/*

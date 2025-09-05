@@ -85,7 +85,7 @@ static int ds1302_rtc_set_time(struct device *dev, struct rtc_time *time)
 {
 	struct spi_device	*spi = dev_get_drvdata(dev);
 	u8		buf[1 + RTC_CLCK_LEN];
-	u8		*bp = buf;
+	u8		*bp;
 	int		status;
 
 	/* Enable writing */
@@ -140,8 +140,7 @@ static int ds1302_rtc_get_time(struct device *dev, struct rtc_time *time)
 	time->tm_mon = bcd2bin(buf[RTC_ADDR_MON]) - 1;
 	time->tm_year = bcd2bin(buf[RTC_ADDR_YEAR]) + 100;
 
-	/* Time may not be set */
-	return rtc_valid_tm(time);
+	return 0;
 }
 
 static inline void ds1302_clock(void)
@@ -409,7 +408,7 @@ static int ds1302_probe(struct spi_device *spi)
 	struct rtc_device	*rtc;
 	u8		addr;
 	u8		buf[4];
-	u8		*bp = buf;
+	u8		*bp;
 	int		status;
 
 	/* Sanity check board setup data.  This may be hooked up

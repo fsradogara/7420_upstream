@@ -450,6 +450,8 @@ static __cpuinit int
 		for (cpu = nr_cpu_ids - 1; !cpu_possible(cpu); cpu--)
 	if (xen_hvm_domain())
 		native_smp_cpus_done(max_cpus);
+	else
+		calculate_max_logical_packages();
 
 	if (xen_have_vcpu_info_placement)
 		return;

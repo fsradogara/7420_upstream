@@ -10,3 +10,14 @@
 #define KERN_SIGRETURN_CODE	(CONFIG_VECTORS_BASE + 0x00000500)
 
 extern const unsigned long sigreturn_codes[7];
+#include <asm/ucontext.h>
+
+struct sigframe {
+	struct ucontext uc;
+	unsigned long retcode[4];
+};
+
+struct rt_sigframe {
+	struct siginfo info;
+	struct sigframe sig;
+};

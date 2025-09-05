@@ -47,9 +47,9 @@ static inline int arch_futex_atomic_op_inuser(int op, int oparg, int *oval,
 	pagefault_disable();
 	ret = uaccess.futex_atomic_op(op, uaddr, oparg, &oldval);
 	int oldval = 0, newval, ret;
+	mm_segment_t old_fs;
 
-	load_kernel_asce();
-
+	old_fs = enable_sacf_uaccess();
 	pagefault_disable();
 	switch (op) {
 	case FUTEX_OP_SET:
@@ -76,6 +76,7 @@ static inline int arch_futex_atomic_op_inuser(int op, int oparg, int *oval,
 		ret = -ENOSYS;
 	}
 	pagefault_enable();
+	disable_sacf_uaccess(old_fs);
 
 	if (!ret)
 		*oval = oldval;
@@ -96,9 +97,10 @@ static inline int futex_atomic_cmpxchg_inatomic(int __user *uaddr,
 static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 						u32 oldval, u32 newval)
 {
+	mm_segment_t old_fs;
 	int ret;
 
-	load_kernel_asce();
+	old_fs = enable_sacf_uaccess();
 	asm volatile(
 		"   sacf 256\n"
 		"0: cs   %1,%4,0(%5)\n"
@@ -108,6 +110,7 @@ static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		: "=d" (ret), "+d" (oldval), "=m" (*uaddr)
 		: "0" (-EFAULT), "d" (newval), "a" (uaddr), "m" (*uaddr)
 		: "cc", "memory");
+	disable_sacf_uaccess(old_fs);
 	*uval = oldval;
 	return ret;
 }

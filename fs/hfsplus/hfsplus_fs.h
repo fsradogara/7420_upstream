@@ -42,7 +42,6 @@
 #define dprint(flg, fmt, args...) \
 	if (flg & DBG_MASK) printk(fmt , ## args)
 #define DBG_ATTR_MOD	0x00000080
-#define DBG_ACL_MOD	0x00000100
 
 #if 0
 #define DBG_MASK	(DBG_EXTENT|DBG_INODE|DBG_BNODE_MOD)
@@ -652,7 +651,8 @@ int hfsplus_show_options(struct seq_file *, struct vfsmount *);
 struct inode *hfsplus_iget(struct super_block *, unsigned long);
 extern const struct dentry_operations hfsplus_dentry_operations;
 
-struct inode *hfsplus_new_inode(struct super_block *sb, umode_t mode);
+struct inode *hfsplus_new_inode(struct super_block *sb, struct inode *dir,
+				umode_t mode);
 void hfsplus_delete_inode(struct inode *inode);
 void hfsplus_inode_read_fork(struct inode *inode,
 			     struct hfsplus_fork_raw *fork);

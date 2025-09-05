@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-1.0+
 /*
  * OHCI HCD (Host Controller Driver) for USB.
  * Open Host Controller Interface (OHCI) driver for USB.
@@ -112,13 +113,14 @@ static inline void amd_iso_dev_put(void)
 
 #define	IO_WATCHDOG_DELAY	msecs_to_jiffies(250)
 #define	IO_WATCHDOG_DELAY	msecs_to_jiffies(275)
+#define	IO_WATCHDOG_OFF		0xffffff00
 
 #include "ohci.h"
 #include "pci-quirks.h"
 
 static void ohci_dump(struct ohci_hcd *ohci);
 static void ohci_stop(struct usb_hcd *hcd);
-static void io_watchdog_func(unsigned long _ohci);
+static void io_watchdog_func(struct timer_list *t);
 
 #include "ohci-hub.c"
 #include "ohci-dbg.c"
@@ -290,7 +292,7 @@ static int ohci_urb_enqueue (
 		}
 
 		/* Start up the I/O watchdog timer, if it's not running */
-		if (!timer_pending(&ohci->io_watchdog) &&
+		if (ohci->prev_frame_no == IO_WATCHDOG_OFF &&
 				list_empty(&ohci->eds_in_use) &&
 				!(ohci->flags & OHCI_QUIRK_QEMU)) {
 			ohci->prev_frame_no = ohci_frame_no(ohci);
@@ -482,7 +484,7 @@ sanitize:
 			ed_free (ohci, ed);
 			break;
 		}
-		/* else FALL THROUGH */
+		/* fall through */
 	default:
 		/* caller was supposed to have unlinked any requests;
 		 * that's not our job.  can't recover; must leak ed.
@@ -641,7 +643,8 @@ static int ohci_init (struct ohci_hcd *ohci)
 
 	disable (ohci);
 	/* Accept arbitrarily long scatter-gather lists */
-	hcd->self.sg_tablesize = ~0;
+	if (!(hcd->driver->flags & HCD_LOCAL_MEM))
+		hcd->self.sg_tablesize = ~0;
 
 	if (distrust_firmware)
 		ohci->flags |= OHCI_QUIRK_HUB_POWER;
@@ -699,6 +702,8 @@ static int ohci_init (struct ohci_hcd *ohci)
 			sizeof *ohci->hcca, &ohci->hcca_dma, 0);
 	setup_timer(&ohci->io_watchdog, io_watchdog_func,
 			(unsigned long) ohci);
+	timer_setup(&ohci->io_watchdog, io_watchdog_func, 0);
+	ohci->prev_frame_no = IO_WATCHDOG_OFF;
 
 	ohci->hcca = dma_alloc_coherent (hcd->self.controller,
 			sizeof(*ohci->hcca), &ohci->hcca_dma, GFP_KERNEL);
@@ -975,15 +980,15 @@ static int ohci_start(struct usb_hcd *hcd)
  * the unlink list.  As a result, URBs could never be dequeued and
  * endpoints could never be released.
  */
-static void io_watchdog_func(unsigned long _ohci)
+static void io_watchdog_func(struct timer_list *t)
 {
-	struct ohci_hcd	*ohci = (struct ohci_hcd *) _ohci;
+	struct ohci_hcd	*ohci = from_timer(ohci, t, io_watchdog);
 	bool		takeback_all_pending = false;
 	u32		status;
 	u32		head;
 	struct ed	*ed;
 	struct td	*td, *td_start, *td_next;
-	unsigned	frame_no;
+	unsigned	frame_no, prev_frame_no = IO_WATCHDOG_OFF;
 	unsigned long	flags;
 
 	spin_lock_irqsave(&ohci->lock, flags);
@@ -1038,7 +1043,7 @@ static void io_watchdog_func(unsigned long _ohci)
 		}
 
 		/* find the last TD processed by the controller. */
-		head = hc32_to_cpu(ohci, ACCESS_ONCE(ed->hwHeadP)) & TD_MASK;
+		head = hc32_to_cpu(ohci, READ_ONCE(ed->hwHeadP)) & TD_MASK;
 		td_start = td;
 		td_next = list_prepare_entry(td, &ed->td_list, td_list);
 		list_for_each_entry_continue(td_next, &ed->td_list, td_list) {
@@ -1088,7 +1093,7 @@ static void io_watchdog_func(unsigned long _ohci)
 			}
 		}
 		if (!list_empty(&ohci->eds_in_use)) {
-			ohci->prev_frame_no = frame_no;
+			prev_frame_no = frame_no;
 			ohci->prev_wdh_cnt = ohci->wdh_cnt;
 			ohci->prev_donehead = ohci_readl(ohci,
 					&ohci->regs->donehead);
@@ -1098,6 +1103,7 @@ static void io_watchdog_func(unsigned long _ohci)
 	}
 
  done:
+	ohci->prev_frame_no = prev_frame_no;
 	spin_unlock_irqrestore(&ohci->lock, flags);
 }
 
@@ -1295,6 +1301,7 @@ static void ohci_stop (struct usb_hcd *hcd)
 	if (quirk_nec(ohci))
 		flush_work(&ohci->nec_work);
 	del_timer_sync(&ohci->io_watchdog);
+	ohci->prev_frame_no = IO_WATCHDOG_OFF;
 
 	ohci_writel (ohci, OHCI_INTR_MIE, &ohci->regs->intrdisable);
 	ohci_usb_reset(ohci);
@@ -1653,11 +1660,6 @@ MODULE_LICENSE ("GPL");
 #define TMIO_OHCI_DRIVER	ohci_hcd_tmio_driver
 #endif
 
-#ifdef CONFIG_TILE_USB
-#include "ohci-tilegx.c"
-#define PLATFORM_DRIVER		ohci_hcd_tilegx_driver
-#endif
-
 static int __init ohci_hcd_mod_init(void)
 {
 	int retval = 0;
@@ -1687,12 +1689,6 @@ static int __init ohci_hcd_mod_init(void)
 	retval = ps3_ohci_driver_register(&PS3_SYSTEM_BUS_DRIVER);
 	if (retval < 0)
 		goto error_ps3;
-#endif
-
-#ifdef PLATFORM_DRIVER
-	retval = platform_driver_register(&PLATFORM_DRIVER);
-	if (retval < 0)
-		goto error_platform;
 #endif
 
 #ifdef OF_PLATFORM_DRIVER
@@ -1765,10 +1761,6 @@ static int __init ohci_hcd_mod_init(void)
 	platform_driver_unregister(&OF_PLATFORM_DRIVER);
  error_of_platform:
 #endif
-#ifdef PLATFORM_DRIVER
-	platform_driver_unregister(&PLATFORM_DRIVER);
- error_platform:
-#endif
 #ifdef PS3_SYSTEM_BUS_DRIVER
 	ps3_ohci_driver_unregister(&PS3_SYSTEM_BUS_DRIVER);
  error_ps3:
@@ -1781,7 +1773,6 @@ static int __init ohci_hcd_mod_init(void)
 
 	debugfs_remove(ohci_debug_root);
 	ohci_debug_root = NULL;
- error_debug:
 
 	clear_bit(USB_OHCI_LOADED, &usb_hcds_loaded);
 	return retval;
@@ -1814,9 +1805,6 @@ static void __exit ohci_hcd_mod_exit(void)
 #ifdef OF_PLATFORM_DRIVER
 	of_unregister_platform_driver(&OF_PLATFORM_DRIVER);
 	platform_driver_unregister(&OF_PLATFORM_DRIVER);
-#endif
-#ifdef PLATFORM_DRIVER
-	platform_driver_unregister(&PLATFORM_DRIVER);
 #endif
 #ifdef PS3_SYSTEM_BUS_DRIVER
 	ps3_ohci_driver_unregister(&PS3_SYSTEM_BUS_DRIVER);

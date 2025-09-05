@@ -78,10 +78,11 @@ static int __init key_proc_init(void)
 		panic("Cannot create /proc/keys\n");
 #endif
 	p = proc_create("keys", 0, NULL, &proc_keys_fops);
+	p = proc_create_seq("keys", 0, NULL, &proc_keys_ops);
 	if (!p)
 		panic("Cannot create /proc/keys\n");
 
-	p = proc_create("key-users", 0, NULL, &proc_key_users_fops);
+	p = proc_create_seq("key-users", 0, NULL, &proc_key_users_ops);
 	if (!p)
 		panic("Cannot create /proc/key-users\n");
 
@@ -235,8 +236,10 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	rc = key_task_permission(make_key_ref(key, 0), current, KEY_VIEW);
 	unsigned long flags;
 	key_ref_t key_ref, skey_ref;
+	time64_t now, expiry;
 	char xbuf[16];
 	short state;
+	u64 timo;
 	int rc;
 
 	struct keyring_search_context ctx = {
@@ -267,7 +270,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	if (rc < 0)
 		return 0;
 
-	now = current_kernel_time();
+	now = ktime_get_real_seconds();
 
 	rcu_read_lock();
 
@@ -282,20 +285,21 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	else {
 	} else if (now.tv_sec >= key->expiry) {
 	} else if (now.tv_sec >= expiry) {
+	} else if (now >= expiry) {
 		memcpy(xbuf, "expd", 5);
 	} else {
-		timo = expiry - now.tv_sec;
+		timo = expiry - now;
 
 		if (timo < 60)
-			sprintf(xbuf, "%lus", timo);
+			sprintf(xbuf, "%llus", timo);
 		else if (timo < 60*60)
-			sprintf(xbuf, "%lum", timo / 60);
+			sprintf(xbuf, "%llum", div_u64(timo, 60));
 		else if (timo < 60*60*24)
-			sprintf(xbuf, "%luh", timo / (60*60));
+			sprintf(xbuf, "%lluh", div_u64(timo, 60 * 60));
 		else if (timo < 60*60*24*7)
-			sprintf(xbuf, "%lud", timo / (60*60*24));
+			sprintf(xbuf, "%llud", div_u64(timo, 60 * 60 * 24));
 		else
-			sprintf(xbuf, "%luw", timo / (60*60*24*7));
+			sprintf(xbuf, "%lluw", div_u64(timo, 60 * 60 * 24 * 7));
 	}
 
 	state = key_read_state(key);

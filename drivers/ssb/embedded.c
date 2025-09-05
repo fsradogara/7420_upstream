@@ -10,6 +10,8 @@
  * Licensed under the GNU/GPL. See COPYING for details.
  */
 
+#include "ssb_private.h"
+
 #include <linux/export.h>
 #include <linux/platform_device.h>
 #include <linux/ssb/ssb.h>
@@ -17,8 +19,6 @@
 #include <linux/ssb/ssb_driver_pci.h>
 #include <linux/ssb/ssb_driver_gige.h>
 #include <linux/pci.h>
-
-#include "ssb_private.h"
 
 
 int ssb_watchdog_timer_set(struct ssb_bus *bus, u32 ticks)
@@ -58,8 +58,8 @@ int ssb_watchdog_register(struct ssb_bus *bus)
 					     bus->busnumber, &wdt,
 					     sizeof(wdt));
 	if (IS_ERR(pdev)) {
-		ssb_dbg("can not register watchdog device, err: %li\n",
-			PTR_ERR(pdev));
+		pr_debug("can not register watchdog device, err: %li\n",
+			 PTR_ERR(pdev));
 		return PTR_ERR(pdev);
 	}
 
@@ -78,7 +78,7 @@ u32 ssb_gpio_in(struct ssb_bus *bus, u32 mask)
 	else if (ssb_extif_available(&bus->extif))
 		res = ssb_extif_gpio_in(&bus->extif, mask);
 	else
-		SSB_WARN_ON(1);
+		WARN_ON(1);
 	spin_unlock_irqrestore(&bus->gpio_lock, flags);
 
 	return res;
@@ -96,7 +96,7 @@ u32 ssb_gpio_out(struct ssb_bus *bus, u32 mask, u32 value)
 	else if (ssb_extif_available(&bus->extif))
 		res = ssb_extif_gpio_out(&bus->extif, mask, value);
 	else
-		SSB_WARN_ON(1);
+		WARN_ON(1);
 	spin_unlock_irqrestore(&bus->gpio_lock, flags);
 
 	return res;
@@ -114,7 +114,7 @@ u32 ssb_gpio_outen(struct ssb_bus *bus, u32 mask, u32 value)
 	else if (ssb_extif_available(&bus->extif))
 		res = ssb_extif_gpio_outen(&bus->extif, mask, value);
 	else
-		SSB_WARN_ON(1);
+		WARN_ON(1);
 	spin_unlock_irqrestore(&bus->gpio_lock, flags);
 
 	return res;
@@ -146,7 +146,7 @@ u32 ssb_gpio_intmask(struct ssb_bus *bus, u32 mask, u32 value)
 	else if (ssb_extif_available(&bus->extif))
 		res = ssb_extif_gpio_intmask(&bus->extif, mask, value);
 	else
-		SSB_WARN_ON(1);
+		WARN_ON(1);
 	spin_unlock_irqrestore(&bus->gpio_lock, flags);
 
 	return res;
@@ -164,7 +164,7 @@ u32 ssb_gpio_polarity(struct ssb_bus *bus, u32 mask, u32 value)
 	else if (ssb_extif_available(&bus->extif))
 		res = ssb_extif_gpio_polarity(&bus->extif, mask, value);
 	else
-		SSB_WARN_ON(1);
+		WARN_ON(1);
 	spin_unlock_irqrestore(&bus->gpio_lock, flags);
 
 	return res;

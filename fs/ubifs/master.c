@@ -381,6 +381,7 @@ int ubifs_write_master(struct ubifs_info *c)
 	if (c->ro_media)
 		return -EINVAL;
 	ubifs_assert(!c->ro_media && !c->ro_mount);
+	ubifs_assert(c, !c->ro_media && !c->ro_mount);
 	if (c->ro_error)
 		return -EROFS;
 

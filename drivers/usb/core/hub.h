@@ -198,6 +198,7 @@ extern void usb_hub_tt_clear_buffer(struct usb_device *dev, int pipe);
 extern void usb_ep0_reinit(struct usb_device *);
 
 #endif /* __LINUX_HUB_H */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * usb hub driver head file
  *
@@ -208,15 +209,6 @@ extern void usb_ep0_reinit(struct usb_device *);
  * Copyright (C) 2012 Intel Corp (tianyu.lan@intel.com)
  *
  *  move struct usb_hub to this file.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
  */
 
 #include <linux/usb.h>
@@ -304,7 +296,9 @@ struct usb_port {
 	enum usb_port_connect_type connect_type;
 	usb_port_location_t location;
 	struct mutex status_lock;
+	u32 over_current_count;
 	u8 portnum;
+	u32 quirks;
 	unsigned int is_superspeed:1;
 	unsigned int usb3_lpm_u1_permit:1;
 	unsigned int usb3_lpm_u2_permit:1;

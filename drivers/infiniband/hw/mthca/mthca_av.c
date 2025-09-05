@@ -286,6 +286,7 @@ int mthca_read_ah(struct mthca_dev *dev, struct mthca_ah *ah,
 				  ah->av->gid_index % dev->limits.gid_table_len,
 				  &header->grh.source_gid);
 				  &header->grh.source_gid, NULL);
+		header->grh.source_gid = ah->ibah.sgid_attr->gid;
 		memcpy(header->grh.destination_gid.raw,
 		       ah->av->dgid, 16);
 	}

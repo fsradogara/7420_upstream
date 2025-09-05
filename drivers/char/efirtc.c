@@ -440,19 +440,6 @@ efi_rtc_read_proc(char *page, char **start, off_t off,
 
 	return 0;
 }
-
-static int efi_rtc_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, efi_rtc_proc_show, NULL);
-}
-
-static const struct file_operations efi_rtc_proc_fops = {
-	.open		= efi_rtc_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static int __init 
 efi_rtc_init(void)
 {
@@ -471,6 +458,7 @@ efi_rtc_init(void)
 	dir = create_proc_read_entry ("driver/efirtc", 0, NULL,
 			              efi_rtc_read_proc, NULL);
 	dir = proc_create("driver/efirtc", 0, NULL, &efi_rtc_proc_fops);
+	dir = proc_create_single("driver/efirtc", 0, NULL, efi_rtc_proc_show);
 	if (dir == NULL) {
 		printk(KERN_ERR "efirtc: can't create /proc/driver/efirtc.\n");
 		misc_deregister(&efi_rtc_dev);

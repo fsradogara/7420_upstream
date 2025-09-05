@@ -7,6 +7,7 @@
  * Copyright 2007-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015 - 2017 Intel Deutschland GmbH
+ * Copyright (C) 2018        Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -31,6 +32,7 @@
 #include <linux/ieee80211.h>
 #include <net/cfg80211.h>
 #include <net/codel.h>
+#include <net/ieee80211_radiotap.h>
 #include <asm/unaligned.h>
 
 /**
@@ -208,6 +210,8 @@ enum ieee80211_ac_numbers {
  * @txop: maximum burst time in units of 32 usecs, 0 meaning disabled
  * @acm: is mandatory admission control required for the access category
  * @uapsd: is U-APSD mode enabled for the queue
+ * @mu_edca: is the MU EDCA configured
+ * @mu_edca_param_rec: MU EDCA Parameter Record for HE
  */
 struct ieee80211_tx_queue_params {
 	u16 txop;
@@ -229,6 +233,8 @@ struct ieee80211_tx_queue_stats {
 	unsigned int count;
 	bool acm;
 	bool uapsd;
+	bool mu_edca;
+	struct ieee80211_he_mu_edca_param_ac_rec mu_edca_param_rec;
 };
 
 struct ieee80211_low_level_stats {
@@ -362,6 +368,8 @@ struct ieee80211_vif_chanctx_switch {
  * @BSS_CHANGED_MU_GROUPS: VHT MU-MIMO group id or user position changed
  * @BSS_CHANGED_KEEP_ALIVE: keep alive options (idle period or protected
  *	keep alive) changed.
+ * @BSS_CHANGED_MCAST_RATE: Multicast Rate setting changed for this interface
+ *
  */
 enum ieee80211_bss_change {
 	BSS_CHANGED_ASSOC		= 1<<0,
@@ -390,6 +398,7 @@ enum ieee80211_bss_change {
 	BSS_CHANGED_OCB                 = 1<<22,
 	BSS_CHANGED_MU_GROUPS		= 1<<23,
 	BSS_CHANGED_KEEP_ALIVE		= 1<<24,
+	BSS_CHANGED_MCAST_RATE		= 1<<25,
 
 	/* when adding here, make sure to change ieee80211_reconfig */
 };
@@ -521,6 +530,15 @@ struct ieee80211_mu_group_data {
  * This structure keeps information about a BSS (and an association
  * to that BSS) that can change during the lifetime of the BSS.
  *
+ * @bss_color: 6-bit value to mark inter-BSS frame, if BSS supports HE
+ * @htc_trig_based_pkt_ext: default PE in 4us units, if BSS supports HE
+ * @multi_sta_back_32bit: supports BA bitmap of 32-bits in Multi-STA BACK
+ * @uora_exists: is the UORA element advertised by AP
+ * @ack_enabled: indicates support to receive a multi-TID that solicits either
+ *	ACK, BACK or both
+ * @uora_ocw_range: UORA element's OCW Range field
+ * @frame_time_rts_th: HE duration RTS threshold, in units of 32us
+ * @he_support: does this BSS support HE
  * @assoc: association status
  * @aid: association ID number, valid only when @assoc is true
  * @use_cts_prot: use CTS protection
@@ -622,6 +640,14 @@ struct ieee80211_bss_conf {
  */
 struct ieee80211_bss_conf {
 	const u8 *bssid;
+	u8 bss_color;
+	u8 htc_trig_based_pkt_ext;
+	bool multi_sta_back_32bit;
+	bool uora_exists;
+	bool ack_enabled;
+	u8 uora_ocw_range;
+	u16 frame_time_rts_th;
+	bool he_support;
 	/* association related data */
 	bool assoc, ibss_joined;
 	bool ibss_creator;
@@ -1133,6 +1159,7 @@ struct ieee80211_tx_info {
 			u8 ampdu_len;
 			u8 antenna;
 			u16 tx_time;
+			bool is_valid_ack_signal;
 			void *status_driver_data[19 / sizeof(void *)];
 		} status;
 		struct {
@@ -1311,6 +1338,21 @@ enum mac80211_rx_flags {
  *	the first subframe.
  * @RX_FLAG_ICV_STRIPPED: The ICV is stripped from this frame. CRC checking must
  *	be done in the hardware.
+ * @RX_FLAG_AMPDU_EOF_BIT: Value of the EOF bit in the A-MPDU delimiter for this
+ *	frame
+ * @RX_FLAG_AMPDU_EOF_BIT_KNOWN: The EOF value is known
+ * @RX_FLAG_RADIOTAP_HE: HE radiotap data is present
+ *	(&struct ieee80211_radiotap_he, mac80211 will fill in
+ *	 - DATA3_DATA_MCS
+ *	 - DATA3_DATA_DCM
+ *	 - DATA3_CODING
+ *	 - DATA5_GI
+ *	 - DATA5_DATA_BW_RU_ALLOC
+ *	 - DATA6_NSTS
+ *	 - DATA3_STBC
+ *	from the RX info data, so leave those zeroed when building this data)
+ * @RX_FLAG_RADIOTAP_HE_MU: HE MU radiotap data is present
+ *	(&struct ieee80211_radiotap_he_mu)
  */
 enum mac80211_rx_flags {
 	RX_FLAG_MMIC_ERROR		= BIT(0),
@@ -1337,6 +1379,10 @@ enum mac80211_rx_flags {
 	RX_FLAG_MIC_STRIPPED		= BIT(21),
 	RX_FLAG_ALLOW_SAME_PN		= BIT(22),
 	RX_FLAG_ICV_STRIPPED		= BIT(23),
+	RX_FLAG_AMPDU_EOF_BIT		= BIT(24),
+	RX_FLAG_AMPDU_EOF_BIT_KNOWN	= BIT(25),
+	RX_FLAG_RADIOTAP_HE		= BIT(26),
+	RX_FLAG_RADIOTAP_HE_MU		= BIT(27),
 };
 
 /**
@@ -1367,6 +1413,7 @@ enum mac80211_rx_encoding {
 	RX_ENC_LEGACY = 0,
 	RX_ENC_HT,
 	RX_ENC_VHT,
+	RX_ENC_HE,
 };
 
 /**
@@ -1424,6 +1471,9 @@ struct ieee80211_rx_status {
  * @encoding: &enum mac80211_rx_encoding
  * @bw: &enum rate_info_bw
  * @enc_flags: uses bits from &enum mac80211_rx_encoding_flags
+ * @he_ru: HE RU, from &enum nl80211_he_ru_alloc
+ * @he_gi: HE GI, from &enum nl80211_he_gi
+ * @he_dcm: HE DCM value
  * @rx_flags: internal RX flags for mac80211
  * @ampdu_reference: A-MPDU reference number, must be a different value for
  *	each A-MPDU but the same for each subframe within one A-MPDU
@@ -1437,7 +1487,8 @@ struct ieee80211_rx_status {
 	u32 flag;
 	u16 freq;
 	u8 enc_flags;
-	u8 encoding:2, bw:3;
+	u8 encoding:2, bw:3, he_ru:3;
+	u8 he_gi:2, he_dcm:1;
 	u8 rate_idx;
 	u8 nss;
 	u8 rx_flags;
@@ -1955,6 +2006,9 @@ enum ieee80211_key_flags {
  * @IEEE80211_KEY_FLAG_RESERVE_TAILROOM: This flag should be set by the
  *	driver for a key to indicate that sufficient tailroom must always
  *	be reserved for ICV or MIC, even when HW encryption is enabled.
+ * @IEEE80211_KEY_FLAG_PUT_MIC_SPACE: This flag should be set by the driver for
+ *	a TKIP key if it only requires MIC space. Do not set together with
+ *	@IEEE80211_KEY_FLAG_GENERATE_MMIC on the same key.
  */
 enum ieee80211_key_flags {
 	IEEE80211_KEY_FLAG_GENERATE_IV_MGMT	= BIT(0),
@@ -1965,6 +2019,7 @@ enum ieee80211_key_flags {
 	IEEE80211_KEY_FLAG_PUT_IV_SPACE		= BIT(5),
 	IEEE80211_KEY_FLAG_RX_MGMT		= BIT(6),
 	IEEE80211_KEY_FLAG_RESERVE_TAILROOM	= BIT(7),
+	IEEE80211_KEY_FLAG_PUT_MIC_SPACE	= BIT(8),
 };
 
 /**
@@ -2001,8 +2056,8 @@ struct ieee80211_key_conf {
 	u8 icv_len;
 	u8 iv_len;
 	u8 hw_key_idx;
-	u8 flags;
 	s8 keyidx;
+	u16 flags;
 	u8 keylen;
 	u8 key[0];
 };
@@ -2189,6 +2244,7 @@ struct ieee80211_sta_rates {
  * @supp_rates: Bitmap of supported rates (per band)
  * @ht_cap: HT capabilities of this STA; restricted to our own capabilities
  * @vht_cap: VHT capabilities of this STA; restricted to our own capabilities
+ * @he_cap: HE capabilities of this STA
  * @max_rx_aggregation_subframes: maximal amount of frames in a single AMPDU
  *	that this station is allowed to transmit to us.
  *	Can be modified by driver.
@@ -2224,7 +2280,8 @@ struct ieee80211_sta {
 	u16 aid;
 	struct ieee80211_sta_ht_cap ht_cap;
 	struct ieee80211_sta_vht_cap vht_cap;
-	u8 max_rx_aggregation_subframes;
+	struct ieee80211_sta_he_cap he_cap;
+	u16 max_rx_aggregation_subframes;
 	bool wme;
 	u8 uapsd_queues;
 	u8 max_sp;
@@ -2519,6 +2576,20 @@ enum ieee80211_hw_flags {
  *	The stack will not do fragmentation.
  *	The callback for @set_frag_threshold should be set as well.
  *
+ * @IEEE80211_HW_SUPPORTS_TDLS_BUFFER_STA: Hardware supports buffer STA on
+ *	TDLS links.
+ *
+ * @IEEE80211_HW_DEAUTH_NEED_MGD_TX_PREP: The driver requires the
+ *	mgd_prepare_tx() callback to be called before transmission of a
+ *	deauthentication frame in case the association was completed but no
+ *	beacon was heard. This is required in multi-channel scenarios, where the
+ *	virtual interface might not be given air time for the transmission of
+ *	the frame, as it is not synced with the AP/P2P GO yet, and thus the
+ *	deauthentication frame might not be transmitted.
+ *
+ * @IEEE80211_HW_DOESNT_SUPPORT_QOS_NDP: The driver (or firmware) doesn't
+ *	support QoS NDP for AP probing - that's most likely a driver bug.
+ *
  * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
  */
 enum ieee80211_hw_flags {
@@ -2561,6 +2632,9 @@ enum ieee80211_hw_flags {
 	IEEE80211_HW_TX_FRAG_LIST,
 	IEEE80211_HW_REPORTS_LOW_ACK,
 	IEEE80211_HW_SUPPORTS_TX_FRAG,
+	IEEE80211_HW_SUPPORTS_TDLS_BUFFER_STA,
+	IEEE80211_HW_DEAUTH_NEED_MGD_TX_PREP,
+	IEEE80211_HW_DOESNT_SUPPORT_QOS_NDP,
 
 	/* keep last, obviously */
 	NUM_IEEE80211_HW_FLAGS
@@ -2648,10 +2722,11 @@ enum ieee80211_hw_flags {
  *	it shouldn't be set.
  *
  * @max_tx_aggregation_subframes: maximum number of subframes in an
- *	aggregate an HT driver will transmit. Though ADDBA will advertise
- *	a constant value of 64 as some older APs can crash if the window
- *	size is smaller (an example is LinkSys WRT120N with FW v1.0.07
- *	build 002 Jun 18 2012).
+ *	aggregate an HT/HE device will transmit. In HT AddBA we'll
+ *	advertise a constant value of 64 as some older APs crash if
+ *	the window size is smaller (an example is LinkSys WRT120N
+ *	with FW v1.0.07 build 002 Jun 18 2012).
+ *	For AddBA to HE capable peers this value will be used.
  *
  * @max_tx_fragments: maximum number of tx buffers per (A)-MSDU, sum
  *	of 1 + skb_shinfo(skb)->nr_frags for each skb in the frag_list.
@@ -2667,6 +2742,8 @@ enum ieee80211_hw_flags {
  * @radiotap_vht_details: lists which VHT MCS information the HW reports,
  *	the default is _GI | _BANDWIDTH.
  *	Use the %IEEE80211_RADIOTAP_VHT_KNOWN_\* values.
+ *
+ * @radiotap_he: HE radiotap validity flags
  *
  * @radiotap_timestamp: Information for the radiotap timestamp field; if the
  *	'units_pos' member is set to a non-negative value it must be set to
@@ -2728,8 +2805,8 @@ struct ieee80211_hw {
 	u8 max_rates;
 	u8 max_report_rates;
 	u8 max_rate_tries;
-	u8 max_rx_aggregation_subframes;
-	u8 max_tx_aggregation_subframes;
+	u16 max_rx_aggregation_subframes;
+	u16 max_tx_aggregation_subframes;
 	u8 max_tx_fragments;
 	u8 offchannel_tx_hw_queue;
 	u8 radiotap_mcs_details;
@@ -3426,7 +3503,7 @@ struct ieee80211_ampdu_params {
 	struct ieee80211_sta *sta;
 	u16 tid;
 	u16 ssn;
-	u8 buf_size;
+	u16 buf_size;
 	bool amsdu;
 	u16 timeout;
 };
@@ -4004,8 +4081,13 @@ struct ieee80211_ops {
  *	management frame prior to having successfully associated to allow the
  *	driver to give it channel time for the transmission, to get a response
  *	and to be able to synchronize with the GO.
+ *	For drivers that set %IEEE80211_HW_DEAUTH_NEED_MGD_TX_PREP, mac80211
+ *	would also call this function before transmitting a deauthentication
+ *	frame in case that no beacon was heard from the AP/P2P GO.
  *	The callback will be called before each transmission and upon return
  *	mac80211 will transmit the frame right away.
+ *      If duration is greater than zero, mac80211 hints to the driver the
+ *      duration for which the operation is requested.
  *	The callback is optional and can (should!) sleep.
  *
  * @mgd_protect_tdls_discover: Protect a TDLS discovery session. After sending
@@ -4361,7 +4443,8 @@ struct ieee80211_ops {
 				  u32 sset, u8 *data);
 
 	void	(*mgd_prepare_tx)(struct ieee80211_hw *hw,
-				  struct ieee80211_vif *vif);
+				  struct ieee80211_vif *vif,
+				  u16 duration);
 
 	void	(*mgd_protect_tdls_discover)(struct ieee80211_hw *hw,
 					     struct ieee80211_vif *vif);
@@ -4890,7 +4973,7 @@ void ieee80211_sta_uapsd_trigger(struct ieee80211_sta *sta, u8 tid);
  * The TX headroom reserved by mac80211 for its own tx_status functions.
  * This is enough for the radiotap header.
  */
-#define IEEE80211_TX_STATUS_HEADROOM	14
+#define IEEE80211_TX_STATUS_HEADROOM	ALIGN(14, 4)
 
 /**
  * ieee80211_sta_set_buffered - inform mac80211 about driver-buffered frames
@@ -5188,6 +5271,19 @@ static inline struct sk_buff *ieee80211_beacon_get(struct ieee80211_hw *hw,
 u8 ieee80211_csa_update_counter(struct ieee80211_vif *vif);
 
 /**
+ * ieee80211_csa_set_counter - request mac80211 to set csa counter
+ * @vif: &struct ieee80211_vif pointer from the add_interface callback.
+ * @counter: the new value for the counter
+ *
+ * The csa counter can be changed by the device, this API should be
+ * used by the device driver to update csa counter in mac80211.
+ *
+ * It should never be used together with ieee80211_csa_update_counter(),
+ * as it will cause a race condition around the counter value.
+ */
+void ieee80211_csa_set_counter(struct ieee80211_vif *vif, u8 counter);
+
+/**
  * ieee80211_csa_finish - notify mac80211 about channel switch
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
  *
@@ -5242,10 +5338,15 @@ struct sk_buff *ieee80211_pspoll_get(struct ieee80211_hw *hw,
  * ieee80211_nullfunc_get - retrieve a nullfunc template
  * @hw: pointer obtained from ieee80211_alloc_hw().
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
+ * @qos_ok: QoS NDP is acceptable to the caller, this should be set
+ *	if at all possible
  *
  * Creates a Nullfunc template which can, for example, uploaded to
  * hardware. The template must be updated after association so that correct
  * BSSID and address is used.
+ *
+ * If @qos_ndp is set and the association is to an AP with QoS/WMM, the
+ * returned packet will be QoS NDP.
  *
  * Note: Caller (or hardware) is responsible for setting the
  * &IEEE80211_FCTL_PM bit as well as Duration and Sequence Control fields.
@@ -5253,7 +5354,8 @@ struct sk_buff *ieee80211_pspoll_get(struct ieee80211_hw *hw,
  * Return: The nullfunc template. %NULL on error.
  */
 struct sk_buff *ieee80211_nullfunc_get(struct ieee80211_hw *hw,
-				       struct ieee80211_vif *vif);
+				       struct ieee80211_vif *vif,
+				       bool qos_ok);
 
 /**
  * ieee80211_probereq_get - retrieve a Probe Request template
@@ -6350,8 +6452,14 @@ void ieee80211_mark_rx_ba_filtered_frames(struct ieee80211_sta *pubsta, u8 tid,
  */
 void ieee80211_send_bar(struct ieee80211_vif *vif, u8 *ra, u16 tid, u16 ssn);
 
+/**
+ * ieee80211_manage_rx_ba_offl - helper to queue an RX BA work
+ * @vif: &struct ieee80211_vif pointer from the add_interface callback
+ * @addr: station mac address
+ * @tid: the rx tid
+ */
 void ieee80211_manage_rx_ba_offl(struct ieee80211_vif *vif, const u8 *addr,
-				 unsigned int bit);
+				 unsigned int tid);
 
 /**
  * ieee80211_start_rx_ba_session_offl - start a Rx BA session

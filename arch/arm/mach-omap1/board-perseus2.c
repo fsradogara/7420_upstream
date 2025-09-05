@@ -307,7 +307,7 @@ static struct omap_uart_config perseus2_uart_config __initdata = {
 	.enabled_uarts = ((1 << 0) | (1 << 1)),
 };
 
-static struct omap_lcd_config perseus2_lcd_config __initdata = {
+static const struct omap_lcd_config perseus2_lcd_config __initconst = {
 	.ctrl_name	= "internal",
 };
 

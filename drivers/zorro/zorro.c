@@ -17,6 +17,7 @@
 #include <linux/string.h>
 
 #include <linux/platform_device.h>
+#include <linux/dma-mapping.h>
 #include <linux/slab.h>
 
 #include <asm/byteorder.h>
@@ -233,6 +234,7 @@ EXPORT_SYMBOL(zorro_unused_z2ram);
 	end = end > Z2RAM_END ? Z2RAM_SIZE : end-Z2RAM_START;
 	while (start < end) {
 		u32 chunk = start>>Z2RAM_CHUNKSHIFT;
+
 		if (flag)
 			set_bit(chunk, zorro_unused_z2ram);
 		else
@@ -249,6 +251,7 @@ static struct resource __init *zorro_find_parent_resource(
 
 	for (i = 0; i < bridge->num_resources; i++) {
 		struct resource *r = &bridge->resource[i];
+
 		if (zorro_resource_start(z) >= r->start &&
 		    zorro_resource_end(z) <= r->end)
 			return r;
@@ -268,8 +271,7 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 	int error;
 
 	/* Initialize the Zorro bus */
-	bus = kzalloc(sizeof(*bus) +
-		      zorro_num_autocon * sizeof(bus->devices[0]),
+	bus = kzalloc(struct_size(bus, devices, zorro_num_autocon),
 		      GFP_KERNEL);
 	if (!bus)
 		return -ENOMEM;
@@ -300,6 +302,7 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 		if (z->id == ZORRO_PROD_GVP_EPC_BASE) {
 			/* GVP quirk */
 			unsigned long magic = zi->boardaddr + 0x8000;
+
 			z->id |= *(u16 *)ZTWO_VADDR(magic) & GVP_PRODMASK;
 		}
 		z->slotaddr = zi->slotaddr;
@@ -318,6 +321,17 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 		z->dev.parent = &bus->dev;
 		z->dev.bus = &zorro_bus_type;
 		z->dev.id = i;
+		switch (z->rom.er_Type & ERT_TYPEMASK) {
+		case ERT_ZORROIII:
+			z->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+			break;
+
+		case ERT_ZORROII:
+		default:
+			z->dev.coherent_dma_mask = DMA_BIT_MASK(24);
+			break;
+		}
+		z->dev.dma_mask = &z->dev.coherent_dma_mask;
 	}
 
 	/* ... then register them */

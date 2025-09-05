@@ -393,7 +393,7 @@ static irqreturn_t bt3c_interrupt(int irq, void *dev_inst)
 				BT_INFO("%s: Antenna %s", info->hdev->name,
 							stat ? "out" : "in");
 				int status = bt3c_read(iobase, 0x7002) & 0x10;
-				BT_INFO("%s: Antenna %s", info->hdev->name,
+				bt_dev_info(info->hdev, "Antenna %s",
 							status ? "out" : "in");
 			}
 			if (stat & 0x0001)

@@ -32,6 +32,7 @@
 #include <asm/mips-boards/malta.h>
 #include <asm/mips-boards/maltaint.h>
 #include <asm/dma.h>
+#include <asm/dma-coherence.h>
 #include <asm/fw/fw.h>
 #include <asm/mach-malta/malta-dtshim.h>
 #include <asm/mips-cps.h>
@@ -53,31 +54,31 @@ static struct resource standard_io_resources[] = {
 		.name = "dma1",
 		.start = 0x00,
 		.end = 0x1f,
-		.flags = IORESOURCE_BUSY
+		.flags = IORESOURCE_IO | IORESOURCE_BUSY
 	},
 	{
 		.name = "timer",
 		.start = 0x40,
 		.end = 0x5f,
-		.flags = IORESOURCE_BUSY
+		.flags = IORESOURCE_IO | IORESOURCE_BUSY
 	},
 	{
 		.name = "keyboard",
 		.start = 0x60,
 		.end = 0x6f,
-		.flags = IORESOURCE_BUSY
+		.flags = IORESOURCE_IO | IORESOURCE_BUSY
 	},
 	{
 		.name = "dma page reg",
 		.start = 0x80,
 		.end = 0x8f,
-		.flags = IORESOURCE_BUSY
+		.flags = IORESOURCE_IO | IORESOURCE_BUSY
 	},
 	{
 		.name = "dma2",
 		.start = 0xc0,
 		.end = 0xdf,
-		.flags = IORESOURCE_BUSY
+		.flags = IORESOURCE_IO | IORESOURCE_BUSY
 	},
 };
 
@@ -156,12 +157,6 @@ static int __init plat_enable_iocoherency(void)
 
 static void __init plat_setup_iocoherency(void)
 {
-#ifdef CONFIG_DMA_NONCOHERENT
-	/*
-	 * Kernel has been configured with software coherency
-	 * but we might choose to turn it off and use hardware
-	 * coherency instead.
-	 */
 	if (plat_enable_iocoherency()) {
 		if (coherentio == IO_COHERENCE_DISABLED)
 			pr_info("Hardware DMA cache coherency disabled\n");
@@ -173,10 +168,6 @@ static void __init plat_setup_iocoherency(void)
 		else
 			pr_info("Software DMA cache coherency enabled\n");
 	}
-#else
-	if (!plat_enable_iocoherency())
-		panic("Hardware DMA cache coherency not supported!");
-#endif
 }
 
 static void __init pci_clock_check(void)
@@ -316,11 +307,6 @@ void __init plat_mem_setup(void)
 	 * Enable DMA channel 4 (cascade channel) in the PIIX4 south bridge.
 	 */
 	enable_dma(4);
-
-#ifdef CONFIG_DMA_COHERENT
-	if (mips_revision_sconid != MIPS_REVISION_SCON_BONITO)
-		panic("Hardware DMA cache coherency not supported");
-#endif
 
 	if (mips_revision_sconid == MIPS_REVISION_SCON_BONITO)
 		bonito_quirks_setup();

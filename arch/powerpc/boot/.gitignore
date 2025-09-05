@@ -25,7 +25,6 @@ otheros.bld
 uImage
 cuImage.*
 dtbImage.*
-*.dtb
 treeImage.*
 vmlinux.strip
 zImage

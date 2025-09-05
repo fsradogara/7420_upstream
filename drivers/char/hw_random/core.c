@@ -417,11 +417,34 @@ static struct miscdevice rng_miscdev = {
 	.groups		= rng_dev_groups,
 };
 
+static int enable_best_rng(void)
+{
+	int ret = -ENODEV;
+
+	BUG_ON(!mutex_is_locked(&rng_mutex));
+
+	/* rng_list is sorted by quality, use the best (=first) one */
+	if (!list_empty(&rng_list)) {
+		struct hwrng *new_rng;
+
+		new_rng = list_entry(rng_list.next, struct hwrng, list);
+		ret = ((new_rng == current_rng) ? 0 : set_current_rng(new_rng));
+		if (!ret)
+			cur_rng_set_by_user = 0;
+	} else {
+		drop_current_rng();
+		cur_rng_set_by_user = 0;
+		ret = 0;
+	}
+
+	return ret;
+}
+
 static ssize_t hwrng_attr_current_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t len)
 {
-	int err;
+	int err = -ENODEV;
 	struct hwrng *rng;
 
 	err = mutex_lock_interruptible(&rng_mutex);
@@ -444,10 +467,19 @@ static ssize_t hwrng_attr_current_store(struct device *dev,
 			err = 0;
 			cur_rng_set_by_user = 1;
 			if (rng != current_rng)
+
+	if (sysfs_streq(buf, "")) {
+		err = enable_best_rng();
+	} else {
+		list_for_each_entry(rng, &rng_list, list) {
+			if (sysfs_streq(rng->name, buf)) {
+				cur_rng_set_by_user = 1;
 				err = set_current_rng(rng);
-			break;
+				break;
+			}
 		}
 	}
+
 	mutex_unlock(&rng_mutex);
 
 	return err ? : len;
@@ -612,7 +644,7 @@ static void start_khwrngd(void)
 {
 	hwrng_fill = kthread_run(hwrng_fillfn, NULL, "hwrng");
 	if (IS_ERR(hwrng_fill)) {
-		pr_err("hwrng_fill thread creation failed");
+		pr_err("hwrng_fill thread creation failed\n");
 		hwrng_fill = NULL;
 	}
 }
@@ -735,6 +767,10 @@ EXPORT_SYMBOL_GPL(hwrng_unregister);
 
 			new_rng = list_entry(rng_list.next, struct hwrng, list);
 			set_current_rng(new_rng);
+		err = enable_best_rng();
+		if (err) {
+			drop_current_rng();
+			cur_rng_set_by_user = 0;
 		}
 	}
 

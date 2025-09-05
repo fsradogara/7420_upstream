@@ -45,8 +45,6 @@
 #include <linux/ppp-ioctl.h>
 #include <linux/if_pppox.h>
 #include <linux/mtio.h>
-#include <linux/auto_fs.h>
-#include <linux/auto_fs4.h>
 #include <linux/tty.h>
 #include <linux/vt_kern.h>
 #include <linux/fb.h>
@@ -66,8 +64,6 @@
 #include <linux/if_tun.h>
 #include <linux/ctype.h>
 #include <linux/syscalls.h>
-#include <linux/i2c.h>
-#include <linux/i2c-dev.h>
 #include <linux/atalk.h>
 #include <linux/loop.h>
 
@@ -195,22 +191,6 @@ static int do_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return err;
 
 	return vfs_ioctl(file, cmd, arg);
-}
-
-static int w_long(struct file *file,
-		unsigned int cmd, compat_ulong_t __user *argp)
-{
-	int err;
-	unsigned long __user *valp = compat_alloc_user_space(sizeof(*valp));
-
-	if (valp == NULL)
-		return -EFAULT;
-	err = do_ioctl(file, cmd, (unsigned long)valp);
-	if (err)
-		return err;
-	if (convert_in_user(valp, argp))
-		return -EFAULT;
-	return 0;
 }
 
 struct compat_video_event {
@@ -2758,9 +2738,6 @@ COMPATIBLE_IOCTL(AUDIO_CLEAR_BUFFER)
 COMPATIBLE_IOCTL(AUDIO_SET_ID)
 COMPATIBLE_IOCTL(AUDIO_SET_MIXER)
 COMPATIBLE_IOCTL(AUDIO_SET_STREAMTYPE)
-COMPATIBLE_IOCTL(AUDIO_SET_EXT_ID)
-COMPATIBLE_IOCTL(AUDIO_SET_ATTRIBUTES)
-COMPATIBLE_IOCTL(AUDIO_SET_KARAOKE)
 COMPATIBLE_IOCTL(DMX_START)
 COMPATIBLE_IOCTL(DMX_STOP)
 COMPATIBLE_IOCTL(DMX_SET_FILTER)
@@ -2768,23 +2745,11 @@ COMPATIBLE_IOCTL(DMX_SET_PES_FILTER)
 COMPATIBLE_IOCTL(DMX_SET_BUFFER_SIZE)
 COMPATIBLE_IOCTL(DMX_GET_PES_PIDS)
 COMPATIBLE_IOCTL(DMX_GET_STC)
-COMPATIBLE_IOCTL(FE_GET_INFO)
-COMPATIBLE_IOCTL(FE_DISEQC_RESET_OVERLOAD)
-COMPATIBLE_IOCTL(FE_DISEQC_SEND_MASTER_CMD)
-COMPATIBLE_IOCTL(FE_DISEQC_RECV_SLAVE_REPLY)
-COMPATIBLE_IOCTL(FE_DISEQC_SEND_BURST)
-COMPATIBLE_IOCTL(FE_SET_TONE)
-COMPATIBLE_IOCTL(FE_SET_VOLTAGE)
-COMPATIBLE_IOCTL(FE_ENABLE_HIGH_LNB_VOLTAGE)
-COMPATIBLE_IOCTL(FE_READ_STATUS)
-COMPATIBLE_IOCTL(FE_READ_BER)
-COMPATIBLE_IOCTL(FE_READ_SIGNAL_STRENGTH)
-COMPATIBLE_IOCTL(FE_READ_SNR)
-COMPATIBLE_IOCTL(FE_READ_UNCORRECTED_BLOCKS)
-COMPATIBLE_IOCTL(FE_SET_FRONTEND)
-COMPATIBLE_IOCTL(FE_GET_FRONTEND)
-COMPATIBLE_IOCTL(FE_GET_EVENT)
-COMPATIBLE_IOCTL(FE_DISHNETWORK_SEND_LEGACY_CMD)
+COMPATIBLE_IOCTL(DMX_REQBUFS)
+COMPATIBLE_IOCTL(DMX_QUERYBUF)
+COMPATIBLE_IOCTL(DMX_EXPBUF)
+COMPATIBLE_IOCTL(DMX_QBUF)
+COMPATIBLE_IOCTL(DMX_DQBUF)
 COMPATIBLE_IOCTL(VIDEO_STOP)
 COMPATIBLE_IOCTL(VIDEO_PLAY)
 COMPATIBLE_IOCTL(VIDEO_FREEZE)
@@ -2797,16 +2762,9 @@ COMPATIBLE_IOCTL(VIDEO_FAST_FORWARD)
 COMPATIBLE_IOCTL(VIDEO_SLOWMOTION)
 COMPATIBLE_IOCTL(VIDEO_GET_CAPABILITIES)
 COMPATIBLE_IOCTL(VIDEO_CLEAR_BUFFER)
-COMPATIBLE_IOCTL(VIDEO_SET_ID)
 COMPATIBLE_IOCTL(VIDEO_SET_STREAMTYPE)
 COMPATIBLE_IOCTL(VIDEO_SET_FORMAT)
-COMPATIBLE_IOCTL(VIDEO_SET_SYSTEM)
-COMPATIBLE_IOCTL(VIDEO_SET_HIGHLIGHT)
-COMPATIBLE_IOCTL(VIDEO_SET_SPU)
-COMPATIBLE_IOCTL(VIDEO_GET_NAVI)
-COMPATIBLE_IOCTL(VIDEO_SET_ATTRIBUTES)
 COMPATIBLE_IOCTL(VIDEO_GET_SIZE)
-COMPATIBLE_IOCTL(VIDEO_GET_FRAME_RATE)
 /* cec */
 COMPATIBLE_IOCTL(CEC_ADAP_G_CAPS)
 COMPATIBLE_IOCTL(CEC_ADAP_G_LOG_ADDRS)
@@ -3107,13 +3065,6 @@ static long do_ioctl_trans(unsigned int cmd,
 	case TIOCGSERIAL:
 	case TIOCSSERIAL:
 		return serial_struct_ioctl(file, cmd, argp);
-	/* i2c */
-	case I2C_FUNCS:
-		return w_long(file, cmd, argp);
-	case I2C_RDWR:
-		return do_i2c_rdwr_ioctl(file, cmd, argp);
-	case I2C_SMBUS:
-		return do_i2c_smbus_ioctl(file, cmd, argp);
 	/* Not implemented in the native kernel */
 	case RTC_IRQP_READ32:
 	case RTC_IRQP_SET32:
@@ -3126,8 +3077,6 @@ static long do_ioctl_trans(unsigned int cmd,
 		return do_video_get_event(file, cmd, argp);
 	case VIDEO_STILLPICTURE:
 		return do_video_stillpicture(file, cmd, argp);
-	case VIDEO_SET_SPU_PALETTE:
-		return do_video_set_spu_palette(file, cmd, argp);
 	}
 
 	/*
@@ -3227,6 +3176,7 @@ COMPAT_SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd,
 	case FICLONE:
 	case FICLONERANGE:
 	case FIDEDUPERANGE:
+	case FS_IOC_FIEMAP:
 		goto do_ioctl;
 
 	case FIBMAP:

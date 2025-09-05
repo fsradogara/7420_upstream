@@ -109,6 +109,9 @@ when tmpfs is mounted by appending them to the mode before the NodeList.
 See Documentation/vm/numa_memory_policy.txt for a list of all available
 memory allocation policy mode flags.
 memory allocation policy mode flags and their effect on memory policy.
+See Documentation/admin-guide/mm/numa_memory_policy.rst for a list of
+all available memory allocation policy mode flags and their effect on
+memory policy.
 
 	=static		is equivalent to	MPOL_F_STATIC_NODES
 	=relative	is equivalent to	MPOL_F_RELATIVE_NODES

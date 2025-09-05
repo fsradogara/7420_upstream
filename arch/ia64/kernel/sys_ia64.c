@@ -246,6 +246,7 @@ sys_mmap2 (unsigned long addr, unsigned long len, int prot, int flags, int fd, l
 {
 	addr = do_mmap2(addr, len, prot, flags, fd, pgoff);
 	addr = sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
+	addr = ksys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 	if (!IS_ERR((void *) addr))
 		force_successful_syscall_return();
 	return addr;
@@ -259,6 +260,7 @@ sys_mmap (unsigned long addr, unsigned long len, int prot, int flags, int fd, lo
 
 	addr = do_mmap2(addr, len, prot, flags, fd, off >> PAGE_SHIFT);
 	addr = sys_mmap_pgoff(addr, len, prot, flags, fd, off >> PAGE_SHIFT);
+	addr = ksys_mmap_pgoff(addr, len, prot, flags, fd, off >> PAGE_SHIFT);
 	if (!IS_ERR((void *) addr))
 		force_successful_syscall_return();
 	return addr;

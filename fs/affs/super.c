@@ -25,6 +25,7 @@ extern struct timezone sys_tz;
 #include <linux/writeback.h>
 #include <linux/blkdev.h>
 #include <linux/seq_file.h>
+#include <linux/iversion.h>
 #include "affs.h"
 
 static int affs_statfs(struct dentry *dentry, struct kstatfs *buf);
@@ -147,7 +148,7 @@ static struct inode *affs_alloc_inode(struct super_block *sb)
 	if (!i)
 		return NULL;
 
-	i->vfs_inode.i_version = 1;
+	inode_set_iversion(&i->vfs_inode, 1);
 	i->i_lc = NULL;
 	i->i_ext_bh = NULL;
 	i->i_pa_cnt = 0;
@@ -350,6 +351,7 @@ parse_options(char *options, kuid_t *uid, kgid_t *gid, int *mode, int *reserved,
 			affs_set_opt(*mount_opts, SF_NO_TRUNCATE);
 			break;
 		case Opt_prefix:
+			kfree(*prefix);
 			*prefix = match_strdup(&args[0]);
 			if (!*prefix)
 				return 0;
@@ -476,7 +478,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 
 	sb->s_magic             = AFFS_SUPER_MAGIC;
 	sb->s_op                = &affs_sops;
-	sb->s_flags |= MS_NODIRATIME;
+	sb->s_flags |= SB_NODIRATIME;
 
 	sbi = kzalloc(sizeof(struct affs_sb_info), GFP_KERNEL);
 	if (!sbi)
@@ -652,7 +654,7 @@ got_root:
 		printk(KERN_NOTICE "AFFS: Mounting volume \"%.*s\": Type=%.3s\\%c, Blocksize=%d\n",
 	     || chksum == MUFS_DCOFS) && !sb_rdonly(sb)) {
 		pr_notice("Dircache FS - mounting %s read only\n", sb->s_id);
-		sb->s_flags |= MS_RDONLY;
+		sb->s_flags |= SB_RDONLY;
 	}
 	switch (chksum) {
 	case MUFS_FS:
@@ -674,7 +676,7 @@ got_root:
 		/* fall thru */
 	case FS_OFS:
 		affs_set_opt(sbi->s_flags, SF_OFS);
-		sb->s_flags |= MS_NOEXEC;
+		sb->s_flags |= SB_NOEXEC;
 		break;
 	case MUFS_DCOFS:
 	case MUFS_INTLOFS:
@@ -683,7 +685,7 @@ got_root:
 	case FS_INTLOFS:
 		affs_set_opt(sbi->s_flags, SF_INTL);
 		affs_set_opt(sbi->s_flags, SF_OFS);
-		sb->s_flags |= MS_NOEXEC;
+		sb->s_flags |= SB_NOEXEC;
 		break;
 	default:
 		pr_err("Unknown filesystem on device %s: %08X\n",
@@ -699,7 +701,7 @@ got_root:
 			sig, sig[3] + '0', blocksize);
 	}
 
-	sb->s_flags |= MS_NODEV | MS_NOSUID;
+	sb->s_flags |= SB_NODEV | SB_NOSUID;
 
 	sbi->s_data_blksize = sb->s_blocksize;
 	if (sbi->s_flags & SF_OFS)
@@ -810,7 +812,7 @@ affs_remount(struct super_block *sb, int *flags, char *data)
 	pr_debug("%s(flags=0x%x,opts=\"%s\")\n", __func__, *flags, data);
 
 	sync_filesystem(sb);
-	*flags |= MS_NODIRATIME;
+	*flags |= SB_NODIRATIME;
 
 	memcpy(volume, sbi->s_volume, 32);
 	if (!parse_options(data, &uid, &gid, &mode, &reserved, &root_block,
@@ -845,10 +847,10 @@ affs_remount(struct super_block *sb, int *flags, char *data)
 	memcpy(sbi->s_volume, volume, 32);
 	spin_unlock(&sbi->symlink_lock);
 
-	if ((bool)(*flags & MS_RDONLY) == sb_rdonly(sb))
+	if ((bool)(*flags & SB_RDONLY) == sb_rdonly(sb))
 		return 0;
 
-	if (*flags & MS_RDONLY)
+	if (*flags & SB_RDONLY)
 		affs_free_bitmap(sb);
 	else
 		res = affs_init_bitmap(sb, flags);

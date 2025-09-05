@@ -16,12 +16,12 @@
  *  control on SB-part of SF16FMI
  *  control on SB-part of SF16-FMI/SF16-FMP/SF16-FMD
  *
- * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@infradead.org>
+ * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@kernel.org>
  */
 
 #include <linux/version.h>
 #include <linux/kernel.h>	/* __setup			*/
-#include <linux/module.h>	/* Modules 			*/
+#include <linux/module.h>	/* Modules			*/
 #include <linux/init.h>		/* Initdata			*/
 #include <linux/ioport.h>	/* request_region		*/
 #include <linux/delay.h>	/* udelay			*/
@@ -223,7 +223,7 @@ static inline int fmi_getsigstr(struct fmi *fmi)
 	val = fmi->mute ? 0x00 : 0x08;	/* mute/unmute */
 	outb(val, fmi->io);
 	outb(val | 0x10, fmi->io);
-	msleep(143); 		/* was schedule_timeout(HZ/7) */
+	msleep(143);		/* was schedule_timeout(HZ/7) */
 	res = (int)inb(fmi->io + 1);
 	outb(val, fmi->io);
 

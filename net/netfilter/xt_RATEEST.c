@@ -14,15 +14,21 @@
 #include <linux/slab.h>
 #include <net/gen_stats.h>
 #include <net/netlink.h>
+#include <net/netns/generic.h>
 
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_RATEEST.h>
 #include <net/netfilter/xt_rateest.h>
 
-static DEFINE_MUTEX(xt_rateest_mutex);
-
 #define RATEEST_HSIZE	16
-static struct hlist_head rateest_hash[RATEEST_HSIZE] __read_mostly;
+
+struct xt_rateest_net {
+	struct mutex hash_lock;
+	struct hlist_head hash[RATEEST_HSIZE];
+};
+
+static unsigned int xt_rateest_id;
+
 static unsigned int jhash_rnd __read_mostly;
 
 static unsigned int xt_rateest_hash(const char *name)
@@ -31,15 +37,17 @@ static unsigned int xt_rateest_hash(const char *name)
 	       (RATEEST_HSIZE - 1);
 }
 
-static void xt_rateest_hash_insert(struct xt_rateest *est)
+static void xt_rateest_hash_insert(struct xt_rateest_net *xn,
+				   struct xt_rateest *est)
 {
 	unsigned int h;
 
 	h = xt_rateest_hash(est->name);
-	hlist_add_head(&est->list, &rateest_hash[h]);
+	hlist_add_head(&est->list, &xn->hash[h]);
 }
 
-struct xt_rateest *xt_rateest_lookup(const char *name)
+static struct xt_rateest *__xt_rateest_lookup(struct xt_rateest_net *xn,
+					      const char *name)
 {
 	struct xt_rateest *est;
 	struct hlist_node *n;
@@ -49,20 +57,33 @@ struct xt_rateest *xt_rateest_lookup(const char *name)
 	mutex_lock(&xt_rateest_mutex);
 	hlist_for_each_entry(est, n, &rateest_hash[h], list) {
 	hlist_for_each_entry(est, &rateest_hash[h], list) {
+	hlist_for_each_entry(est, &xn->hash[h], list) {
 		if (strcmp(est->name, name) == 0) {
 			est->refcnt++;
-			mutex_unlock(&xt_rateest_mutex);
 			return est;
 		}
 	}
-	mutex_unlock(&xt_rateest_mutex);
+
 	return NULL;
+}
+
+struct xt_rateest *xt_rateest_lookup(struct net *net, const char *name)
+{
+	struct xt_rateest_net *xn = net_generic(net, xt_rateest_id);
+	struct xt_rateest *est;
+
+	mutex_lock(&xn->hash_lock);
+	est = __xt_rateest_lookup(xn, name);
+	mutex_unlock(&xn->hash_lock);
+	return est;
 }
 EXPORT_SYMBOL_GPL(xt_rateest_lookup);
 
-void xt_rateest_put(struct xt_rateest *est)
+void xt_rateest_put(struct net *net, struct xt_rateest *est)
 {
-	mutex_lock(&xt_rateest_mutex);
+	struct xt_rateest_net *xn = net_generic(net, xt_rateest_id);
+
+	mutex_lock(&xn->hash_lock);
 	if (--est->refcnt == 0) {
 		hlist_del(&est->list);
 		gen_kill_estimator(&est->bstats, &est->rstats);
@@ -74,7 +95,7 @@ void xt_rateest_put(struct xt_rateest *est)
 		 */
 		kfree_rcu(est, rcu);
 	}
-	mutex_unlock(&xt_rateest_mutex);
+	mutex_unlock(&xn->hash_lock);
 }
 EXPORT_SYMBOL_GPL(xt_rateest_put);
 
@@ -111,6 +132,7 @@ xt_rateest_tg_checkentry(const char *tablename,
 	struct xt_rateest_target_info *info = targinfo;
 static int xt_rateest_tg_checkentry(const struct xt_tgchk_param *par)
 {
+	struct xt_rateest_net *xn = net_generic(par->net, xt_rateest_id);
 	struct xt_rateest_target_info *info = par->targinfo;
 	struct xt_rateest *est;
 	struct {
@@ -121,8 +143,10 @@ static int xt_rateest_tg_checkentry(const struct xt_tgchk_param *par)
 
 	net_get_random_once(&jhash_rnd, sizeof(jhash_rnd));
 
-	est = xt_rateest_lookup(info->name);
+	mutex_lock(&xn->hash_lock);
+	est = __xt_rateest_lookup(xn, info->name);
 	if (est) {
+		mutex_unlock(&xn->hash_lock);
 		/*
 		 * If estimator parameters are specified, they must match the
 		 * existing estimator.
@@ -137,6 +161,7 @@ static int xt_rateest_tg_checkentry(const struct xt_tgchk_param *par)
 		return true;
 	}
 
+			xt_rateest_put(par->net, est);
 			return -EINVAL;
 		}
 		info->est = est;
@@ -172,6 +197,8 @@ static int xt_rateest_tg_checkentry(const struct xt_tgchk_param *par)
 	xt_rateest_hash_insert(est);
 
 	return true;
+	xt_rateest_hash_insert(xn, est);
+	mutex_unlock(&xn->hash_lock);
 	return 0;
 
 err2:
@@ -184,6 +211,7 @@ static void xt_rateest_tg_destroy(const struct xt_target *target,
 				  void *targinfo)
 {
 	struct xt_rateest_target_info *info = targinfo;
+	mutex_unlock(&xn->hash_lock);
 	return ret;
 }
 
@@ -191,7 +219,7 @@ static void xt_rateest_tg_destroy(const struct xt_tgdtor_param *par)
 {
 	struct xt_rateest_target_info *info = par->targinfo;
 
-	xt_rateest_put(info->est);
+	xt_rateest_put(par->net, info->est);
 }
 
 static struct xt_target xt_rateest_target[] __read_mostly = {
@@ -225,16 +253,42 @@ static struct xt_target xt_rateest_tg_reg __read_mostly = {
 	.me         = THIS_MODULE,
 };
 
+static __net_init int xt_rateest_net_init(struct net *net)
+{
+	struct xt_rateest_net *xn = net_generic(net, xt_rateest_id);
+	int i;
+
+	mutex_init(&xn->hash_lock);
+	for (i = 0; i < ARRAY_SIZE(xn->hash); i++)
+		INIT_HLIST_HEAD(&xn->hash[i]);
+	return 0;
+}
+
+static void __net_exit xt_rateest_net_exit(struct net *net)
+{
+	struct xt_rateest_net *xn = net_generic(net, xt_rateest_id);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(xn->hash); i++)
+		WARN_ON_ONCE(!hlist_empty(&xn->hash[i]));
+}
+
+static struct pernet_operations xt_rateest_net_ops = {
+	.init = xt_rateest_net_init,
+	.exit = xt_rateest_net_exit,
+	.id   = &xt_rateest_id,
+	.size = sizeof(struct xt_rateest_net),
+};
+
 static int __init xt_rateest_tg_init(void)
 {
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(rateest_hash); i++)
-		INIT_HLIST_HEAD(&rateest_hash[i]);
+	int err = register_pernet_subsys(&xt_rateest_net_ops);
 
 	get_random_bytes(&jhash_rnd, sizeof(jhash_rnd));
 	return xt_register_targets(xt_rateest_target,
 				   ARRAY_SIZE(xt_rateest_target));
+	if (err)
+		return err;
 	return xt_register_target(&xt_rateest_tg_reg);
 }
 
@@ -242,6 +296,7 @@ static void __exit xt_rateest_tg_fini(void)
 {
 	xt_unregister_targets(xt_rateest_target, ARRAY_SIZE(xt_rateest_target));
 	xt_unregister_target(&xt_rateest_tg_reg);
+	unregister_pernet_subsys(&xt_rateest_net_ops);
 }
 
 

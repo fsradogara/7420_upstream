@@ -679,6 +679,12 @@ static DEVICE_ATTR(wake_up_key,
 		0644, wake_up_key_show,	wake_up_key_store);
 static DEVICE_ATTR(wake_up_mouse,
 		0644, wake_up_mouse_show,	wake_up_mouse_store);
+static DEVICE_ATTR_RW(wake_up_pme);
+static DEVICE_ATTR_RW(wake_up_modem);
+static DEVICE_ATTR_RW(wake_up_lan);
+static DEVICE_ATTR_RW(wake_up_wlan);
+static DEVICE_ATTR_RW(wake_up_key);
+static DEVICE_ATTR_RW(wake_up_mouse);
 
 static DEVICE_ATTR(fan1_input,  S_IRUGO, fan_show,          NULL);
 static DEVICE_ATTR(temp1_input, S_IRUGO, temp_cpu,          NULL);

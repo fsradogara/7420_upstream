@@ -614,9 +614,9 @@ static void snd_korg1212_SendStopAndWait(struct snd_korg1212 *korg1212)
 }
 
 /* timer callback for checking the ack of stop request */
-static void snd_korg1212_timer_func(unsigned long data)
+static void snd_korg1212_timer_func(struct timer_list *t)
 {
-        struct snd_korg1212 *korg1212 = (struct snd_korg1212 *) data;
+	struct snd_korg1212 *korg1212 = from_timer(korg1212, t, timer);
 	unsigned long flags;
 	
 	spin_lock_irqsave(&korg1212->lock, flags);
@@ -1349,7 +1349,7 @@ static int snd_korg1212_copy_to(struct snd_pcm_substream *substream,
 		}
 #endif
 		if (in_kernel)
-			memcpy((void *)dst, src, size);
+			memcpy((__force void *)dst, src, size);
 		else if (copy_to_user(dst, src, size))
 			return -EFAULT;
 		src++;
@@ -1389,7 +1389,7 @@ static int snd_korg1212_copy_from(struct snd_pcm_substream *substream,
 		}
 #endif
 		if (in_kernel)
-			memcpy((void *)dst, src, size);
+			memcpy(dst, (__force void *)src, size);
 		else if (copy_from_user(dst, src, size))
 			return -EFAULT;
 		dst++;
@@ -2240,6 +2240,7 @@ static int snd_korg1212_create(struct snd_card *card, struct pci_dev *pci,
 	korg1212->timer.data = (unsigned long)korg1212;
 	setup_timer(&korg1212->timer, snd_korg1212_timer_func,
 		    (unsigned long)korg1212);
+	timer_setup(&korg1212->timer, snd_korg1212_timer_func, 0);
 
         korg1212->irq = -1;
         korg1212->clkSource = K1212_CLKIDX_Local;
@@ -2399,7 +2400,6 @@ static int snd_korg1212_create(struct snd_card *card, struct pci_dev *pci,
 
 	err = request_firmware(&dsp_code, "korg/k1212.dsp", &pci->dev);
 	if (err < 0) {
-		release_firmware(dsp_code);
 		snd_printk(KERN_ERR "firmware not available\n");
 		snd_korg1212_free(korg1212);
 		return err;

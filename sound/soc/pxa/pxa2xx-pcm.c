@@ -404,6 +404,7 @@ EXPORT_SYMBOL_GPL(pxa2xx_soc_platform);
 static struct snd_soc_platform_driver pxa2xx_soc_platform = {
 	.ops 	= &pxa2xx_pcm_ops,
 static const struct snd_soc_platform_driver pxa2xx_soc_platform = {
+static const struct snd_soc_component_driver pxa2xx_soc_platform = {
 	.ops		= &pxa2xx_pcm_ops,
 	.pcm_new	= pxa2xx_soc_pcm_new,
 	.pcm_free	= pxa2xx_pcm_free_dma_buffers,
@@ -411,21 +412,13 @@ static const struct snd_soc_platform_driver pxa2xx_soc_platform = {
 
 static int pxa2xx_soc_platform_probe(struct platform_device *pdev)
 {
-	return devm_snd_soc_register_platform(&pdev->dev, &pxa2xx_soc_platform);
+	return devm_snd_soc_register_component(&pdev->dev, &pxa2xx_soc_platform,
+					       NULL, 0);
 }
-
-#ifdef CONFIG_OF
-static const struct of_device_id snd_soc_pxa_audio_match[] = {
-	{ .compatible   = "mrvl,pxa-pcm-audio" },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, snd_soc_pxa_audio_match);
-#endif
 
 static struct platform_driver pxa_pcm_driver = {
 	.driver = {
 		.name = "pxa-pcm-audio",
-		.of_match_table = of_match_ptr(snd_soc_pxa_audio_match),
 	},
 
 	.probe = pxa2xx_soc_platform_probe,

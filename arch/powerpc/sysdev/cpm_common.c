@@ -355,8 +355,9 @@ static int cpm2_gpio32_dir_in(struct gpio_chip *gc, unsigned int gpio)
 	return 0;
 }
 
-int cpm2_gpiochip_add32(struct device_node *np)
+int cpm2_gpiochip_add32(struct device *dev)
 {
+	struct device_node *np = dev->of_node;
 	struct cpm2_gpio32_chip *cpm2_gc;
 	struct of_mm_gpio_chip *mm_gc;
 	struct of_gpio_chip *of_gc;
@@ -382,6 +383,8 @@ int cpm2_gpiochip_add32(struct device_node *np)
 	gc->direction_output = cpm2_gpio32_dir_out;
 	gc->get = cpm2_gpio32_get;
 	gc->set = cpm2_gpio32_set;
+	gc->parent = dev;
+	gc->owner = THIS_MODULE;
 
 	return of_mm_gpiochip_add_data(np, mm_gc, cpm2_gc);
 }

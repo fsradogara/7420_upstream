@@ -111,7 +111,7 @@ static inline struct nf_conn_nat *nfct_nat(const struct nf_conn *ct)
 #define nf_nat_multi_range nf_nat_multi_range_compat
 #endif /*__KERNEL__*/
 unsigned int nf_nat_setup_info(struct nf_conn *ct,
-			       const struct nf_nat_range *range,
+			       const struct nf_nat_range2 *range,
 			       enum nf_nat_manip_type maniptype);
 
 extern unsigned int nf_nat_alloc_null_binding(struct nf_conn *ct,
@@ -147,4 +147,8 @@ static inline bool nf_nat_oif_changed(unsigned int hooknum,
 #endif
 }
 
+int nf_nat_register_fn(struct net *net, const struct nf_hook_ops *ops,
+		       const struct nf_hook_ops *nat_ops, unsigned int ops_count);
+void nf_nat_unregister_fn(struct net *net, const struct nf_hook_ops *ops,
+			  unsigned int ops_count);
 #endif

@@ -46,44 +46,13 @@ struct timezone {
 extern struct timezone sys_tz;
 
 int get_timespec64(struct timespec64 *ts,
-		const struct timespec __user *uts);
+		const struct __kernel_timespec __user *uts);
 int put_timespec64(const struct timespec64 *ts,
-		struct timespec __user *uts);
+		struct __kernel_timespec __user *uts);
 int get_itimerspec64(struct itimerspec64 *it,
-			const struct itimerspec __user *uit);
+			const struct __kernel_itimerspec __user *uit);
 int put_itimerspec64(const struct itimerspec64 *it,
-			struct itimerspec __user *uit);
-
-#define TIME_T_MAX	(time_t)((1UL << ((sizeof(time_t) << 3) - 1)) - 1)
-
-static inline int timespec_equal(const struct timespec *a,
-                                 const struct timespec *b)
-{
-	return (a->tv_sec == b->tv_sec) && (a->tv_nsec == b->tv_nsec);
-}
-
-/*
- * lhs < rhs:  return <0
- * lhs == rhs: return 0
- * lhs > rhs:  return >0
- */
-static inline int timespec_compare(const struct timespec *lhs, const struct timespec *rhs)
-{
-	if (lhs->tv_sec < rhs->tv_sec)
-		return -1;
-	if (lhs->tv_sec > rhs->tv_sec)
-		return 1;
-	return lhs->tv_nsec - rhs->tv_nsec;
-}
-
-static inline int timeval_compare(const struct timeval *lhs, const struct timeval *rhs)
-{
-	if (lhs->tv_sec < rhs->tv_sec)
-		return -1;
-	if (lhs->tv_sec > rhs->tv_sec)
-		return 1;
-	return lhs->tv_usec - rhs->tv_usec;
-}
+			struct __kernel_itimerspec __user *uit);
 
 extern unsigned long mktime(const unsigned int year, const unsigned int mon,
 			    const unsigned int day, const unsigned int hour,
@@ -397,6 +366,7 @@ struct itimerval {
  * The various flags for setting POSIX.1b interval timers:
  */
 #define TIMER_ABSTIME			0x01
+# include <linux/time32.h>
 
 static inline bool itimerspec64_valid(const struct itimerspec64 *its)
 {

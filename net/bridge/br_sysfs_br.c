@@ -421,10 +421,7 @@ static ssize_t group_addr_show(struct device *d,
 			       struct device_attribute *attr, char *buf)
 {
 	struct net_bridge *br = to_bridge(d);
-	return sprintf(buf, "%x:%x:%x:%x:%x:%x\n",
-		       br->group_addr[0], br->group_addr[1],
-		       br->group_addr[2], br->group_addr[3],
-		       br->group_addr[4], br->group_addr[5]);
+	return sprintf(buf, "%pM\n", br->group_addr);
 }
 
 static ssize_t store_group_addr(struct device *d,
@@ -441,14 +438,11 @@ static ssize_t group_addr_store(struct device *d,
 
 	if (sscanf(buf, "%x:%x:%x:%x:%x:%x",
 	u8 new_addr[6];
-	int i;
 
 	if (!ns_capable(dev_net(br->dev)->user_ns, CAP_NET_ADMIN))
 		return -EPERM;
 
-	if (sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-		   &new_addr[0], &new_addr[1], &new_addr[2],
-		   &new_addr[3], &new_addr[4], &new_addr[5]) != 6)
+	if (!mac_pton(buf, new_addr))
 		return -EINVAL;
 
 	/* Must be 01:80:c2:00:00:0X */
@@ -476,8 +470,7 @@ static ssize_t group_addr_store(struct device *d,
 		return restart_syscall();
 
 	spin_lock_bh(&br->lock);
-	for (i = 0; i < 6; i++)
-		br->group_addr[i] = new_addr[i];
+	ether_addr_copy(br->group_addr, new_addr);
 	spin_unlock_bh(&br->lock);
 	return len;
 }
@@ -1087,7 +1080,7 @@ static ssize_t brforward_read(struct file *filp, struct kobject *kobj,
 
 static struct bin_attribute bridge_forward = {
 	.attr = { .name = SYSFS_BRIDGE_FDB,
-		  .mode = S_IRUGO, },
+		  .mode = 0444, },
 	.read = brforward_read,
 };
 

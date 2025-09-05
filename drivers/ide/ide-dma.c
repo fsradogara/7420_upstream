@@ -470,7 +470,6 @@ void ide_dma_off_quietly(ide_drive_t *drive)
 {
 	drive->using_dma = 0;
 	drive->dev_flags &= ~IDE_DFLAG_USING_DMA;
-	ide_toggle_bounce(drive, 0);
 
 	drive->hwif->dma_ops->dma_host_set(drive, 0);
 }
@@ -504,7 +503,6 @@ void ide_dma_on(ide_drive_t *drive)
 {
 	drive->using_dma = 1;
 	drive->dev_flags |= IDE_DFLAG_USING_DMA;
-	ide_toggle_bounce(drive, 1);
 
 	drive->hwif->dma_ops->dma_host_set(drive, 1);
 }

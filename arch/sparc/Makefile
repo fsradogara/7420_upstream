@@ -57,10 +57,10 @@ export INIT_Y CORE_Y DRIVERS_Y NET_Y LIBS_Y HEAD_Y kallsyms.o
 # Copyright (C) 1998 Jakub Jelinek (jj@ultra.linux.cz)
 
 # We are not yet configured - so test on arch
-ifeq ($(ARCH),sparc)
-        KBUILD_DEFCONFIG := sparc32_defconfig
-else
+ifeq ($(ARCH),sparc64)
         KBUILD_DEFCONFIG := sparc64_defconfig
+else
+        KBUILD_DEFCONFIG := sparc32_defconfig
 endif
 
 ifeq ($(CONFIG_SPARC32),y)
@@ -69,7 +69,7 @@ ifeq ($(CONFIG_SPARC32),y)
 #
 
 CHECKFLAGS     += -D__sparc__
-LDFLAGS        := -m elf32_sparc
+KBUILD_LDFLAGS := -m elf32_sparc
 export BITS    := 32
 UTS_MACHINE    := sparc
 
@@ -87,8 +87,8 @@ else
 # sparc64
 #
 
-CHECKFLAGS    += -D__sparc__ -D__sparc_v9__ -D__arch64__ -m64
-LDFLAGS       := -m elf64_sparc
+CHECKFLAGS    += -D__sparc__ -D__sparc_v9__ -D__arch64__
+KBUILD_LDFLAGS := -m elf64_sparc
 export BITS   := 64
 UTS_MACHINE   := sparc64
 
@@ -133,6 +133,10 @@ install:
 
 archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)
+
+PHONY += vdso_install
+vdso_install:
+	$(Q)$(MAKE) $(build)=arch/sparc/vdso $@
 
 # This is the image used for packaging
 KBUILD_IMAGE := $(boot)/zImage

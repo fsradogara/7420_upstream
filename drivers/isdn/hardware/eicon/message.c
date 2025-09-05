@@ -11746,6 +11746,7 @@ static void control_rc(PLCI *plci, byte req, byte rc, byte ch, byte global_req,
 					plci->channels++;
 					a->ncci_state[ncci] = OUTG_CON_PENDING;
 				}
+				/* fall through */
 
 			default:
 				if (plci->internal_command_queue[0])
@@ -14265,6 +14266,7 @@ static void nl_ind(PLCI *plci)
 			plci->NL.RNum = 1;
 			return;
 		}
+		/* fall through */
 	case N_BDATA:
 	case N_DATA:
 		if (((a->ncci_state[ncci] != CONNECTED) && (plci->B2_prot == 1)) /* transparent */
@@ -19573,9 +19575,9 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 	{
 
 	case DTMF_LISTEN_TONE_START:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 	case DTMF_LISTEN_MF_START:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 
 	case DTMF_LISTEN_START:
 		switch (internal_command)
@@ -19583,6 +19585,7 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 		default:
 			adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities |
 								  B1_FACILITY_DTMFR), DTMF_COMMAND_1);
+			/* fall through */
 		case DTMF_COMMAND_1:
 			if (adjust_b_process(Id, plci, Rc) != GOOD)
 			{
@@ -19593,6 +19596,7 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 			}
 			if (plci->internal_command)
 				return;
+			/* fall through */
 		case DTMF_COMMAND_2:
 			if (plci_nl_busy(plci))
 			{
@@ -19620,9 +19624,9 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 
 
 	case DTMF_LISTEN_TONE_STOP:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 	case DTMF_LISTEN_MF_STOP:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 
 	case DTMF_LISTEN_STOP:
 		switch (internal_command)
@@ -19657,6 +19661,7 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 */
 			adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities &
 								  ~(B1_FACILITY_DTMFX | B1_FACILITY_DTMFR)), DTMF_COMMAND_3);
+			/* fall through */
 		case DTMF_COMMAND_3:
 			if (adjust_b_process(Id, plci, Rc) != GOOD)
 			{
@@ -19673,9 +19678,9 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 
 
 	case DTMF_SEND_TONE:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 	case DTMF_SEND_MF:
-		mask <<= 1;
+		mask <<= 1; /* fall through */
 
 	case DTMF_DIGITS_SEND:
 		switch (internal_command)
@@ -19684,6 +19689,7 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 			adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities |
 								  ((plci->dtmf_parameter_length != 0) ? B1_FACILITY_DTMFX | B1_FACILITY_DTMFR : B1_FACILITY_DTMFX)),
 					   DTMF_COMMAND_1);
+			/* fall through */
 		case DTMF_COMMAND_1:
 			if (adjust_b_process(Id, plci, Rc) != GOOD)
 			{
@@ -19694,6 +19700,7 @@ static void dtmf_command(dword Id, PLCI *plci, byte Rc)
 			}
 			if (plci->internal_command)
 				return;
+			/* fall through */
 		case DTMF_COMMAND_2:
 			if (plci_nl_busy(plci))
 			{
@@ -19810,7 +19817,7 @@ static byte dtmf_request(dword Id, word Number, DIVA_CAPI_ADAPTER *a, PLCI *plci
 
 			case DTMF_LISTEN_TONE_START:
 			case DTMF_LISTEN_TONE_STOP:
-				mask <<= 1;
+				mask <<= 1; /* fall through */
 			case DTMF_LISTEN_MF_START:
 			case DTMF_LISTEN_MF_STOP:
 				mask <<= 1;
@@ -19822,6 +19829,7 @@ static byte dtmf_request(dword Id, word Number, DIVA_CAPI_ADAPTER *a, PLCI *plci
 					PUT_WORD(&result[1], DTMF_UNKNOWN_REQUEST);
 					break;
 				}
+				/* fall through */
 
 			case DTMF_LISTEN_START:
 			case DTMF_LISTEN_STOP:
@@ -19851,7 +19859,7 @@ static byte dtmf_request(dword Id, word Number, DIVA_CAPI_ADAPTER *a, PLCI *plci
 
 
 			case DTMF_SEND_TONE:
-				mask <<= 1;
+				mask <<= 1; /* fall through */
 			case DTMF_SEND_MF:
 				mask <<= 1;
 				if (!((plci->requested_options_conn | plci->requested_options | plci->adapter->requested_options_table[appl->Id - 1])
@@ -19862,6 +19870,7 @@ static byte dtmf_request(dword Id, word Number, DIVA_CAPI_ADAPTER *a, PLCI *plci
 					PUT_WORD(&result[1], DTMF_UNKNOWN_REQUEST);
 					break;
 				}
+				/* fall through */
 
 			case DTMF_DIGITS_SEND:
 				if (api_parse(&msg[1].info[1], msg[1].length, "wwws", dtmf_parms))
@@ -23579,6 +23588,7 @@ static word mixer_restore_config(dword Id, PLCI *plci, byte Rc)
 			}
 			plci->adjust_b_state = ADJUST_B_RESTORE_MIXER_5;
 			Rc = OK;
+			/* fall through */
 		case ADJUST_B_RESTORE_MIXER_2:
 		case ADJUST_B_RESTORE_MIXER_3:
 		case ADJUST_B_RESTORE_MIXER_4:
@@ -23608,10 +23618,12 @@ static word mixer_restore_config(dword Id, PLCI *plci, byte Rc)
 				plci->internal_command = plci->adjust_b_command;
 				break;
 			}
+			/* fall through */
 		case ADJUST_B_RESTORE_MIXER_5:
 			xconnect_write_coefs(plci, plci->adjust_b_command);
 			plci->adjust_b_state = ADJUST_B_RESTORE_MIXER_6;
 			Rc = OK;
+			/* fall through */
 		case ADJUST_B_RESTORE_MIXER_6:
 			if (!xconnect_write_coefs_process(Id, plci, Rc))
 			{
@@ -23656,6 +23668,7 @@ static void mixer_command(dword Id, PLCI *plci, byte Rc)
 				adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities |
 									  B1_FACILITY_MIXER), MIXER_COMMAND_1);
 			}
+			/* fall through */
 		case MIXER_COMMAND_1:
 			if (plci->li_channel_bits & LI_CHANNEL_INVOLVED)
 			{
@@ -23683,6 +23696,7 @@ static void mixer_command(dword Id, PLCI *plci, byte Rc)
 					mixer_indication_coefs_set(Id, plci);
 				} while (plci->li_plci_b_read_pos != plci->li_plci_b_req_pos);
 			}
+			/* fall through */
 		case MIXER_COMMAND_2:
 			if ((plci->li_channel_bits & LI_CHANNEL_INVOLVED)
 			    || ((get_b1_facilities(plci, plci->B1_resource) & B1_FACILITY_MIXER)
@@ -23714,6 +23728,7 @@ static void mixer_command(dword Id, PLCI *plci, byte Rc)
 				adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities &
 									  ~B1_FACILITY_MIXER), MIXER_COMMAND_3);
 			}
+			/* fall through */
 		case MIXER_COMMAND_3:
 			if (!(plci->li_channel_bits & LI_CHANNEL_INVOLVED))
 			{
@@ -25369,6 +25384,7 @@ static void ec_command(dword Id, PLCI *plci, byte Rc)
 		default:
 			adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities |
 								  B1_FACILITY_EC), EC_COMMAND_1);
+			/* fall through */
 		case EC_COMMAND_1:
 			if (adjust_b_process(Id, plci, Rc) != GOOD)
 			{
@@ -25379,6 +25395,7 @@ static void ec_command(dword Id, PLCI *plci, byte Rc)
 			}
 			if (plci->internal_command)
 				return;
+			/* fall through */
 		case EC_COMMAND_2:
 			if (plci->sig_req)
 			{
@@ -25417,6 +25434,7 @@ static void ec_command(dword Id, PLCI *plci, byte Rc)
 				return;
 			}
 			Rc = OK;
+			/* fall through */
 		case EC_COMMAND_2:
 			if ((Rc != OK) && (Rc != OK_FC))
 			{
@@ -25427,6 +25445,7 @@ static void ec_command(dword Id, PLCI *plci, byte Rc)
 			}
 			adjust_b1_resource(Id, plci, NULL, (word)(plci->B1_facilities &
 								  ~B1_FACILITY_EC), EC_COMMAND_3);
+			/* fall through */
 		case EC_COMMAND_3:
 			if (adjust_b_process(Id, plci, Rc) != GOOD)
 			{
@@ -27491,6 +27510,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SAVE_MIXER_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SAVE_MIXER_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SAVE)
 		{
@@ -27502,6 +27522,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SAVE_DTMF_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SAVE_DTMF_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SAVE)
 		{
@@ -27512,6 +27533,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 
 		}
 		plci->adjust_b_state = ADJUST_B_REMOVE_L23_1;
+		/* fall through */
 	case ADJUST_B_REMOVE_L23_1:
 		if ((plci->adjust_b_mode & ADJUST_B_MODE_REMOVE_L23)
 		    && plci->NL.Id && !plci->nl_remove_id)
@@ -27536,6 +27558,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_REMOVE_L23_2;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_REMOVE_L23_2:
 		if ((Rc != OK) && (Rc != OK_FC))
 		{
@@ -27554,6 +27577,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SAVE_EC_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SAVE_EC_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SAVE)
 		{
@@ -27565,6 +27589,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SAVE_DTMF_PARAMETER_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SAVE_DTMF_PARAMETER_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SAVE)
 		{
@@ -27576,6 +27601,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SAVE_VOICE_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SAVE_VOICE_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SAVE)
 		{
@@ -27584,6 +27610,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 				break;
 		}
 		plci->adjust_b_state = ADJUST_B_SWITCH_L1_1;
+		/* fall through */
 	case ADJUST_B_SWITCH_L1_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_SWITCH_L1)
 		{
@@ -27614,6 +27641,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_SWITCH_L1_2;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_SWITCH_L1_2:
 		if ((Rc != OK) && (Rc != OK_FC))
 		{
@@ -27625,6 +27653,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_RESTORE_VOICE_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_VOICE_1:
 	case ADJUST_B_RESTORE_VOICE_2:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_RESTORE)
@@ -27635,6 +27664,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_RESTORE_DTMF_PARAMETER_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_DTMF_PARAMETER_1:
 	case ADJUST_B_RESTORE_DTMF_PARAMETER_2:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_RESTORE)
@@ -27647,6 +27677,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_RESTORE_EC_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_EC_1:
 	case ADJUST_B_RESTORE_EC_2:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_RESTORE)
@@ -27658,6 +27689,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 
 		}
 		plci->adjust_b_state = ADJUST_B_ASSIGN_L23_1;
+		/* fall through */
 	case ADJUST_B_ASSIGN_L23_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_ASSIGN_L23)
 		{
@@ -27687,6 +27719,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_ASSIGN_L23_2;
 		Rc = ASSIGN_OK;
+		/* fall through */
 	case ADJUST_B_ASSIGN_L23_2:
 		if ((Rc != OK) && (Rc != OK_FC) && (Rc != ASSIGN_OK))
 		{
@@ -27709,6 +27742,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 			break;
 		}
 		plci->adjust_b_state = ADJUST_B_CONNECT_1;
+		/* fall through */
 	case ADJUST_B_CONNECT_1:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_CONNECT)
 		{
@@ -27722,6 +27756,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_RESTORE_DTMF_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_CONNECT_2:
 	case ADJUST_B_CONNECT_3:
 	case ADJUST_B_CONNECT_4:
@@ -27757,6 +27792,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 			break;
 		}
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_DTMF_1:
 	case ADJUST_B_RESTORE_DTMF_2:
 		if (plci->adjust_b_mode & ADJUST_B_MODE_RESTORE)
@@ -27769,6 +27805,7 @@ static word adjust_b_process(dword Id, PLCI *plci, byte Rc)
 		}
 		plci->adjust_b_state = ADJUST_B_RESTORE_MIXER_1;
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_MIXER_1:
 	case ADJUST_B_RESTORE_MIXER_2:
 	case ADJUST_B_RESTORE_MIXER_3:
@@ -27833,6 +27870,7 @@ static void adjust_b_restore(dword Id, PLCI *plci, byte Rc)
 			break;
 		}
 		Rc = OK;
+		/* fall through */
 	case ADJUST_B_RESTORE_1:
 		if ((Rc != OK) && (Rc != OK_FC))
 		{
@@ -27847,6 +27885,7 @@ static void adjust_b_restore(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: Adjust B restore...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case ADJUST_B_RESTORE_2:
 		if (adjust_b_process(Id, plci, Rc) != GOOD)
 		{
@@ -27883,6 +27922,7 @@ static void reset_b3_command(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: Reset B3...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case RESET_B3_COMMAND_1:
 		Info = adjust_b_process(Id, plci, Rc);
 		if (Info != GOOD)
@@ -27936,6 +27976,7 @@ static void select_b_command(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: Select B protocol...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case SELECT_B_COMMAND_1:
 		Info = adjust_b_process(Id, plci, Rc);
 		if (Info != GOOD)
@@ -27971,7 +28012,7 @@ static void fax_connect_ack_command(dword Id, PLCI *plci, byte Rc)
 	switch (internal_command)
 	{
 	default:
-		plci->command = 0;
+		plci->command = 0; /* fall through */
 	case FAX_CONNECT_ACK_COMMAND_1:
 		if (plci_nl_busy(plci))
 		{
@@ -28019,6 +28060,7 @@ static void fax_edata_ack_command(dword Id, PLCI *plci, byte Rc)
 	{
 	default:
 		plci->command = 0;
+		/* fall through */
 	case FAX_EDATA_ACK_COMMAND_1:
 		if (plci_nl_busy(plci))
 		{
@@ -28058,7 +28100,7 @@ static void fax_connect_info_command(dword Id, PLCI *plci, byte Rc)
 	switch (internal_command)
 	{
 	default:
-		plci->command = 0;
+		plci->command = 0; /* fall through */
 	case FAX_CONNECT_INFO_COMMAND_1:
 		if (plci_nl_busy(plci))
 		{
@@ -28118,6 +28160,7 @@ static void fax_adjust_b23_command(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: FAX adjust B23...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case FAX_ADJUST_B23_COMMAND_1:
 		Info = adjust_b_process(Id, plci, Rc);
 		if (Info != GOOD)
@@ -28128,6 +28171,7 @@ static void fax_adjust_b23_command(dword Id, PLCI *plci, byte Rc)
 		}
 		if (plci->internal_command)
 			return;
+		/* fall through */
 	case FAX_ADJUST_B23_COMMAND_2:
 		if (plci_nl_busy(plci))
 		{
@@ -28303,7 +28347,7 @@ static void rtp_connect_b3_req_command(dword Id, PLCI *plci, byte Rc)
 	switch (internal_command)
 	{
 	default:
-		plci->command = 0;
+		plci->command = 0; /* fall through */
 	case RTP_CONNECT_B3_REQ_COMMAND_1:
 		if (plci_nl_busy(plci))
 		{
@@ -28354,7 +28398,7 @@ static void rtp_connect_b3_res_command(dword Id, PLCI *plci, byte Rc)
 	switch (internal_command)
 	{
 	default:
-		plci->command = 0;
+		plci->command = 0; /* fall through */
 	case RTP_CONNECT_B3_RES_COMMAND_1:
 		if (plci_nl_busy(plci))
 		{
@@ -28553,6 +28597,7 @@ static void hold_save_command(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: HOLD save...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case HOLD_SAVE_COMMAND_1:
 		Info = adjust_b_process(Id, plci, Rc);
 		if (Info != GOOD)
@@ -28592,6 +28637,7 @@ static void retrieve_restore_command(dword Id, PLCI *plci, byte Rc)
 		plci->adjust_b_state = ADJUST_B_START;
 		dbug(1, dprintf("[%06lx] %s,%d: RETRIEVE restore...",
 				UnMapId(Id), (char *)(FILE_), __LINE__));
+		/* fall through */
 	case RETRIEVE_RESTORE_COMMAND_1:
 		Info = adjust_b_process(Id, plci, Rc);
 		if (Info != GOOD)

@@ -208,6 +208,7 @@ static int nf_ip_reroute(struct sk_buff *skb,
 
 static int nf_ip_reroute(struct net *net, struct sk_buff *skb,
 			 const struct nf_queue_entry *entry)
+int nf_ip_reroute(struct sk_buff *skb, const struct nf_queue_entry *entry)
 {
 	const struct ip_rt_info *rt_info = nf_queue_entry_reroute(entry);
 
@@ -225,10 +226,12 @@ static int nf_ip_reroute(struct net *net, struct sk_buff *skb,
 		      skb->mark == rt_info->mark &&
 		      iph->daddr == rt_info->daddr &&
 		      iph->saddr == rt_info->saddr))
-			return ip_route_me_harder(net, skb, RTN_UNSPEC);
+			return ip_route_me_harder(entry->state.net, skb,
+						  RTN_UNSPEC);
 	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(nf_ip_reroute);
 
 __sum16 nf_ip_checksum(struct sk_buff *skb, unsigned int hook,
 			    unsigned int dataoff, u_int8_t protocol)
@@ -290,6 +293,8 @@ static int nf_ip_route(struct dst_entry **dst, struct flowi *fl)
 	return ip_route_output_key(&init_net, (struct rtable **)dst, fl);
 static int nf_ip_route(struct net *net, struct dst_entry **dst,
 		       struct flowi *fl, bool strict __always_unused)
+int nf_ip_route(struct net *net, struct dst_entry **dst, struct flowi *fl,
+		bool strict __always_unused)
 {
 	struct rtable *rt = ip_route_output_key(net, &fl->u.ip4);
 	if (IS_ERR(rt))
@@ -335,3 +340,4 @@ static int __init ipv4_netfilter_init(void)
 	return nf_register_afinfo(&nf_ip_afinfo);
 }
 subsys_initcall(ipv4_netfilter_init);
+EXPORT_SYMBOL_GPL(nf_ip_route);

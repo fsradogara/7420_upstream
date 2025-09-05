@@ -33,6 +33,7 @@ ifeq ($(CONFIG_HID_FF),y)
 	usbhid-objs	+= hid-ff.o
 endif
 usbhid-y	:= hid-core.o hid-quirks.o
+usbhid-y	:= hid-core.o
 usbhid-$(CONFIG_USB_HIDDEV)	+= hiddev.o
 usbhid-$(CONFIG_HID_PID)	+= hid-pidff.o
 

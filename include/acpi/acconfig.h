@@ -1,6 +1,9 @@
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0 */
 /******************************************************************************
  *
  * Name: acconfig.h - Global configuration constants
+ *
+ * Copyright (C) 2000 - 2018, Intel Corp.
  *
  *****************************************************************************/
 
@@ -131,7 +134,7 @@
 
 /* Maximum object reference count (detects object deletion issues) */
 
-#define ACPI_MAX_REFERENCE_COUNT        0x1000
+#define ACPI_MAX_REFERENCE_COUNT        0x4000
 
 /* Size of cached memory mapping for system memory operation region */
 
@@ -156,9 +159,9 @@
 
 #define ACPI_ADDRESS_RANGE_MAX          2
 
-/* Maximum number of While() loops before abort */
+/* Maximum time (default 30s) of While() loops before abort */
 
-#define ACPI_MAX_LOOP_COUNT             0x000FFFFF
+#define ACPI_MAX_LOOP_TIMEOUT           30
 
 /******************************************************************************
  *

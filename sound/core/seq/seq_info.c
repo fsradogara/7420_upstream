@@ -51,7 +51,7 @@ create_info_entry(char *name, void (*read)(struct snd_info_entry *,
 	return entry;
 }
 
-static void free_info_entries(void)
+void snd_seq_info_done(void)
 {
 	snd_info_free_entry(queues_entry);
 	snd_info_free_entry(clients_entry);
@@ -72,7 +72,7 @@ int __init snd_seq_info_init(void)
 	return 0;
 
  error:
-	free_info_entries();
+	snd_seq_info_done();
 	return -ENOMEM;
 }
 

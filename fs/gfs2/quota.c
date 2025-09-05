@@ -1132,7 +1132,10 @@ static int gfs2_write_buf_to_page(struct gfs2_inode *ip, unsigned long index,
 			if (!buffer_uptodate(bh))
 				goto unlock_out;
 		}
-		gfs2_trans_add_data(ip->i_gl, bh);
+		if (gfs2_is_jdata(ip))
+			gfs2_trans_add_data(ip->i_gl, bh);
+		else
+			gfs2_ordered_add_inode(ip);
 
 		/* If we need to write to the next block as well */
 		if (to_write > (bsize - boff)) {
@@ -1287,7 +1290,7 @@ static int do_sync(unsigned int num_qd, struct gfs2_quota_data **qda)
 	gfs2_write_calc_reserv(ip, sizeof(struct gfs2_quota),
 			      &data_blocks, &ind_blocks);
 
-	ghs = kmalloc(num_qd * sizeof(struct gfs2_holder), GFP_NOFS);
+	ghs = kmalloc_array(num_qd, sizeof(struct gfs2_holder), GFP_NOFS);
 	if (!ghs)
 		return -ENOMEM;
 
@@ -1409,7 +1412,8 @@ static int do_glock(struct gfs2_quota_data *qd, int force_refresh,
 	mutex_unlock(&ip->i_inode.i_mutex);
 	inode_unlock(&ip->i_inode);
 	kfree(ghs);
-	gfs2_log_flush(ip->i_gl->gl_name.ln_sbd, ip->i_gl, NORMAL_FLUSH);
+	gfs2_log_flush(ip->i_gl->gl_name.ln_sbd, ip->i_gl,
+		       GFS2_LOG_HEAD_FLUSH_NORMAL | GFS2_LFC_DO_SYNC);
 	return error;
 }
 

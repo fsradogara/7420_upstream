@@ -507,6 +507,8 @@ static struct reiserfs_journal_cnode *allocate_cnodes(int num_cnodes)
 	}
 	memset(head, 0, num_cnodes * sizeof(struct reiserfs_journal_cnode));
 	head = vzalloc(num_cnodes * sizeof(struct reiserfs_journal_cnode));
+	head = vzalloc(array_size(num_cnodes,
+				  sizeof(struct reiserfs_journal_cnode)));
 	if (!head) {
 		return NULL;
 	}
@@ -2677,7 +2679,7 @@ static int do_journal_release(struct reiserfs_transaction_handle *th,
 	/*
 	 * Cancel flushing of old commits. Note that neither of these works
 	 * will be requeued because superblock is being shutdown and doesn't
-	 * have MS_ACTIVE set.
+	 * have SB_ACTIVE set.
 	 */
 	reiserfs_cancel_old_flush(sb);
 	/* wait for all commits to finish */
@@ -3012,10 +3014,12 @@ static int journal_read_transaction(struct super_block *sb,
 	 * now we know we've got a good transaction, and it was
 	 * inside the valid time ranges
 	 */
-	log_blocks = kmalloc(get_desc_trans_len(desc) *
-			     sizeof(struct buffer_head *), GFP_NOFS);
-	real_blocks = kmalloc(get_desc_trans_len(desc) *
-			      sizeof(struct buffer_head *), GFP_NOFS);
+	log_blocks = kmalloc_array(get_desc_trans_len(desc),
+				   sizeof(struct buffer_head *),
+				   GFP_NOFS);
+	real_blocks = kmalloc_array(get_desc_trans_len(desc),
+				    sizeof(struct buffer_head *),
+				    GFP_NOFS);
 	if (!log_blocks || !real_blocks) {
 		brelse(c_bh);
 		brelse(d_bh);
@@ -3264,7 +3268,7 @@ static int journal_read(struct super_block *sb)
 	struct reiserfs_journal_desc *desc;
 	unsigned int oldest_trans_id = 0;
 	unsigned int oldest_invalid_trans_id = 0;
-	time_t start;
+	time64_t start;
 	unsigned long oldest_start = 0;
 	unsigned long cur_dblock = 0;
 	unsigned long newest_mount_id = 9;
@@ -3290,7 +3294,7 @@ static int journal_read(struct super_block *sb)
 	cur_dblock = SB_ONDISK_JOURNAL_1st_BLOCK(sb);
 	reiserfs_info(sb, "checking transaction log (%pg)\n",
 		      journal->j_dev_bd);
-	start = get_seconds();
+	start = ktime_get_seconds();
 
 	/*
 	 * step 1, read in the journal header block.  Check the transaction
@@ -3529,7 +3533,7 @@ start_log_replay:
 	if (replay_count > 0) {
 		reiserfs_info(sb,
 			      "replayed %d transactions in %lu seconds\n",
-			      replay_count, get_seconds() - start);
+			      replay_count, ktime_get_seconds() - start);
 	}
 	/* needed to satisfy the locking in _update_journal_header_block */
 	reiserfs_write_lock(sb);
@@ -3663,7 +3667,7 @@ static int journal_init_dev(struct super_block *super,
 	if (IS_ERR(journal->j_dev_bd)) {
 		result = PTR_ERR(journal->j_dev_bd);
 		journal->j_dev_bd = NULL;
-		reiserfs_warning(super,
+		reiserfs_warning(super, "sh-457",
 				 "journal_init_dev: Cannot open '%s': %i",
 				 jdev_name, result);
 		return result;
@@ -4067,7 +4071,7 @@ int journal_transaction_should_end(struct reiserfs_transaction_handle *th,
 				   int new_alloc)
 {
 	struct reiserfs_journal *journal = SB_JOURNAL(th->t_super);
-	time_t now = get_seconds();
+	time64_t now = ktime_get_seconds();
 	/* cannot restart while nested */
 	BUG_ON(!th->t_trans_id);
 	if (th->t_refcount > 1)
@@ -4220,7 +4224,7 @@ static int do_journal_begin_r(struct reiserfs_transaction_handle *th,
 			      struct super_block *sb, unsigned long nblocks,
 			      int join)
 {
-	time_t now = get_seconds();
+	time64_t now = ktime_get_seconds();
 	unsigned int old_trans_id;
 	struct reiserfs_journal *journal = SB_JOURNAL(sb);
 	struct reiserfs_transaction_handle myth;
@@ -4256,7 +4260,7 @@ relock:
 		PROC_INFO_INC(sb, journal.journal_relock_writers);
 		goto relock;
 	}
-	now = get_seconds();
+	now = ktime_get_seconds();
 
 	/* if there is no room in the journal OR
 	 ** if this transaction is too old, and we weren't called joinable, wait for it to finish before beginning 
@@ -4338,7 +4342,7 @@ relock:
 	}
 	/* we are the first writer, set trans_id */
 	if (journal->j_trans_start_time == 0) {
-		journal->j_trans_start_time = get_seconds();
+		journal->j_trans_start_time = ktime_get_seconds();
 	}
 	atomic_inc(&(journal->j_wcount));
 	atomic_inc(&journal->j_wcount);
@@ -4979,11 +4983,11 @@ int reiserfs_flush_old_commits(struct super_block *p_s_sb)
  */
 void reiserfs_flush_old_commits(struct super_block *sb)
 {
-	time_t now;
+	time64_t now;
 	struct reiserfs_transaction_handle th;
 	struct reiserfs_journal *journal = SB_JOURNAL(sb);
 
-	now = get_seconds();
+	now = ktime_get_seconds();
 	/*
 	 * safety check so we don't flush while we are replaying the log during
 	 * mount
@@ -5063,7 +5067,7 @@ static int check_journal_end(struct reiserfs_transaction_handle *th,
 static int check_journal_end(struct reiserfs_transaction_handle *th, int flags)
 {
 
-	time_t now;
+	time64_t now;
 	int flush = flags & FLUSH_ALL;
 	int commit_now = flags & COMMIT_NOW;
 	int wait_on_commit = flags & WAIT;
@@ -5193,7 +5197,7 @@ static int check_journal_end(struct reiserfs_transaction_handle *th, int flags)
 	}
 
 	/* deal with old transactions where we are the last writers */
-	now = get_seconds();
+	now = ktime_get_seconds();
 	if ((now - journal->j_trans_start_time) > journal->j_max_trans_age) {
 		commit_now = 1;
 		journal->j_next_async_flush = 1;
@@ -6060,7 +6064,7 @@ static int do_journal_end(struct reiserfs_transaction_handle *th, int flags)
 		 * Avoid queueing work when sb is being shut down. Transaction
 		 * will be flushed on journal shutdown.
 		 */
-		if (sb->s_flags & MS_ACTIVE)
+		if (sb->s_flags & SB_ACTIVE)
 			queue_delayed_work(REISERFS_SB(sb)->commit_wq,
 					   &journal->j_work, HZ / 10);
 	}
@@ -6222,6 +6226,7 @@ void reiserfs_journal_abort(struct super_block *sb, int errno)
 {
 	__reiserfs_journal_abort_soft(sb, errno);
 	sb->s_flags |= MS_RDONLY;
+	sb->s_flags |= SB_RDONLY;
 	set_bit(J_ABORTED, &journal->j_state);
 
 #ifdef CONFIG_REISERFS_CHECK

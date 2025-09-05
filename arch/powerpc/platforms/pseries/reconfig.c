@@ -136,6 +136,7 @@ static int pSeries_reconfig_add_node(const char *path, struct property *proplist
 
 	np->parent = derive_parent(path);
 	np->full_name = kstrdup(path, GFP_KERNEL);
+	np->full_name = kstrdup(kbasename(path), GFP_KERNEL);
 	if (!np->full_name)
 		goto out_err;
 
@@ -582,6 +583,7 @@ static int proc_ppc64_create_ofdt(void)
 }
 __initcall(proc_ppc64_create_ofdt);
 	ent = proc_create("powerpc/ofdt", S_IWUSR, NULL, &ofdt_fops);
+	ent = proc_create("powerpc/ofdt", 0200, NULL, &ofdt_fops);
 	if (ent)
 		proc_set_size(ent, 0);
 

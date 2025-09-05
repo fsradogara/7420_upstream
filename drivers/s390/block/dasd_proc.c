@@ -512,9 +512,10 @@ dasd_proc_init(void)
 		goto out_nodasd;
 	dasd_proc_root_entry->owner = THIS_MODULE;
 	dasd_devices_entry = proc_create("devices",
+	dasd_devices_entry = proc_create_seq("devices",
 					 S_IFREG | S_IRUGO | S_IWUSR,
 					 dasd_proc_root_entry,
-					 &dasd_devices_file_ops);
+					 &dasd_devices_seq_ops);
 	if (!dasd_devices_entry)
 		goto out_nodevices;
 	dasd_statistics_entry = create_proc_entry("statistics",

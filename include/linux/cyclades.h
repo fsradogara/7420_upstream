@@ -614,6 +614,9 @@ struct cyclades_port {
 	struct completion       shutdown_wait;
 	wait_queue_head_t       delta_msr_wait;
 	int throttle;
+#ifdef CONFIG_CYZ_INTR
+	struct timer_list	rx_full_timer;
+#endif
 };
 
 #define	CLOSING_WAIT_DELAY	30*HZ

@@ -608,6 +608,7 @@ static void __init mpic_scan_ht_pics(struct mpic *mpic)
 	/* Init spinlock */
 	spin_lock_init(&mpic->fixup_lock);
 	mpic->fixups = kzalloc(128 * sizeof(*mpic->fixups), GFP_KERNEL);
+	mpic->fixups = kcalloc(128, sizeof(*mpic->fixups), GFP_KERNEL);
 	BUG_ON(mpic->fixups == NULL);
 
 	/* Init spinlock */
@@ -710,6 +711,7 @@ static inline u32 mpic_physmask(u32 cpumask)
 
 	for (i = 0; i < NR_CPUS; ++i, cpumask >>= 1)
 	for (i = 0; i < min(32, NR_CPUS); ++i, cpumask >>= 1)
+	for (i = 0; i < min(32, NR_CPUS) && cpu_possible(i); ++i, cpumask >>= 1)
 		mask |= (cpumask & 1) << get_hard_smp_processor_id(i);
 	return mask;
 }
@@ -1256,9 +1258,8 @@ static int mpic_host_map(struct irq_domain *h, unsigned int virq,
 		set_irq_chip_data(virq, mpic);
 		set_irq_chip_and_handler(virq, &mpic->hc_ipi,
 	if (mpic->protected && test_bit(hw, mpic->protected)) {
-		pr_warning("mpic: Mapping of source 0x%x failed, "
-			   "source protected by firmware !\n",\
-			   (unsigned int)hw);
+		pr_warn("mpic: Mapping of source 0x%x failed, source protected by firmware !\n",
+			(unsigned int)hw);
 		return -EPERM;
 	}
 
@@ -1290,9 +1291,8 @@ static int mpic_host_map(struct irq_domain *h, unsigned int virq,
 		return 0;
 
 	if (hw >= mpic->num_sources) {
-		pr_warning("mpic: Mapping of source 0x%x failed, "
-			   "source out of range !\n",\
-			   (unsigned int)hw);
+		pr_warn("mpic: Mapping of source 0x%x failed, source out of range !\n",
+			(unsigned int)hw);
 		return -EINVAL;
 	}
 
@@ -1653,7 +1653,7 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 	if (psrc) {
 		/* Allocate a bitmap with one bit per interrupt */
 		unsigned int mapsize = BITS_TO_LONGS(intvec_top + 1);
-		mpic->protected = kzalloc(mapsize*sizeof(long), GFP_KERNEL);
+		mpic->protected = kcalloc(mapsize, sizeof(long), GFP_KERNEL);
 		BUG_ON(mpic->protected == NULL);
 		for (i = 0; i < psize/sizeof(u32); i++) {
 			if (psrc[i] > intvec_top)
@@ -1745,12 +1745,12 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 		 * global vector number space, as in case of ipis
 		 * and timer interrupts.
 		 *
-		 * Available vector space = intvec_top - 12, where 12
+		 * Available vector space = intvec_top - 13, where 13
 		 * is the number of vectors which have been consumed by
-		 * ipis and timer interrupts.
+		 * ipis, timer interrupts and spurious.
 		 */
 		if (fsl_version >= 0x401) {
-			ret = mpic_setup_error_int(mpic, intvec_top - 12);
+			ret = mpic_setup_error_int(mpic, intvec_top - 13);
 			if (ret)
 				return NULL;
 		}
@@ -2110,6 +2110,9 @@ void __init mpic_set_serial_int(struct mpic *mpic, int enable)
 	spin_unlock_irqrestore(&mpic_lock, flags);
 	mpic->save_data = kmalloc(mpic->num_sources * sizeof(*mpic->save_data),
 				  GFP_KERNEL);
+	mpic->save_data = kmalloc_array(mpic->num_sources,
+				        sizeof(*mpic->save_data),
+				        GFP_KERNEL);
 	BUG_ON(mpic->save_data == NULL);
 #endif
 

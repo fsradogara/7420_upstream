@@ -42,6 +42,7 @@ int spu_alloc_lscsa(struct spu_state *csa)
 		return -ENOMEM;
 	memset(lscsa, 0, sizeof(struct spu_lscsa));
 	lscsa = vzalloc(sizeof(struct spu_lscsa));
+	lscsa = vzalloc(sizeof(*lscsa));
 	if (!lscsa)
 		return -ENOMEM;
 	csa->lscsa = lscsa;

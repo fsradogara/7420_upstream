@@ -304,6 +304,7 @@ static struct cache_detail svc_expkey_cache = {
 	.hash_size	= EXPKEY_HASHMAX,
 	.hash_table	= expkey_table,
 static struct cache_detail svc_expkey_cache_template = {
+static const struct cache_detail svc_expkey_cache_template = {
 	.owner		= THIS_MODULE,
 	.hash_size	= EXPKEY_HASHMAX,
 	.name		= "nfsd.fh",
@@ -523,8 +524,9 @@ fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc)
 	if (fsloc->locations_count == 0)
 		return 0;
 
-	fsloc->locations = kzalloc(fsloc->locations_count
-			* sizeof(struct nfsd4_fs_location), GFP_KERNEL);
+	fsloc->locations = kcalloc(fsloc->locations_count,
+				   sizeof(struct nfsd4_fs_location),
+				   GFP_KERNEL);
 	if (!fsloc->locations)
 		return -ENOMEM;
 	for (i=0; i < fsloc->locations_count; i++) {
@@ -988,6 +990,7 @@ struct cache_detail svc_export_cache = {
 	.hash_size	= EXPORT_HASHMAX,
 	.hash_table	= export_table,
 static struct cache_detail svc_export_cache_template = {
+static const struct cache_detail svc_export_cache_template = {
 	.owner		= THIS_MODULE,
 	.hash_size	= EXPORT_HASHMAX,
 	.name		= "nfsd.export",
@@ -2110,7 +2113,7 @@ nfsd_export_init(struct net *net)
 	int rv;
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 
-	dprintk("nfsd: initializing export module (net: %p).\n", net);
+	dprintk("nfsd: initializing export module (net: %x).\n", net->ns.inum);
 
 	nn->svc_export_cache = cache_create_net(&svc_export_cache_template, net);
 	if (IS_ERR(nn->svc_export_cache))
@@ -2177,7 +2180,7 @@ nfsd_export_shutdown(struct net *net)
 {
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 
-	dprintk("nfsd: shutting down export module (net: %p).\n", net);
+	dprintk("nfsd: shutting down export module (net: %x).\n", net->ns.inum);
 
 	cache_unregister_net(nn->svc_expkey_cache, net);
 	cache_unregister_net(nn->svc_export_cache, net);
@@ -2185,5 +2188,5 @@ nfsd_export_shutdown(struct net *net)
 	cache_destroy_net(nn->svc_export_cache, net);
 	svcauth_unix_purge(net);
 
-	dprintk("nfsd: export shutdown complete (net: %p).\n", net);
+	dprintk("nfsd: export shutdown complete (net: %x).\n", net->ns.inum);
 }

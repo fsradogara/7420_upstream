@@ -97,7 +97,7 @@ static int pie_irq = -1;
 static int aie_irq;
 static int pie_irq;
 
-static inline unsigned long read_elapsed_second(void)
+static inline time64_t read_elapsed_second(void)
 {
 
 	unsigned long first_low, first_mid, first_high;
@@ -115,10 +115,10 @@ static inline unsigned long read_elapsed_second(void)
 	         first_high != second_high);
 		 first_high != second_high);
 
-	return (first_high << 17) | (first_mid << 1) | (first_low >> 15);
+	return ((u64)first_high << 17) | (first_mid << 1) | (first_low >> 15);
 }
 
-static inline void write_elapsed_second(unsigned long sec)
+static inline void write_elapsed_second(time64_t sec)
 {
 	spin_lock_irq(&rtc_lock);
 
@@ -131,23 +131,25 @@ static inline void write_elapsed_second(unsigned long sec)
 
 static int vr41xx_rtc_read_time(struct device *dev, struct rtc_time *time)
 {
-	unsigned long epoch_sec, elapsed_sec;
+	time64_t epoch_sec, elapsed_sec;
 
-	epoch_sec = mktime(epoch, 1, 1, 0, 0, 0);
+	epoch_sec = mktime64(epoch, 1, 1, 0, 0, 0);
 	elapsed_sec = read_elapsed_second();
 
-	rtc_time_to_tm(epoch_sec + elapsed_sec, time);
+	rtc_time64_to_tm(epoch_sec + elapsed_sec, time);
 
 	return 0;
 }
 
 static int vr41xx_rtc_set_time(struct device *dev, struct rtc_time *time)
 {
-	unsigned long epoch_sec, current_sec;
+	time64_t epoch_sec, current_sec;
 
 	epoch_sec = mktime(epoch, 1, 1, 0, 0, 0);
 	current_sec = mktime(time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
 	                     time->tm_hour, time->tm_min, time->tm_sec);
+	epoch_sec = mktime64(epoch, 1, 1, 0, 0, 0);
+	current_sec = mktime64(time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
 			     time->tm_hour, time->tm_min, time->tm_sec);
 
 	write_elapsed_second(current_sec - epoch_sec);
@@ -176,12 +178,14 @@ static int vr41xx_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 
 static int vr41xx_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 {
-	unsigned long alarm_sec;
+	time64_t alarm_sec;
 	struct rtc_time *time = &wkalrm->time;
 
 	alarm_sec = mktime(time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
 	                   time->tm_hour, time->tm_min, time->tm_sec);
 			   time->tm_hour, time->tm_min, time->tm_sec);
+	alarm_sec = mktime64(time->tm_year + 1900, time->tm_mon + 1, time->tm_mday,
+			     time->tm_hour, time->tm_min, time->tm_sec);
 
 	spin_lock_irq(&rtc_lock);
 
@@ -372,11 +376,16 @@ static int rtc_probe(struct platform_device *pdev)
 	rtc = rtc_device_register(rtc_name, &pdev->dev, &vr41xx_rtc_ops, THIS_MODULE);
 	rtc = devm_rtc_device_register(&pdev->dev, rtc_name, &vr41xx_rtc_ops,
 					THIS_MODULE);
+	rtc = devm_rtc_allocate_device(&pdev->dev);
 	if (IS_ERR(rtc)) {
 		retval = PTR_ERR(rtc);
 		goto err_iounmap_all;
 	}
 
+	rtc->ops = &vr41xx_rtc_ops;
+
+	/* 48-bit counter at 32.768 kHz */
+	rtc->range_max = (1ULL << 33) - 1;
 	rtc->max_user_freq = MAX_PERIODIC_RATE;
 
 	spin_lock_irq(&rtc_lock);
@@ -451,6 +460,10 @@ err_iounmap_all:
 err_rtc1_iounmap:
 	iounmap(rtc1_base);
 	dev_info(&pdev->dev, "Real Time Clock of NEC VR4100 series\n");
+
+	retval = rtc_register_device(rtc);
+	if (retval)
+		goto err_iounmap_all;
 
 	return 0;
 

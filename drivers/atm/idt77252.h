@@ -188,6 +188,8 @@ struct aal1 {
 	unsigned char		sequence;
 };
 
+struct vc_map;
+
 struct rate_estimator {
 	struct timer_list	timer;
 	unsigned int		interval;
@@ -197,6 +199,7 @@ struct rate_estimator {
 	long			avcps;
 	u32			cps;
 	u32			maxcps;
+	struct vc_map		*vc;
 };
 
 struct vc_map {

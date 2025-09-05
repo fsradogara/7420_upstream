@@ -162,7 +162,7 @@ extern void show_local_irqs(struct seq_file *);
  */
 asmlinkage void do_local_timer(struct pt_regs *);
 	union {
-		unsigned long mpu_rgn_szr;
+		struct mpu_rgn_info *mpu_rgn_info;
 		u64 pgdir;
 	};
 	unsigned long swapper_pg_dir;

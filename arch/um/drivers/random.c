@@ -18,6 +18,7 @@
 #include "irq_kern.h"
 #include "os.h"
 #include <linux/uaccess.h>
+#include <init.h>
 #include <irq_kern.h>
 #include <os.h>
 
@@ -164,7 +165,14 @@ err_out_cleanup_hw:
 /*
  * rng_cleanup - shutdown RNG module
  */
-static void __exit rng_cleanup (void)
+
+static void cleanup(void)
+{
+	free_irq_by_fd(random_fd);
+	os_close_file(random_fd);
+}
+
+static void __exit rng_cleanup(void)
 {
 	os_close_file(random_fd);
 	misc_deregister (&rng_miscdev);
@@ -172,6 +180,7 @@ static void __exit rng_cleanup (void)
 
 module_init (rng_init);
 module_exit (rng_cleanup);
+__uml_exitcall(cleanup);
 
 MODULE_DESCRIPTION("UML Host Random Number Generator (RNG) driver");
 MODULE_LICENSE("GPL");

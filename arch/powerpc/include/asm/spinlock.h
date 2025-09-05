@@ -35,9 +35,9 @@
 #define LOCK_TOKEN	(*(u32 *)(&get_paca()->lock_token))
 #else
 #endif
-#include <asm/asm-compat.h>
 #include <asm/synch.h>
 #include <asm/ppc-opcode.h>
+#include <asm/asm-405.h>
 
 #ifdef CONFIG_PPC64
 /* use 0x800000yy when locked, where yy == CPU number */
@@ -67,6 +67,8 @@
 #define vcpu_is_preempted vcpu_is_preempted
 static inline bool vcpu_is_preempted(int cpu)
 {
+	if (!firmware_has_feature(FW_FEATURE_SPLPAR))
+		return false;
 	return !!(be32_to_cpu(lppaca_of(cpu).yield_count) & 1);
 }
 #endif
@@ -197,6 +199,7 @@ void arch_spin_lock_flags(arch_spinlock_t *lock, unsigned long flags)
 		local_irq_restore(flags_dis);
 	}
 }
+#define arch_spin_lock_flags arch_spin_lock_flags
 
 static inline void __raw_spin_unlock(raw_spinlock_t *lock)
 {
@@ -398,9 +401,6 @@ static inline void arch_write_unlock(arch_rwlock_t *rw)
 				PPC_RELEASE_BARRIER: : :"memory");
 	rw->lock = 0;
 }
-
-#define arch_read_lock_flags(lock, flags) arch_read_lock(lock)
-#define arch_write_lock_flags(lock, flags) arch_write_lock(lock)
 
 #define arch_spin_relax(lock)	__spin_yield(lock)
 #define arch_read_relax(lock)	__rw_yield(lock)

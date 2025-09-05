@@ -13,6 +13,7 @@
 #include <linux/bug.h>
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
+#include <linux/refcount.h>
 #include <uapi/linux/posix_acl.h>
 
 struct posix_acl_entry {
@@ -30,7 +31,7 @@ struct posix_acl {
 };
 
 struct posix_acl {
-	atomic_t		a_refcount;
+	refcount_t		a_refcount;
 	struct rcu_head		a_rcu;
 	unsigned int		a_count;
 	struct posix_acl_entry	a_entries[0];
@@ -47,7 +48,7 @@ static inline struct posix_acl *
 posix_acl_dup(struct posix_acl *acl)
 {
 	if (acl)
-		atomic_inc(&acl->a_refcount);
+		refcount_inc(&acl->a_refcount);
 	return acl;
 }
 
@@ -59,6 +60,7 @@ posix_acl_release(struct posix_acl *acl)
 {
 	if (acl && atomic_dec_and_test(&acl->a_refcount))
 		kfree(acl);
+	if (acl && refcount_dec_and_test(&acl->a_refcount))
 		kfree_rcu(acl, a_rcu);
 }
 

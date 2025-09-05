@@ -82,7 +82,7 @@ static struct con3270 *condev;
 #define CON_UPDATE_ALL		7
 #define CON_UPDATE_ALL		8	/* Recreate screen. */
 
-static void con3270_update(struct con3270 *);
+static void con3270_update(struct timer_list *);
 
 /*
  * Setup timeout for a device. On timeout trigger an update.
@@ -230,8 +230,9 @@ con3270_write_callback(struct raw3270_request *rq, void *data)
  * Update console display.
  */
 static void
-con3270_update(struct con3270 *cp)
+con3270_update(struct timer_list *t)
 {
+	struct con3270 *cp = from_timer(cp, t, timer);
 	struct raw3270_request *wrq;
 	char wcc, prolog[6];
 	unsigned long flags;
@@ -601,7 +602,7 @@ con3270_flush(void)
 	con3270_update_status(cp);
 	while (cp->update_flags != 0) {
 		spin_unlock_irqrestore(&cp->view.lock, flags);
-		con3270_update(cp);
+		con3270_update(&cp->timer);
 		spin_lock_irqsave(&cp->view.lock, flags);
 		con3270_wait_write(cp);
 	}
@@ -696,8 +697,7 @@ con3270_init(void)
 
 	INIT_LIST_HEAD(&condev->lines);
 	INIT_LIST_HEAD(&condev->update);
-	setup_timer(&condev->timer, (void (*)(unsigned long)) con3270_update,
-		    (unsigned long) condev);
+	timer_setup(&condev->timer, con3270_update, 0);
 	tasklet_init(&condev->readlet, 
 		     (void (*)(unsigned long)) con3270_read_tasklet,
 		     (unsigned long) condev->read);

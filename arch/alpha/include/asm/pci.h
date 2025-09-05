@@ -15,9 +15,6 @@
  * The following structure is used to manage multiple PCI busses.
  */
 
-struct pci_dev;
-struct pci_bus;
-struct resource;
 struct pci_iommu_arena;
 struct page;
 
@@ -232,6 +229,8 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 #include <asm-generic/pci-dma-compat.h>
 
 #endif
+
+/* IOMMU controls.  */
 
 /* TODO: integrate with include/asm-generic/pci.h ? */
 static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)

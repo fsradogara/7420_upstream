@@ -166,6 +166,7 @@ sub linux_objects
 		! (
 		m:/built-in.o$:
 		|| m:arch/x86/kernel/vsyscall-syms.o$:
+		m:/built-in.a$:
 		|| m:arch/x86/vdso/:
 		|| m:arch/x86/boot/:
 		|| m:arch/ia64/ia32/ia32.o$:

@@ -40,7 +40,6 @@ extern struct sk_buff *dn_alloc_skb(struct sock *sk, int size, gfp_t pri);
 extern struct sk_buff *dn_alloc_send_skb(struct sock *sk, size_t *size, int noblock, long timeo, int *err);
 void dn_nsp_send_data_ack(struct sock *sk);
 void dn_nsp_send_oth_ack(struct sock *sk);
-void dn_nsp_delayed_ack(struct sock *sk);
 void dn_send_conn_ack(struct sock *sk);
 void dn_send_conn_conf(struct sock *sk, gfp_t gfp);
 void dn_nsp_send_disc(struct sock *sk, unsigned char type,

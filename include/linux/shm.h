@@ -137,6 +137,7 @@ static inline long do_shmat(int shmid, char __user *shmaddr,
 #define SHM_HUGE_MASK   0x3f
 #define SHM_HUGE_2MB    (21 << SHM_HUGE_SHIFT)
 #define SHM_HUGE_1GB    (30 << SHM_HUGE_SHIFT)
+struct file;
 
 #ifdef CONFIG_SYSVIPC
 struct sysv_shm {

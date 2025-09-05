@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-1.0+
 /*
  * OHCI HCD (Host Controller Driver) for USB.
  *
@@ -592,6 +593,7 @@ static ssize_t fill_periodic_buffer(struct debug_buffer *buf)
 	hcd = bus_to_hcd(bus);
 	ohci = hcd_to_ohci(hcd);
 	seen = kmalloc(DBG_SCHED_LIMIT * sizeof *seen, GFP_ATOMIC);
+	seen = kmalloc_array(DBG_SCHED_LIMIT, sizeof(*seen), GFP_ATOMIC);
 	if (!seen)
 		return 0;
 	seen_count = 0;
@@ -876,10 +878,10 @@ static inline void create_debug_files (struct ohci_hcd *ohci)
 {
 	struct usb_bus *bus = &ohci_to_hcd(ohci)->self;
 	struct device *dev = bus->dev;
+	struct dentry *root;
 
-	ohci->debug_dir = debugfs_create_dir(bus->bus_name, ohci_debug_root);
-	if (!ohci->debug_dir)
-		goto dir_error;
+	root = debugfs_create_dir(bus->bus_name, ohci_debug_root);
+	ohci->debug_dir = root;
 
 	ohci->debug_async = debugfs_create_file("async", S_IRUGO,
 						ohci->debug_dir, dev,
@@ -901,28 +903,18 @@ static inline void create_debug_files (struct ohci_hcd *ohci)
 						    &debug_registers_fops);
 	if (!ohci->debug_registers)
 		goto registers_error;
+	debugfs_create_file("async", S_IRUGO, root, ohci, &debug_async_fops);
+	debugfs_create_file("periodic", S_IRUGO, root, ohci,
+			    &debug_periodic_fops);
+	debugfs_create_file("registers", S_IRUGO, root, ohci,
+			    &debug_registers_fops);
 
 	ohci_dbg (ohci, "created debug files\n");
-	return;
-
-registers_error:
-	debugfs_remove(ohci->debug_periodic);
-periodic_error:
-	debugfs_remove(ohci->debug_async);
-async_error:
-	debugfs_remove(ohci->debug_dir);
-dir_error:
-	ohci->debug_periodic = NULL;
-	ohci->debug_async = NULL;
-	ohci->debug_dir = NULL;
 }
 
 static inline void remove_debug_files (struct ohci_hcd *ohci)
 {
-	debugfs_remove(ohci->debug_registers);
-	debugfs_remove(ohci->debug_periodic);
-	debugfs_remove(ohci->debug_async);
-	debugfs_remove(ohci->debug_dir);
+	debugfs_remove_recursive(ohci->debug_dir);
 }
 
 #endif

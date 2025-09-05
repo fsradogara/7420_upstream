@@ -12,7 +12,6 @@
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/initrd.h>
-#include <linux/bootmem.h>
 #include <linux/console.h>
 #include <linux/seq_file.h>
 #include <linux/root_dev.h>
@@ -549,6 +548,14 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Let earlyprintk output early console messages */
 	early_platform_driver_probe("earlyprintk", 1, 1);
+
+#ifdef CONFIG_OF_FLATTREE
+#ifdef CONFIG_USE_BUILTIN_DTB
+	unflatten_and_copy_device_tree();
+#else
+	unflatten_device_tree();
+#endif
+#endif
 
 	paging_init();
 

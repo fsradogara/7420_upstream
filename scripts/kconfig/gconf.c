@@ -135,8 +135,8 @@ const char *dbg_sym_flags(int val)
 		strcat(buf, "write/");
 	if (val & SYMBOL_CHANGED)
 		strcat(buf, "changed/");
-	if (val & SYMBOL_AUTO)
-		strcat(buf, "auto/");
+	if (val & SYMBOL_NO_WRITE)
+		strcat(buf, "no_write/");
 
 	buf[strlen(buf) - 1] = '\0';
 #ifdef DEBUG
@@ -202,7 +202,7 @@ void init_main_window(const gchar * glade_file)
 
 	xml = glade_xml_new(glade_file, "window1", NULL);
 	if (!xml)
-		g_error(_("GUI loading failed !\n"));
+		g_error("GUI loading failed !\n");
 	glade_xml_signal_autoconnect(xml);
 
 	main_wnd = glade_xml_get_widget(xml, "window1");
@@ -326,7 +326,7 @@ void init_left_tree(void)
 
 	column = gtk_tree_view_column_new();
 	gtk_tree_view_append_column(view, column);
-	gtk_tree_view_column_set_title(column, _("Options"));
+	gtk_tree_view_column_set_title(column, "Options");
 
 	renderer = gtk_cell_renderer_toggle_new();
 	gtk_tree_view_column_pack_start(GTK_TREE_VIEW_COLUMN(column),
@@ -372,7 +372,7 @@ void init_right_tree(void)
 
 	column = gtk_tree_view_column_new();
 	gtk_tree_view_append_column(view, column);
-	gtk_tree_view_column_set_title(column, _("Options"));
+	gtk_tree_view_column_set_title(column, "Options");
 
 	renderer = gtk_cell_renderer_pixbuf_new();
 	gtk_tree_view_column_pack_start(GTK_TREE_VIEW_COLUMN(column),
@@ -403,7 +403,7 @@ void init_right_tree(void)
 
 	renderer = gtk_cell_renderer_text_new();
 	gtk_tree_view_insert_column_with_attributes(view, -1,
-						    _("Name"), renderer,
+						    "Name", renderer,
 						    "text", COL_NAME,
 						    "foreground-gdk",
 						    COL_COLOR, NULL);
@@ -427,7 +427,7 @@ void init_right_tree(void)
 						    COL_COLOR, NULL);
 	renderer = gtk_cell_renderer_text_new();
 	gtk_tree_view_insert_column_with_attributes(view, -1,
-						    _("Value"), renderer,
+						    "Value", renderer,
 						    "text", COL_VALUE,
 						    "editable",
 						    COL_EDIT,
@@ -480,6 +480,7 @@ static void text_insert_help(struct menu *menu)
 		name = g_strdup_printf(menu->sym->name);
 	else
 		name = g_strdup("");
+	const char *prompt = menu_get_prompt(menu);
 	struct gstr help = str_new();
 
 	menu_get_ext_help(menu, &help);
@@ -541,7 +542,7 @@ gboolean on_window1_delete_event(GtkWidget * widget, GdkEvent * event,
 	if (!conf_get_changed())
 		return FALSE;
 
-	dialog = gtk_dialog_new_with_buttons(_("Warning !"),
+	dialog = gtk_dialog_new_with_buttons("Warning !",
 					     GTK_WINDOW(main_wnd),
 					     (GtkDialogFlags)
 					     (GTK_DIALOG_MODAL |
@@ -555,7 +556,7 @@ gboolean on_window1_delete_event(GtkWidget * widget, GdkEvent * event,
 	gtk_dialog_set_default_response(GTK_DIALOG(dialog),
 					GTK_RESPONSE_CANCEL);
 
-	label = gtk_label_new(_("\nSave configuration ?\n"));
+	label = gtk_label_new("\nSave configuration ?\n");
 	gtk_container_add(GTK_CONTAINER(GTK_DIALOG(dialog)->vbox), label);
 	gtk_widget_show(label);
 
@@ -615,7 +616,7 @@ load_filename(GtkFileSelection * file_selector, gpointer user_data)
 					     (user_data));
 
 	if (conf_read(fn))
-		text_insert_msg(_("Error"), _("Unable to load configuration !"));
+		text_insert_msg("Error", "Unable to load configuration !");
 	else
 		display_tree(&rootmenu);
 }
@@ -624,7 +625,7 @@ void on_load1_activate(GtkMenuItem * menuitem, gpointer user_data)
 {
 	GtkWidget *fs;
 
-	fs = gtk_file_selection_new(_("Load file..."));
+	fs = gtk_file_selection_new("Load file...");
 	g_signal_connect(GTK_OBJECT(GTK_FILE_SELECTION(fs)->ok_button),
 			 "clicked",
 			 G_CALLBACK(load_filename), (gpointer) fs);
@@ -643,7 +644,8 @@ void on_load1_activate(GtkMenuItem * menuitem, gpointer user_data)
 void on_save_activate(GtkMenuItem * menuitem, gpointer user_data)
 {
 	if (conf_write(NULL))
-		text_insert_msg(_("Error"), _("Unable to save configuration !"));
+		text_insert_msg("Error", "Unable to save configuration !");
+	conf_write_autoconf(0);
 }
 
 
@@ -656,7 +658,7 @@ store_filename(GtkFileSelection * file_selector, gpointer user_data)
 					     (user_data));
 
 	if (conf_write(fn))
-		text_insert_msg(_("Error"), _("Unable to save configuration !"));
+		text_insert_msg("Error", "Unable to save configuration !");
 
 	gtk_widget_destroy(GTK_WIDGET(user_data));
 }
@@ -665,7 +667,7 @@ void on_save_as1_activate(GtkMenuItem * menuitem, gpointer user_data)
 {
 	GtkWidget *fs;
 
-	fs = gtk_file_selection_new(_("Save file as..."));
+	fs = gtk_file_selection_new("Save file as...");
 	g_signal_connect(GTK_OBJECT(GTK_FILE_SELECTION(fs)->ok_button),
 			 "clicked",
 			 G_CALLBACK(store_filename), (gpointer) fs);
@@ -771,6 +773,7 @@ void on_introduction1_activate(GtkMenuItem * menuitem, gpointer user_data)
 	const gchar *intro_text = _(
 	    "Welcome to gkc, the GTK+ graphical kernel configuration tool\n"
 	    "for Linux.\n"
+	const gchar *intro_text = 
 	    "Welcome to gkc, the GTK+ graphical configuration tool\n"
 	    "For each option, a blank box indicates the feature is disabled, a\n"
 	    "check indicates it is enabled, and a dot indicates that it is to\n"
@@ -785,7 +788,7 @@ void on_introduction1_activate(GtkMenuItem * menuitem, gpointer user_data)
 	    "option.\n"
 	    "\n"
 	    "Toggling Show Debug Info under the Options menu will show \n"
-	    "the dependencies, which you can then match by examining other options.");
+	    "the dependencies, which you can then match by examining other options.";
 
 	dialog = gtk_message_dialog_new(GTK_WINDOW(main_wnd),
 					GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -803,8 +806,8 @@ void on_about1_activate(GtkMenuItem * menuitem, gpointer user_data)
 {
 	GtkWidget *dialog;
 	const gchar *about_text =
-	    _("gkc is copyright (c) 2002 Romain Lievin <roms@lpg.ticalc.org>.\n"
-	      "Based on the source code from Roman Zippel.\n");
+	    "gkc is copyright (c) 2002 Romain Lievin <roms@lpg.ticalc.org>.\n"
+	      "Based on the source code from Roman Zippel.\n";
 
 	dialog = gtk_message_dialog_new(GTK_WINDOW(main_wnd),
 					GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -822,9 +825,9 @@ void on_license1_activate(GtkMenuItem * menuitem, gpointer user_data)
 {
 	GtkWidget *dialog;
 	const gchar *license_text =
-	    _("gkc is released under the terms of the GNU GPL v2.\n"
+	    "gkc is released under the terms of the GNU GPL v2.\n"
 	      "For more information, please see the source code or\n"
-	      "visit http://www.fsf.org/licenses/licenses.html\n");
+	      "visit http://www.fsf.org/licenses/licenses.html\n";
 
 	dialog = gtk_message_dialog_new(GTK_WINDOW(main_wnd),
 					GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -1220,6 +1223,7 @@ static gchar **fill_row(struct menu *menu)
 			    sym && sym_has_value(sym) ? "(NEW)" : "");
 
 	if (show_all && !menu_is_visible(menu))
+	    g_strdup_printf("%s %s", menu_get_prompt(menu),
 			    sym && !sym_has_value(sym) ? "(NEW)" : "");
 
 	if (opt_mode == OPT_ALL && !menu_is_visible(menu))
@@ -1272,7 +1276,7 @@ static gchar **fill_row(struct menu *menu)
 
 		if (def_menu)
 			row[COL_VALUE] =
-			    g_strdup(_(menu_get_prompt(def_menu)));
+			    g_strdup(menu_get_prompt(def_menu));
 	}
 	if (sym->flags & SYMBOL_CHOICEVAL)
 		row[COL_BTNRAD] = GINT_TO_POINTER(TRUE);

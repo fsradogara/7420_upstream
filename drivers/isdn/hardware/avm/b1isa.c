@@ -129,6 +129,7 @@ static int b1isa_probe(struct pci_dev *pdev)
 	cinfo->capi_ctrl.procinfo      = b1isa_procinfo;
 	cinfo->capi_ctrl.ctr_read_proc = b1ctl_read_proc;
 	cinfo->capi_ctrl.proc_fops = &b1ctl_proc_fops;
+	cinfo->capi_ctrl.proc_show     = b1_proc_show;
 	strcpy(cinfo->capi_ctrl.name, card->name);
 
 	retval = attach_capi_ctr(&cinfo->capi_ctrl);

@@ -111,6 +111,7 @@ EXPORT_SYMBOL(atomic_cmpxchg);
 
 int atomic_add_unless(atomic_t *v, int a, int u)
 int __atomic_add_unless(atomic_t *v, int a, int u)
+int atomic_fetch_add_unless(atomic_t *v, int a, int u)
 {
 	int ret;
 	unsigned long flags;
@@ -125,7 +126,7 @@ int __atomic_add_unless(atomic_t *v, int a, int u)
 EXPORT_SYMBOL(atomic_add_unless);
 	return ret;
 }
-EXPORT_SYMBOL(__atomic_add_unless);
+EXPORT_SYMBOL(atomic_fetch_add_unless);
 
 /* Atomic operations are already serializing */
 void atomic_set(atomic_t *v, int i)
@@ -190,6 +191,20 @@ unsigned long __cmpxchg_u32(volatile u32 *ptr, u32 old, u32 new)
 	return (unsigned long)prev;
 }
 EXPORT_SYMBOL(__cmpxchg_u32);
+
+u64 __cmpxchg_u64(u64 *ptr, u64 old, u64 new)
+{
+	unsigned long flags;
+	u64 prev;
+
+	spin_lock_irqsave(ATOMIC_HASH(ptr), flags);
+	if ((prev = *ptr) == old)
+		*ptr = new;
+	spin_unlock_irqrestore(ATOMIC_HASH(ptr), flags);
+
+	return prev;
+}
+EXPORT_SYMBOL(__cmpxchg_u64);
 
 unsigned long __xchg_u32(volatile u32 *ptr, u32 new)
 {

@@ -65,6 +65,7 @@ static struct map_info flagadm_map = {
 
 struct mtd_partition flagadm_parts[] = {
 static struct mtd_partition flagadm_parts[] = {
+static const struct mtd_partition flagadm_parts[] = {
 	{
 		.name =		"Bootloader",
 		.offset	=	FLASH_PARTITION0_ADDR,

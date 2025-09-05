@@ -155,6 +155,7 @@ asmlinkage int old_mmap(unsigned long addr, unsigned long len,
 		return -EINVAL;
 	return do_mmap2(addr, len, prot, flags, fd, off>>PAGE_SHIFT);
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, off>>PAGE_SHIFT);
+	return ksys_mmap_pgoff(addr, len, prot, flags, fd, off>>PAGE_SHIFT);
 }
 
 asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
@@ -286,7 +287,7 @@ asmlinkage int sys_uname(struct old_utsname * name)
 
 	pgoff >>= PAGE_SHIFT - 12;
 
-	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
+	return ksys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 }
 
 /* sys_cacheflush -- flush (part of) the processor cache.  */

@@ -117,6 +117,7 @@ static int trace_test_buffer_cpu(struct trace_buffer *buf, int cpu)
  */
 static int trace_test_buffer(struct trace_array *tr, unsigned long *count)
 static int trace_test_buffer(struct trace_buffer *buf, unsigned long *count)
+static int __maybe_unused trace_test_buffer(struct trace_buffer *buf, unsigned long *count)
 {
 	unsigned long flags, cnt = 0;
 	int cpu, ret = 0;

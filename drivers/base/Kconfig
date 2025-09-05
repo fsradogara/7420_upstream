@@ -80,7 +80,7 @@ config STANDALONE
 	  If unsure, say Y.
 
 config PREVENT_FIRMWARE_BUILD
-	bool "Prevent firmware from being built"
+	bool "Disable drivers features which enable custom firmware building"
 	default y
 	help
 	  Say yes to avoid building firmware. Firmware is usually shipped
@@ -99,14 +99,17 @@ config FW_LOADER
 	  with the driver and only when updating the firmware should a
 	  rebuild be made.
 	  If unsure, say Y here.
+	  Say yes to disable driver features which enable building a custom
+	  driver firmware at kernel build time. These drivers do not use the
+	  kernel firmware API to load firmware (CONFIG_FW_LOADER), instead they
+	  use their own custom loading mechanism. The required firmware is
+	  usually shipped with the driver, building the driver firmware
+	  should only be needed if you have an updated firmware source.
 
-config FW_LOADER
-	tristate "Userspace firmware loading support" if EXPERT
-	default y
-	---help---
-	  This option is provided for the case where none of the in-tree modules
-	  require userspace firmware loading support, but a module built
-	  out-of-tree does.
+	  Firmware should not be being built as part of kernel, these days
+	  you should always prevent this and say Y here. There are only two
+	  old drivers which enable building of its firmware at kernel build
+	  time:
 
 config FIRMWARE_IN_KERNEL
 	bool "Include in-kernel firmware blobs in kernel binary"
@@ -219,6 +222,10 @@ config FW_LOADER_USER_HELPER_FALLBACK
 	  been deprecated upstream.
 
 	  If you are unsure about this, say N here.
+	    o CONFIG_WANXL through CONFIG_WANXL_BUILD_FIRMWARE
+	    o CONFIG_SCSI_AIC79XX through CONFIG_AIC79XX_BUILD_FIRMWARE
+
+source "drivers/base/firmware_loader/Kconfig"
 
 config WANT_DEV_COREDUMP
 	bool
@@ -292,6 +299,9 @@ config GENERIC_CPU_DEVICES
 config GENERIC_CPU_AUTOPROBE
 	bool
 
+config GENERIC_CPU_VULNERABILITIES
+	bool
+
 config SOC_BUS
 	bool
 	select GLOB
@@ -302,6 +312,7 @@ config DMA_SHARED_BUFFER
 	bool
 	default n
 	select ANON_INODES
+	select IRQ_WORK
 	help
 	  This option enables the framework for buffer-sharing between
 	  multiple drivers. A buffer is associated with a file using driver

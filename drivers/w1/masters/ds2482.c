@@ -88,7 +88,7 @@ I2C_CLIENT_INSMOD_1(ds2482);
 #define DS2482_REG_CFG_APU		0x01	/* active pull-up */
 
 /* extra configurations - e.g. 1WS */
-int extra_config;
+static int extra_config;
 
 /**
  * Write and verify codes for the CHANNEL_SELECT command (DS2482-800 only).

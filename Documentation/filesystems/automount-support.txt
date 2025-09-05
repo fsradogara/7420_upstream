@@ -40,6 +40,7 @@ following procedure:
 	 vfsmount and its root dentry. The ref counts on these will need
 	 incrementing.
 See section "Mount Traps" of  Documentation/filesystems/autofs4.txt
+See section "Mount Traps" of  Documentation/filesystems/autofs.txt
 
 Then from userspace, you can just do something like:
 

@@ -1371,6 +1371,8 @@ research:
 			} else {
 				un = kzalloc(min(blocks_needed, max_to_insert) * UNFM_P_SIZE, GFP_ATOMIC);	// We need to avoid scheduling.
 				un = kzalloc(min(blocks_needed, max_to_insert) * UNFM_P_SIZE, GFP_NOFS);
+				un = kcalloc(min(blocks_needed, max_to_insert),
+					     UNFM_P_SIZE, GFP_NOFS);
 				if (!un) {
 					un = &unf_single;
 					blocks_needed = 1;
@@ -2764,7 +2766,7 @@ int reiserfs_new_inode(struct reiserfs_transaction_handle *th,
 			journal_end(th);
 			goto out_inserted_sd;
 		}
-	} else if (inode->i_sb->s_flags & MS_POSIXACL) {
+	} else if (inode->i_sb->s_flags & SB_POSIXACL) {
 		reiserfs_warning(inode->i_sb, "jdm-13090",
 				 "ACLs aren't enabled in the fs, "
 				 "but vfs thinks they are!");

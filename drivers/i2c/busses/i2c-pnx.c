@@ -40,6 +40,26 @@ static inline int wait_timeout(long timeout, struct i2c_pnx_algo_data *data)
 #define I2C_PNX_SPEED_KHZ_DEFAULT	100
 #define I2C_PNX_REGION_SIZE		0x100
 
+struct i2c_pnx_mif {
+	int			ret;		/* Return value */
+	int			mode;		/* Interface mode */
+	struct completion	complete;	/* I/O completion */
+	struct timer_list	timer;		/* Timeout */
+	u8 *			buf;		/* Data buffer */
+	int			len;		/* Length of data buffer */
+	int			order;		/* RX Bytes to order via TX */
+};
+
+struct i2c_pnx_algo_data {
+	void __iomem		*ioaddr;
+	struct i2c_pnx_mif	mif;
+	int			last;
+	struct clk		*clk;
+	struct i2c_adapter	adapter;
+	int			irq;
+	u32			timeout;
+};
+
 enum {
 	mstatus_tdi = 0x00000001,
 	mstatus_afi = 0x00000002,
@@ -138,7 +158,6 @@ static inline void i2c_pnx_arm_timer(struct i2c_pnx_algo_data *alg_data)
 		jiffies, expires);
 
 	timer->expires = jiffies + expires;
-	timer->data = (unsigned long)alg_data;
 
 	add_timer(timer);
 }
@@ -564,7 +583,7 @@ static irqreturn_t i2c_pnx_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void i2c_pnx_timeout(unsigned long data)
+static void i2c_pnx_timeout(struct timer_list *t)
 {
 	struct i2c_adapter *adap = (struct i2c_adapter *)data;
 	struct i2c_pnx_algo_data *alg_data = adap->algo_data;
@@ -575,6 +594,7 @@ static void i2c_pnx_timeout(unsigned long data)
 	       ioread32(I2C_REG_STS(alg_data)),
 	       ioread32(I2C_REG_CTL(alg_data)));
 	struct i2c_pnx_algo_data *alg_data = (struct i2c_pnx_algo_data *)data;
+	struct i2c_pnx_algo_data *alg_data = from_timer(alg_data, t, mif.timer);
 	u32 ctl;
 
 	dev_err(&alg_data->adapter.dev,
@@ -900,8 +920,7 @@ static int i2c_pnx_probe(struct platform_device *pdev)
 	if (IS_ERR(alg_data->clk))
 		return PTR_ERR(alg_data->clk);
 
-	setup_timer(&alg_data->mif.timer, i2c_pnx_timeout,
-			(unsigned long)alg_data);
+	timer_setup(&alg_data->mif.timer, i2c_pnx_timeout, 0);
 
 	snprintf(alg_data->adapter.name, sizeof(alg_data->adapter.name),
 		 "%s", pdev->name);

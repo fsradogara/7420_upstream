@@ -9,5 +9,7 @@ ubifs-y += recovery.o ioctl.o lpt_commit.o tnc_misc.o
 ubifs-$(CONFIG_UBIFS_FS_DEBUG) += debug.o
 ubifs-$(CONFIG_UBIFS_FS_XATTR) += xattr.o
 ubifs-y += recovery.o ioctl.o lpt_commit.o tnc_misc.o xattr.o debug.o
+ubifs-y += recovery.o ioctl.o lpt_commit.o tnc_misc.o debug.o
 ubifs-y += misc.o
 ubifs-$(CONFIG_UBIFS_FS_ENCRYPTION) += crypto.o
+ubifs-$(CONFIG_UBIFS_FS_XATTR) += xattr.o

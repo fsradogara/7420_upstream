@@ -64,7 +64,6 @@ struct ib_umem_chunk {
 	int                     writable;
 	int                     hugetlb;
 	struct work_struct	work;
-	struct pid             *pid;
 	struct mm_struct       *mm;
 	unsigned long		diff;
 	struct ib_umem_odp     *odp_data;

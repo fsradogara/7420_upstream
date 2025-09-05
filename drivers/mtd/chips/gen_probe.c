@@ -219,14 +219,18 @@ static inline struct mtd_info *cfi_cmdset_unknown(struct map_info *map,
 		request_module(probename + sizeof(MODULE_SYMBOL_PREFIX) - 1);
 	char probename[sizeof(VMLINUX_SYMBOL_STR(cfi_cmdset_%4.4X))];
 	cfi_cmdset_fn_t *probe_function;
+	char *probename;
 
-	sprintf(probename, VMLINUX_SYMBOL_STR(cfi_cmdset_%4.4X), type);
+	probename = kasprintf(GFP_KERNEL, "cfi_cmdset_%4.4X", type);
+	if (!probename)
+		return NULL;
 
 	probe_function = __symbol_get(probename);
 	if (!probe_function) {
 		request_module("cfi_cmdset_%4.4X", type);
 		probe_function = __symbol_get(probename);
 	}
+	kfree(probename);
 
 	if (probe_function) {
 		struct mtd_info *mtd;

@@ -548,6 +548,7 @@ static struct platform_device h3_mcbsp1_device = {
 	.dev = {
 		.platform_data	= &alsa_config,
 static struct gpio_led h3_gpio_led_pins[] = {
+static const struct gpio_led h3_gpio_led_pins[] = {
 	{
 		.name		= "h3:red",
 		.default_trigger = "heartbeat",
@@ -616,6 +617,7 @@ static struct omap_uart_config h3_uart_config __initdata = {
 };
 
 static struct omap_lcd_config h3_lcd_config __initdata = {
+static const struct omap_lcd_config h3_lcd_config __initconst = {
 	.ctrl_name	= "internal",
 };
 

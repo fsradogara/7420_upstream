@@ -220,8 +220,6 @@ static const struct of_device_id s3c24xx_i2c_match[] = {
 	{ .compatible = "samsung,s3c2440-i2c", .data = (void *)QUIRK_S3C2440 },
 	{ .compatible = "samsung,s3c2440-hdmiphy-i2c",
 	  .data = (void *)(QUIRK_S3C2440 | QUIRK_HDMIPHY | QUIRK_NO_GPIO) },
-	{ .compatible = "samsung,exynos5440-i2c",
-	  .data = (void *)(QUIRK_S3C2440 | QUIRK_NO_GPIO) },
 	{ .compatible = "samsung,exynos5-sata-phy-i2c",
 	  .data = (void *)(QUIRK_S3C2440 | QUIRK_POLL | QUIRK_NO_GPIO) },
 	{},
@@ -1172,8 +1170,9 @@ static int s3c24xx_i2c_cpufreq_transition(struct notifier_block *nb,
 		ret = s3c24xx_i2c_clockrate(i2c, &got);
 		spin_unlock_irqrestore(&i2c->lock, flags);
 		i2c_lock_adapter(&i2c->adap);
+		i2c_lock_bus(&i2c->adap, I2C_LOCK_ROOT_ADAPTER);
 		ret = s3c24xx_i2c_clockrate(i2c, &got);
-		i2c_unlock_adapter(&i2c->adap);
+		i2c_unlock_bus(&i2c->adap, I2C_LOCK_ROOT_ADAPTER);
 
 		if (ret < 0)
 			dev_err(i2c->dev, "cannot find frequency (%d)\n", ret);

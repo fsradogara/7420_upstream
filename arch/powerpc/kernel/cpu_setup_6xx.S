@@ -19,6 +19,7 @@
 _GLOBAL(__setup_cpu_603)
 	mflr	r4
 #include <asm/mmu.h>
+#include <asm/feature-fixups.h>
 
 _GLOBAL(__setup_cpu_603)
 	mflr	r5
@@ -270,7 +271,7 @@ BEGIN_FTR_SECTION
 END_FTR_SECTION_IFSET(CPU_FTR_L3CR)
 	lwz	r6,CPU_SPEC_FEATURES(r5)
 	lwz	r6,CPU_SPEC_FEATURES(r4)
-	andi.	r0,r6,CPU_FTR_L3_DISABLE_NAP
+	andis.	r0,r6,CPU_FTR_L3_DISABLE_NAP@h
 	beq	1f
 	li	r7,CPU_FTR_CAN_NAP
 	andc	r6,r6,r7

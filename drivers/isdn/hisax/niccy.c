@@ -308,6 +308,7 @@ int setup_niccy(struct IsdnCard *card)
 					"missing %ld/%lx/%lx\n",
 					card->para[0], card->para[1],
 					card->para[2]);
+			if (card->para[0] == -1 || !card->para[1] ||
 			    !card->para[2]) {
 				printk(KERN_ERR "NiccyPnP:some resources are "
 				       "missing %ld/%lx/%lx\n",

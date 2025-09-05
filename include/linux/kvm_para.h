@@ -39,4 +39,9 @@ static inline bool kvm_para_has_feature(unsigned int feature)
 #endif /* __KERNEL__ */
 #endif /* __LINUX_KVM_PARA_H */
 
+
+static inline bool kvm_para_has_hint(unsigned int feature)
+{
+	return !!(kvm_arch_para_hints() & (1UL << feature));
+}
 #endif /* __LINUX_KVM_PARA_H */

@@ -353,7 +353,8 @@ init_record_index_pools(void)
 	slidx_pool.max_idx = (rec_max_size/sect_min_size) * 2 + 1;
 	slidx_pool.buffer = (slidx_list_t *)
 	slidx_pool.buffer =
-		kmalloc(slidx_pool.max_idx * sizeof(slidx_list_t), GFP_KERNEL);
+		kmalloc_array(slidx_pool.max_idx, sizeof(slidx_list_t),
+			      GFP_KERNEL);
 
 	return slidx_pool.buffer ? 0 : -ENOMEM;
 }

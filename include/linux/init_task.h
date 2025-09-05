@@ -52,22 +52,11 @@ extern struct files_struct init_files;
 
 #include <asm/thread_info.h>
 
-#ifdef CONFIG_SMP
-# define INIT_PUSHABLE_TASKS(tsk)					\
-	.pushable_tasks = PLIST_NODE_INIT(tsk.pushable_tasks, MAX_PRIO),
-#else
-# define INIT_PUSHABLE_TASKS(tsk)
-#endif
-
 extern struct files_struct init_files;
 extern struct fs_struct init_fs;
-
-#ifdef CONFIG_CPUSETS
-#define INIT_CPUSET_SEQ(tsk)							\
-	.mems_allowed_seq = SEQCNT_ZERO(tsk.mems_allowed_seq),
-#else
-#define INIT_CPUSET_SEQ(tsk)
-#endif
+extern struct nsproxy init_nsproxy;
+extern struct group_info init_groups;
+extern struct cred init_cred;
 
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 #define INIT_PREV_CPUTIME(x)	.prev_cputime = {			\
@@ -78,22 +67,13 @@ extern struct fs_struct init_fs;
 #endif
 
 #ifdef CONFIG_POSIX_TIMERS
-#define INIT_POSIX_TIMERS(s)						\
-	.posix_timers = LIST_HEAD_INIT(s.posix_timers),
 #define INIT_CPU_TIMERS(s)						\
 	.cpu_timers = {							\
 		LIST_HEAD_INIT(s.cpu_timers[0]),			\
 		LIST_HEAD_INIT(s.cpu_timers[1]),			\
-		LIST_HEAD_INIT(s.cpu_timers[2]),								\
-	},
-#define INIT_CPUTIMER(s)						\
-	.cputimer	= { 						\
-		.cputime_atomic	= INIT_CPUTIME_ATOMIC,			\
-		.running	= false,				\
-		.checking_timer = false,				\
+		LIST_HEAD_INIT(s.cpu_timers[2]),			\
 	},
 #else
-#define INIT_POSIX_TIMERS(s)
 #define INIT_CPU_TIMERS(s)
 #define INIT_CPUTIMER(s)
 #endif
@@ -394,7 +374,13 @@ extern struct cred init_cred;
 
 
 /* Attach to the init_task data structure for proper alignment */
+#ifdef CONFIG_ARCH_TASK_STRUCT_ON_STACK
 #define __init_task_data __attribute__((__section__(".data..init_task")))
+#else
+#define __init_task_data /**/
+#endif
 
+/* Attach to the thread_info data structure for proper alignment */
+#define __init_thread_info __attribute__((__section__(".data..init_thread_info")))
 
 #endif

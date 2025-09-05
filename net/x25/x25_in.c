@@ -393,6 +393,7 @@ static int x25_state4_machine(struct sock *sk, struct sk_buff *skb, int frametyp
 
 		case X25_RESET_REQUEST:
 			x25_write_internal(sk, X25_RESET_CONFIRMATION);
+			/* fall through */
 		case X25_RESET_CONFIRMATION: {
 			struct x25_sock *x25 = x25_sk(sk);
 

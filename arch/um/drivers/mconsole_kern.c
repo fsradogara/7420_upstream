@@ -192,6 +192,7 @@ void mconsole_proc(struct mc_request *req)
 	struct file *file;
 	int first_chunk = 1;
 	char *ptr = req->request.data;
+	loff_t pos = 0;
 
 	ptr += strlen("proc");
 	ptr = skip_spaces(ptr);
@@ -266,7 +267,7 @@ void mconsole_proc(struct mc_request *req)
 	for (;;) {
 		len = sys_read(fd, buf, PAGE_SIZE-1);
 	do {
-		len = kernel_read(file, buf, PAGE_SIZE - 1, &file->f_pos);
+		len = kernel_read(file, buf, PAGE_SIZE - 1, &pos);
 		if (len < 0) {
 			mconsole_reply(req, "Read of file failed", 1, 0);
 			goto out_free;

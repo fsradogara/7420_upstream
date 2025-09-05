@@ -42,6 +42,8 @@
 
 #define MAX_RECOVERY 1	/* Maximum number of regions recovered in parallel. */
 
+#define MAX_NR_MIRRORS	(DM_KCOPYD_MAX_REGIONS + 1)
+
 #define DM_RAID1_HANDLE_ERRORS	0x01
 #define DM_RAID1_KEEP_LOG	0x02
 #define errors_handled(p)	((p)->features & DM_RAID1_HANDLE_ERRORS)
@@ -218,9 +220,9 @@ static void wakeup_mirrord(void *context)
 	queue_work(ms->kmirrord_wq, &ms->kmirrord_work);
 }
 
-static void delayed_wake_fn(unsigned long data)
+static void delayed_wake_fn(struct timer_list *t)
 {
-	struct mirror_set *ms = (struct mirror_set *) data;
+	struct mirror_set *ms = from_timer(ms, t, timer);
 
 	clear_bit(0, &ms->timer_pending);
 	wake(ms);
@@ -233,8 +235,6 @@ static void delayed_wake(struct mirror_set *ms)
 		return;
 
 	ms->timer.expires = jiffies + HZ / 5;
-	ms->timer.data = (unsigned long) ms;
-	ms->timer.function = delayed_wake_fn;
 	add_timer(&ms->timer);
 }
 
@@ -868,7 +868,7 @@ static int mirror_flush(struct dm_target *ti)
 	unsigned long error_bits;
 
 	unsigned int i;
-	struct dm_io_region io[ms->nr_mirrors];
+	struct dm_io_region io[MAX_NR_MIRRORS];
 	struct mirror *m;
 	struct dm_io_request io_req = {
 		.bi_op = REQ_OP_WRITE,
@@ -949,9 +949,8 @@ static int recover(struct mirror_set *ms, struct region *reg)
 	dm_rh_recovery_end(reg, !(read_err || write_err));
 }
 
-static int recover(struct mirror_set *ms, struct dm_region *reg)
+static void recover(struct mirror_set *ms, struct dm_region *reg)
 {
-	int r;
 	unsigned i;
 	struct dm_io_region from, to[DM_KCOPYD_MAX_REGIONS], *dest;
 	struct mirror *m;
@@ -999,10 +998,8 @@ static int recover(struct mirror_set *ms, struct dm_region *reg)
 	if (!errors_handled(ms))
 		set_bit(DM_KCOPYD_IGNORE_ERROR, &flags);
 
-	r = dm_kcopyd_copy(ms->kcopyd_client, &from, ms->nr_mirrors - 1, to,
-			   flags, recovery_complete, reg);
-
-	return r;
+	dm_kcopyd_copy(ms->kcopyd_client, &from, ms->nr_mirrors - 1, to,
+		       flags, recovery_complete, reg);
 }
 
 static void do_recovery(struct mirror_set *ms)
@@ -1025,7 +1022,6 @@ static void do_recovery(struct mirror_set *ms)
 {
 	struct dm_region *reg;
 	struct dm_dirty_log *log = dm_rh_dirty_log(ms->rh);
-	int r;
 
 	/*
 	 * Start quiescing some regions.
@@ -1045,6 +1041,8 @@ static void do_recovery(struct mirror_set *ms)
 		if (r)
 			dm_rh_recovery_end(reg, 0);
 	}
+	while ((reg = dm_rh_recovery_start(ms->rh)))
+		recover(ms, reg);
 
 	/*
 	 * Update the in sync flag.
@@ -1397,7 +1395,7 @@ out:
 static void do_write(struct mirror_set *ms, struct bio *bio)
 {
 	unsigned int i;
-	struct dm_io_region io[ms->nr_mirrors], *dest = io;
+	struct dm_io_region io[MAX_NR_MIRRORS], *dest = io;
 	struct mirror *m;
 	struct dm_io_request io_req = {
 		.bi_rw = WRITE,
@@ -1964,7 +1962,7 @@ static int mirror_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	if (!argc || sscanf(argv[0], "%u", &nr_mirrors) != 1 ||
 	if (!argc || sscanf(argv[0], "%u%c", &nr_mirrors, &dummy) != 1 ||
-	    nr_mirrors < 2 || nr_mirrors > DM_KCOPYD_MAX_REGIONS + 1) {
+	    nr_mirrors < 2 || nr_mirrors > MAX_NR_MIRRORS) {
 		ti->error = "Invalid number of mirrors";
 		dm_dirty_log_destroy(dl);
 		return -EINVAL;
@@ -2015,7 +2013,7 @@ static int mirror_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		goto err_free_context;
 	}
 	INIT_WORK(&ms->kmirrord_work, do_mirror);
-	init_timer(&ms->timer);
+	timer_setup(&ms->timer, delayed_wake_fn, 0);
 	ms->timer_pending = 0;
 	INIT_WORK(&ms->trigger_event, trigger_event);
 
@@ -2373,7 +2371,7 @@ static void mirror_status(struct dm_target *ti, status_type_t type,
 	int num_feature_args = 0;
 	struct mirror_set *ms = (struct mirror_set *) ti->private;
 	struct dm_dirty_log *log = dm_rh_dirty_log(ms->rh);
-	char buffer[ms->nr_mirrors + 1];
+	char buffer[MAX_NR_MIRRORS + 1];
 
 	switch (type) {
 	case STATUSTYPE_INFO:

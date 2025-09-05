@@ -214,7 +214,7 @@ static int led_proc_open(struct inode *inode, struct file *file)
 }
 
 
-static ssize_t led_proc_write(struct file *file, const char *buf,
+static ssize_t led_proc_write(struct file *file, const char __user *buf,
 	size_t count, loff_t *pos)
 {
 	void *data = PDE_DATA(file_inode(file));
@@ -292,7 +292,7 @@ static int __init led_create_procfs(void)
 
 	if (led_type == -1) return -1;
 
-	proc_pdc_root = proc_mkdir("pdc", 0);
+	proc_pdc_root = proc_mkdir("pdc", NULL);
 	if (!proc_pdc_root) return -1;
 	proc_pdc_root->owner = THIS_MODULE;
 	ent = create_proc_entry("led", S_IFREG|S_IRUGO|S_IWUSR, proc_pdc_root);

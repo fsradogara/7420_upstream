@@ -53,6 +53,7 @@ struct capi_ctr {
 	int (*ctr_read_proc)(char *page, char **start, off_t off,
 			     int count, int *eof, struct capi_ctr *card);
 	const struct file_operations *proc_fops;
+	int (*proc_show)(struct seq_file *, void *);
 
 	/* filled in before calling ready callback */
 	u8 manu[CAPI_MANUFACTURER_LEN];		/* CAPI_GET_MANUFACTURER */

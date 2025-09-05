@@ -663,19 +663,6 @@ static int hycapi_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int hycapi_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, hycapi_proc_show, PDE_DATA(inode));
-}
-
-static const struct file_operations hycapi_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= hycapi_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 /**************************************************************
 hycapi_load_firmware
 
@@ -1074,6 +1061,7 @@ hycapi_capi_create(hysdn_card *card)
 		ctrl->procinfo      = hycapi_procinfo;
 		ctrl->ctr_read_proc = hycapi_read_proc;
 		ctrl->proc_fops = &hycapi_proc_fops;
+		ctrl->proc_show     = hycapi_proc_show;
 		strcpy(ctrl->name, cinfo->cardname);
 		ctrl->owner = THIS_MODULE;
 

@@ -1344,9 +1344,9 @@ static void command_timer_fn(unsigned long data)
  *
  * @data: &struct lbs_private pointer
  */
-static void lbs_cmd_timeout_handler(unsigned long data)
+static void lbs_cmd_timeout_handler(struct timer_list *t)
 {
-	struct lbs_private *priv = (struct lbs_private *)data;
+	struct lbs_private *priv = from_timer(priv, t, command_timer);
 	unsigned long flags;
 
 	spin_lock_irqsave(&priv->driver_lock, flags);
@@ -1437,9 +1437,9 @@ static int lbs_init_adapter(struct lbs_private *priv)
  *
  * @data: &struct lbs_private pointer
  */
-static void lbs_tx_lockup_handler(unsigned long data)
+static void lbs_tx_lockup_handler(struct timer_list *t)
 {
-	struct lbs_private *priv = (struct lbs_private *)data;
+	struct lbs_private *priv = from_timer(priv, t, tx_lockup_timer);
 	unsigned long flags;
 
 	spin_lock_irqsave(&priv->driver_lock, flags);
@@ -1460,9 +1460,9 @@ static void lbs_tx_lockup_handler(unsigned long data)
  * @data:	&struct lbs_private pointer
  * returns:	N/A
  */
-static void auto_deepsleep_timer_fn(unsigned long data)
+static void auto_deepsleep_timer_fn(struct timer_list *t)
 {
-	struct lbs_private *priv = (struct lbs_private *)data;
+	struct lbs_private *priv = from_timer(priv, t, auto_deepsleep_timer);
 
 	if (priv->is_activity_detected) {
 		priv->is_activity_detected = 0;
@@ -1528,12 +1528,9 @@ static int lbs_init_adapter(struct lbs_private *priv)
 	init_waitqueue_head(&priv->fw_waitq);
 	mutex_init(&priv->lock);
 
-	setup_timer(&priv->command_timer, lbs_cmd_timeout_handler,
-		(unsigned long)priv);
-	setup_timer(&priv->tx_lockup_timer, lbs_tx_lockup_handler,
-		(unsigned long)priv);
-	setup_timer(&priv->auto_deepsleep_timer, auto_deepsleep_timer_fn,
-			(unsigned long)priv);
+	timer_setup(&priv->command_timer, lbs_cmd_timeout_handler, 0);
+	timer_setup(&priv->tx_lockup_timer, lbs_tx_lockup_handler, 0);
+	timer_setup(&priv->auto_deepsleep_timer, auto_deepsleep_timer_fn, 0);
 
 	INIT_LIST_HEAD(&priv->cmdfreeq);
 	INIT_LIST_HEAD(&priv->cmdpendingq);

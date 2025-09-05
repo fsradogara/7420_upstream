@@ -40,10 +40,10 @@
  * tape_std_assign
  */
 static void
-tape_std_assign_timeout(unsigned long data)
+tape_std_assign_timeout(struct timer_list *t)
 {
-	struct tape_request *	request;
-	struct tape_device *	device;
+	struct tape_request *	request = from_timer(request, t, timer);
+	struct tape_device *	device = request->device;
 	int rc;
 
 	request = (struct tape_request *) data;
@@ -99,6 +99,12 @@ tape_std_assign(struct tape_device *device)
 			device->cdev->dev.bus_id);
 	del_timer_sync(&timeout);
 	destroy_timer_on_stack(&timeout);
+	timer_setup(&request->timer, tape_std_assign_timeout, 0);
+	mod_timer(&timeout, jiffies + 2 * HZ);
+
+	rc = tape_do_io_interruptible(device, request);
+
+	del_timer_sync(&request->timer);
 
 	if (rc != 0) {
 		DBF_EVENT(3, "%08x: assign failed - device might be busy\n",

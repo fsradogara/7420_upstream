@@ -198,7 +198,6 @@ icc_fill_fifo(struct IsdnCardState *cs)
 		debugl1(cs, "icc_fill_fifo dbusytimer running");
 		del_timer(&cs->dbusytimer);
 	}
-	init_timer(&cs->dbusytimer);
 	cs->dbusytimer.expires = jiffies + ((DBUSY_TIMER_VALUE * HZ)/1000);
 	add_timer(&cs->dbusytimer);
 	if (cs->debug & L1_DEB_ISAC_FIFO) {
@@ -760,8 +759,9 @@ DC_Close_icc(struct IsdnCardState *cs) {
 }
 
 static void
-dbusy_timer_handler(struct IsdnCardState *cs)
+dbusy_timer_handler(struct timer_list *t)
 {
+	struct IsdnCardState *cs = from_timer(cs, t, dbusytimer);
 	struct PStack *stptr;
 	int	rbch, star;
 
@@ -861,5 +861,5 @@ setup_icc(struct IsdnCardState *cs)
 void setup_icc(struct IsdnCardState *cs)
 {
 	INIT_WORK(&cs->tqueue, icc_bh);
-	setup_timer(&cs->dbusytimer, (void *)dbusy_timer_handler, (long)cs);
+	timer_setup(&cs->dbusytimer, dbusy_timer_handler, 0);
 }

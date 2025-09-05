@@ -130,6 +130,8 @@ void local_flush_tlb_range(struct vm_area_struct *vma,
  		if (vma->vm_flags & VM_EXEC)
 			(unsigned long)mm->context.asid[cpu], start, end);
 #endif
+	pr_debug("[tlbrange<%02lx,%08lx,%08lx>]\n",
+		 (unsigned long)mm->context.asid[cpu], start, end);
 	local_irq_save(flags);
 
 	if (end-start + (PAGE_SIZE-1) <= _TLB_ENTRIES << PAGE_SHIFT) {

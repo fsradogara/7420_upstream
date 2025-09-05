@@ -196,7 +196,8 @@ static int scan_header(struct partition *part)
 	if (!part->blocks)
 		goto err;
 
-	part->sector_map = vmalloc(part->sector_count * sizeof(u_long));
+	part->sector_map = vmalloc(array_size(sizeof(u_long),
+					      part->sector_count));
 	if (!part->sector_map) {
 		printk(KERN_ERR PREFIX "'%s': unable to allocate memory for "
 			"sector map", part->mbd.mtd->name);
@@ -348,17 +349,14 @@ static void erase_callback(struct erase_info *erase)
 static int erase_block(struct partition *part, int block)
 {
 	struct erase_info *erase;
-	int rc = -ENOMEM;
+	int rc;
 
 	erase = kmalloc(sizeof(struct erase_info), GFP_KERNEL);
 	if (!erase)
-		goto err;
+		return -ENOMEM;
 
-	erase->mtd = part->mbd.mtd;
-	erase->callback = erase_callback;
 	erase->addr = part->blocks[block].offset;
 	erase->len = part->block_size;
-	erase->priv = (u_long)part;
 
 	part->blocks[block].state = BLOCK_ERASING;
 	part->blocks[block].free_sectors = 0;
@@ -370,15 +368,38 @@ static int erase_block(struct partition *part, int block)
 				"failed\n", erase->addr, erase->len,
 				part->mbd.mtd->name);
 	rc = mtd_erase(part->mbd.mtd, erase);
-
 	if (rc) {
 		printk(KERN_ERR PREFIX "erase of region %llx,%llx on '%s' "
 				"failed\n", (unsigned long long)erase->addr,
 				(unsigned long long)erase->len, part->mbd.mtd->name);
-		kfree(erase);
+		part->blocks[block].state = BLOCK_FAILED;
+		part->blocks[block].free_sectors = 0;
+		part->blocks[block].used_sectors = 0;
+	} else {
+		u16 magic = cpu_to_le16(RFD_MAGIC);
+		size_t retlen;
+
+		part->blocks[block].state = BLOCK_ERASED;
+		part->blocks[block].free_sectors = part->data_sectors_per_block;
+		part->blocks[block].used_sectors = 0;
+		part->blocks[block].erases++;
+
+		rc = mtd_write(part->mbd.mtd, part->blocks[block].offset,
+			       sizeof(magic), &retlen, (u_char *)&magic);
+		if (!rc && retlen != sizeof(magic))
+			rc = -EIO;
+
+		if (rc) {
+			pr_err(PREFIX "'%s': unable to write RFD header at 0x%lx\n",
+			       part->mbd.mtd->name, part->blocks[block].offset);
+			part->blocks[block].state = BLOCK_FAILED;
+		} else {
+			part->blocks[block].state = BLOCK_OK;
+		}
 	}
 
-err:
+	kfree(erase);
+
 	return rc;
 }
 

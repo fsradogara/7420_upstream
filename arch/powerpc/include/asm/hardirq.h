@@ -34,6 +34,7 @@ static inline void ack_bad_irq(int irq)
 typedef struct {
 	unsigned int __softirq_pending;
 	unsigned int timer_irqs_event;
+	unsigned int broadcast_irqs_event;
 	unsigned int timer_irqs_others;
 	unsigned int pmu_irqs;
 	unsigned int mce_exceptions;
@@ -51,13 +52,7 @@ typedef struct {
 DECLARE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat);
 
 #define __ARCH_IRQ_STAT
-
-#define local_softirq_pending()	__this_cpu_read(irq_stat.__softirq_pending)
-
-#define __ARCH_SET_SOFTIRQ_PENDING
-
-#define set_softirq_pending(x) __this_cpu_write(irq_stat.__softirq_pending, (x))
-#define or_softirq_pending(x) __this_cpu_or(irq_stat.__softirq_pending, (x))
+#define __ARCH_IRQ_EXIT_IRQS_DISABLED
 
 static inline void ack_bad_irq(unsigned int irq)
 {

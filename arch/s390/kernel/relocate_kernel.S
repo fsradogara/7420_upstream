@@ -106,7 +106,7 @@ ENTRY(relocate_kernel)
 		je	.indir_check	# NO, goto "indir_check"
 		lgr	%r6,%r5		# r6 = r5
 		nill	%r6,0xf000	# mask it out and...
-		j	.top		# ...next iteration
+		j	.base		# ...next iteration
 	.indir_check:
 		tml	%r5,0x2		# is it a indirection page?
 		je	.done_test	# NO, goto "done_test"
@@ -114,7 +114,7 @@ ENTRY(relocate_kernel)
 		lr	%r2,%r5		# move it into the right register,
 		nill	%r5,0xf000	# YES, mask out,
 		lgr	%r2,%r5		# move it into the right register,
-		j	.top		# and read next...
+		j	.base		# and read next...
 	.done_test:
 		tml	%r5,0x4		# is it the done indicator?
 		je	.source_test	# NO! Well, then it should be the source indicator...
@@ -124,11 +124,12 @@ ENTRY(relocate_kernel)
 		je	.top		# NO, ignore it...
 		lr	%r8,%r5		# r8 = r5
 		nr	%r8,%r10	# masking
+		je	.base		# NO, ignore it...
 		lgr	%r8,%r5		# r8 = r5
 		nill	%r8,0xf000	# masking
 	0:	mvcle	%r6,%r8,0x0	# copy PAGE_SIZE bytes from r8 to r6 - pad with 0
 		jo	0b
-		j	.top
+		j	.base
 	.done:
 		sr	%r0,%r0		# clear register r0
 		sgr	%r0,%r0		# clear register r0
@@ -136,8 +137,6 @@ ENTRY(relocate_kernel)
 		o	%r3,4(%r4)	# or load address into psw
 		st	%r3,4(%r4)
 		mvc	0(8,%r0),0(%r4)	# copy psw to absolute address 0
-		tm	have_diag308-.base(%r13),0x01
-		jno	.no_diag308
 		diag	%r0,%r0,0x308
 	.no_diag308:
 		sr	%r1,%r1		# clear %r1

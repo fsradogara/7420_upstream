@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 #ifndef _ASM_S390_KPROBES_H
 #define _ASM_S390_KPROBES_H
 /*
@@ -65,8 +66,6 @@ typedef u16 kprobe_opcode_t;
 
 #define kretprobe_blacklist_size 0
 
-#define KPROBE_SWAP_INST	0x10
-
 /* Architecture specific copy of original instruction */
 struct arch_specific_insn {
 	/* copy of original instruction */
@@ -105,8 +104,6 @@ struct kprobe_ctlblk {
 	unsigned long jprobe_saved_r15;
 	struct prev_kprobe prev_kprobe;
 	struct prev_kprobe prev_kprobe;
-	struct pt_regs jprobe_saved_regs;
-	kprobe_opcode_t jprobes_stack[MAX_STACK_SIZE];
 };
 
 void arch_remove_kprobe(struct kprobe *p);

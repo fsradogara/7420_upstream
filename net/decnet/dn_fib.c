@@ -994,6 +994,8 @@ void __init dn_fib_init(void)
 	rtnl_register(PF_DECnet, RTM_DELROUTE, dn_fib_rtm_delroute, NULL, NULL);
 	rtnl_register(PF_DECnet, RTM_NEWROUTE, dn_fib_rtm_newroute, NULL, 0);
 	rtnl_register(PF_DECnet, RTM_DELROUTE, dn_fib_rtm_delroute, NULL, 0);
+	rtnl_register_module(THIS_MODULE, PF_DECnet, RTM_NEWROUTE,
+			     dn_fib_rtm_newroute, NULL, 0);
+	rtnl_register_module(THIS_MODULE, PF_DECnet, RTM_DELROUTE,
+			     dn_fib_rtm_delroute, NULL, 0);
 }
-
-

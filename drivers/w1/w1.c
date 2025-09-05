@@ -29,6 +29,7 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/hwmon.h>
+#include <linux/of.h>
 
 #include <asm/atomic.h>
 #include <linux/atomic.h>
@@ -848,6 +849,8 @@ static int __w1_attach_slave_device(struct w1_slave *sl)
 	snprintf(&sl->dev.bus_id[0], sizeof(sl->dev.bus_id),
 		 "%02x-%012llx",
 	sl->dev.groups = w1_slave_groups;
+	sl->dev.of_node = of_find_matching_node(sl->master->dev.of_node,
+						sl->family->of_match_table);
 
 	dev_set_name(&sl->dev, "%02x-%012llx",
 		 (unsigned int) sl->reg_num.family,
@@ -914,6 +917,7 @@ out_unreg:
 
 static int w1_attach_slave_device(struct w1_master *dev, struct w1_reg_num *rn)
 			dev_name(&sl->dev), err);
+		put_device(&sl->dev);
 		return err;
 	}
 	w1_family_notify(BUS_NOTIFY_ADD_DEVICE, sl);
@@ -964,7 +968,7 @@ int w1_attach_slave_device(struct w1_master *dev, struct w1_reg_num *rn)
 
 	/* slave modules need to be loaded in a context with unlocked mutex */
 	mutex_unlock(&dev->mutex);
-	request_module("w1-family-0x%02x", rn->family);
+	request_module("w1-family-0x%02X", rn->family);
 	mutex_lock(&dev->mutex);
 
 	spin_lock(&w1_flock);

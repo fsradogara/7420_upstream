@@ -3,13 +3,13 @@
 #include <linux/dmar.h>
 #include <linux/bootmem.h>
 #include <linux/pci.h>
+#include <linux/dma-direct.h>
 #include <linux/dma-debug.h>
 #include <linux/dmar.h>
 #include <linux/export.h>
 #include <linux/bootmem.h>
 #include <linux/gfp.h>
 #include <linux/pci.h>
-#include <linux/kmemleak.h>
 
 #include <asm/proto.h>
 #include <asm/dma.h>
@@ -25,12 +25,10 @@ struct dma_mapping_ops *dma_ops;
 #include <asm/x86_init.h>
 #include <asm/iommu_table.h>
 
-static int forbid_dac __read_mostly;
+static bool disable_dac_quirk __read_mostly;
 
-const struct dma_map_ops *dma_ops = &nommu_dma_ops;
+const struct dma_map_ops *dma_ops = &dma_direct_ops;
 EXPORT_SYMBOL(dma_ops);
-
-static int iommu_sac_force __read_mostly;
 
 #ifdef CONFIG_IOMMU_DEBUG
 int panic_on_overflow __read_mostly = 1;
@@ -158,8 +156,14 @@ EXPORT_SYMBOL(iommu_num_pages);
  * devices and allow every device to access to whole physical memory. This is
  * useful if a user wants to use an IOMMU only for KVM device assignment to
  * guests and not for driver dma translation.
+ * It is also possible to disable by default in kernel config, and enable with
+ * iommu=nopt at boot time.
  */
+#ifdef CONFIG_IOMMU_DEFAULT_PASSTHROUGH
+int iommu_pass_through __read_mostly = 1;
+#else
 int iommu_pass_through __read_mostly;
+#endif
 
 extern struct iommu_table_entry __iommu_table[], __iommu_table_end[];
 
@@ -170,9 +174,6 @@ struct device x86_dma_fallback_dev = {
 	.dma_mask = &x86_dma_fallback_dev.coherent_dma_mask,
 };
 EXPORT_SYMBOL(x86_dma_fallback_dev);
-
-/* Number of entries preallocated for DMA-API debugging */
-#define PREALLOC_DMA_DEBUG_ENTRIES       65536
 
 void __init pci_iommu_alloc(void)
 {
@@ -191,71 +192,11 @@ void __init pci_iommu_alloc(void)
 		}
 	}
 }
-void *dma_generic_alloc_coherent(struct device *dev, size_t size,
-				 dma_addr_t *dma_addr, gfp_t flag,
-				 unsigned long attrs)
-{
-	unsigned long dma_mask;
-	struct page *page;
-	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	dma_addr_t addr;
 
-	dma_mask = dma_alloc_coherent_mask(dev, flag);
-
-	flag &= ~__GFP_ZERO;
-again:
-	page = NULL;
-	/* CMA can be used only in the context which permits sleeping */
-	if (gfpflags_allow_blocking(flag)) {
-		page = dma_alloc_from_contiguous(dev, count, get_order(size),
-						 flag);
-		if (page) {
-			addr = phys_to_dma(dev, page_to_phys(page));
-			if (addr + size > dma_mask) {
-				dma_release_from_contiguous(dev, page, count);
-				page = NULL;
-			}
-		}
-	}
-	/* fallback */
-	if (!page)
-		page = alloc_pages_node(dev_to_node(dev), flag, get_order(size));
-	if (!page)
-		return NULL;
-
-	addr = phys_to_dma(dev, page_to_phys(page));
-	if (addr + size > dma_mask) {
-		__free_pages(page, get_order(size));
-
-		if (dma_mask < DMA_BIT_MASK(32) && !(flag & GFP_DMA)) {
-			flag = (flag & ~GFP_DMA32) | GFP_DMA;
-			goto again;
-		}
-
-		return NULL;
-	}
-	memset(page_address(page), 0, size);
-	*dma_addr = addr;
-	return page_address(page);
-}
-
-void dma_generic_free_coherent(struct device *dev, size_t size, void *vaddr,
-			       dma_addr_t dma_addr, unsigned long attrs)
-{
-	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	struct page *page = virt_to_page(vaddr);
-
-	if (!dma_release_from_contiguous(dev, page, count))
-		free_pages((unsigned long)vaddr, get_order(size));
-}
-
-bool arch_dma_alloc_attrs(struct device **dev, gfp_t *gfp)
+bool arch_dma_alloc_attrs(struct device **dev)
 {
 	if (!*dev)
 		*dev = &x86_dma_fallback_dev;
-
-	*gfp &= ~(__GFP_DMA | __GFP_HIGHMEM | __GFP_DMA32);
-	*gfp = dma_alloc_coherent_gfp_flags(*dev, *gfp);
 
 	if (!is_device_dma_capable(*dev))
 		return false;
@@ -302,14 +243,15 @@ static __init int iommu_setup(char *p)
 		if (!strncmp(p, "nomerge", 7))
 			iommu_merge = 0;
 		if (!strncmp(p, "forcesac", 8))
-			iommu_sac_force = 1;
+			pr_warn("forcesac option ignored.\n");
 		if (!strncmp(p, "allowdac", 8))
-			forbid_dac = 0;
+			pr_warn("allowdac option ignored.\n");
 		if (!strncmp(p, "nodac", 5))
 			forbid_dac = -1;
 			forbid_dac = 1;
+			pr_warn("nodac option ignored.\n");
 		if (!strncmp(p, "usedac", 6)) {
-			forbid_dac = -1;
+			disable_dac_quirk = true;
 			return 1;
 		}
 #ifdef CONFIG_SWIOTLB
@@ -318,6 +260,8 @@ static __init int iommu_setup(char *p)
 #endif
 		if (!strncmp(p, "pt", 2))
 			iommu_pass_through = 1;
+		if (!strncmp(p, "nopt", 4))
+			iommu_pass_through = 0;
 
 		gart_parse_options(p);
 
@@ -538,11 +482,7 @@ fs_initcall(pci_iommu_init);
 static int __init pci_iommu_init(void)
 {
 	struct iommu_table_entry *p;
-	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
 
-#ifdef CONFIG_PCI
-	dma_debug_add_bus(&pci_bus_type);
-#endif
 	x86_init.iommu.iommu_init();
 
 	for (p = __iommu_table; p < __iommu_table_end; p++) {
@@ -567,11 +507,17 @@ static __devinit void via_no_dac(struct pci_dev *dev)
 	}
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_VIA, PCI_ANY_ID, via_no_dac);
+static int via_no_dac_cb(struct pci_dev *pdev, void *data)
+{
+	pdev->dev.bus_dma_mask = DMA_BIT_MASK(32);
+	return 0;
+}
+
 static void via_no_dac(struct pci_dev *dev)
 {
-	if (forbid_dac == 0) {
+	if (!disable_dac_quirk) {
 		dev_info(&dev->dev, "disabling DAC on VIA PCI bridge\n");
-		forbid_dac = 1;
+		pci_walk_bus(dev->subordinate, via_no_dac_cb, NULL);
 	}
 }
 DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_VIA, PCI_ANY_ID,

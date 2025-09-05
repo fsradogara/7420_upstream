@@ -193,6 +193,7 @@ static __be32 *
 encode_fattr3(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp,
 	      struct kstat *stat)
 {
+	struct timespec ts;
 	*p++ = htonl(nfs3_ftypes[(stat->mode & S_IFMT) >> 12]);
 	*p++ = htonl((u32) stat->mode);
 	*p++ = htonl((u32) stat->nlink);
@@ -212,9 +213,12 @@ encode_fattr3(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp,
 	*p++ = htonl((u32) MINOR(stat->rdev));
 	p = encode_fsid(p, fhp);
 	p = xdr_encode_hyper(p, stat->ino);
-	p = encode_time3(p, &stat->atime);
-	p = encode_time3(p, &stat->mtime);
-	p = encode_time3(p, &stat->ctime);
+	ts = timespec64_to_timespec(stat->atime);
+	p = encode_time3(p, &ts);
+	ts = timespec64_to_timespec(stat->mtime);
+	p = encode_time3(p, &ts);
+	ts = timespec64_to_timespec(stat->ctime);
+	p = encode_time3(p, &ts);
 
 	return p;
 }
@@ -292,6 +296,34 @@ encode_wcc_data(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp)
 }
 
 /*
+ * Fill in the pre_op attr for the wcc data
+ */
+void fill_pre_wcc(struct svc_fh *fhp)
+{
+	struct inode    *inode;
+	struct kstat	stat;
+	__be32 err;
+
+	if (fhp->fh_pre_saved)
+		return;
+
+	inode = d_inode(fhp->fh_dentry);
+	err = fh_getattr(fhp, &stat);
+	if (err) {
+		/* Grab the times from inode anyway */
+		stat.mtime = inode->i_mtime;
+		stat.ctime = inode->i_ctime;
+		stat.size  = inode->i_size;
+	}
+
+	fhp->fh_pre_mtime = timespec64_to_timespec(stat.mtime);
+	fhp->fh_pre_ctime = timespec64_to_timespec(stat.ctime);
+	fhp->fh_pre_size  = stat.size;
+	fhp->fh_pre_change = nfsd4_change_attribute(&stat, inode);
+	fhp->fh_pre_saved = true;
+}
+
+/*
  * Fill in the post_op attr for the wcc data
  */
 void fill_post_wcc(struct svc_fh *fhp)
@@ -309,7 +341,8 @@ void fill_post_wcc(struct svc_fh *fhp)
 	else
 		fhp->fh_post_saved = 1;
 	err = fh_getattr(fhp, &fhp->fh_post_attr);
-	fhp->fh_post_change = nfsd4_change_attribute(d_inode(fhp->fh_dentry));
+	fhp->fh_post_change = nfsd4_change_attribute(&fhp->fh_post_attr,
+						     d_inode(fhp->fh_dentry));
 	if (err) {
 		fhp->fh_post_saved = false;
 		/* Grab the ctime anyway - set_change_info might use it */
@@ -427,7 +460,7 @@ int
 nfs3svc_decode_writeargs(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_writeargs *args = rqstp->rq_argp;
-	unsigned int len, v, hdr, dlen;
+	unsigned int len, hdr, dlen;
 	u32 max_blocksize = svc_max_payload(rqstp);
 	struct kvec *head = rqstp->rq_arg.head;
 	struct kvec *tail = rqstp->rq_arg.tail;
@@ -470,17 +503,9 @@ nfs3svc_decode_writeargs(struct svc_rqst *rqstp, __be32 *p)
 		args->count = max_blocksize;
 		len = args->len = max_blocksize;
 	}
-	rqstp->rq_vec[0].iov_base = (void*)p;
-	rqstp->rq_vec[0].iov_len = head->iov_len - hdr;
-	v = 0;
-	while (len > rqstp->rq_vec[v].iov_len) {
-		len -= rqstp->rq_vec[v].iov_len;
-		v++;
-		rqstp->rq_vec[v].iov_base = page_address(rqstp->rq_pages[v]);
-		rqstp->rq_vec[v].iov_len = PAGE_SIZE;
-	}
-	rqstp->rq_vec[v].iov_len = len;
-	args->vlen = v + 1;
+
+	args->first.iov_base = (void *)p;
+	args->first.iov_len = head->iov_len - hdr;
 	return 1;
 }
 
@@ -526,13 +551,11 @@ int
 nfs3svc_decode_symlinkargs(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_symlinkargs *args = rqstp->rq_argp;
-	unsigned int len, avail;
-	char *old, *new;
-	struct kvec *vec;
+	char *base = (char *)p;
+	size_t dlen;
 
 	if (!(p = decode_fh(p, &args->ffh)) ||
-	    !(p = decode_filename(p, &args->fname, &args->flen))
-		)
+	    !(p = decode_filename(p, &args->fname, &args->flen)))
 		return 0;
 	p = decode_sattr3(p, &args->attrs);
 
@@ -575,7 +598,16 @@ nfs3svc_decode_symlinkargs(struct svc_rqst *rqstp, __be32 *p)
 	*new = '\0';
 	if (len)
 		return 0;
+	args->tlen = ntohl(*p++);
 
+	args->first.iov_base = p;
+	args->first.iov_len = rqstp->rq_arg.head[0].iov_len;
+	args->first.iov_len -= (char *)p - base;
+
+	dlen = args->first.iov_len + rqstp->rq_arg.page_len +
+	       rqstp->rq_arg.tail[0].iov_len;
+	if (dlen < XDR_QUADLEN(args->tlen) << 2)
+		return 0;
 	return 1;
 }
 
@@ -849,6 +881,9 @@ nfs3svc_encode_writeres(struct svc_rqst *rqstp, __be32 *p)
 		*p++ = htonl(nfssvc_boot.tv_usec);
 		*p++ = htonl(nn->nfssvc_boot.tv_sec);
 		*p++ = htonl(nn->nfssvc_boot.tv_usec);
+		/* unique identifier, y2038 overflow can be ignored */
+		*p++ = htonl((u32)nn->nfssvc_boot.tv_sec);
+		*p++ = htonl(nn->nfssvc_boot.tv_nsec);
 	}
 	return xdr_ressize_check(rqstp, p);
 }
@@ -1287,8 +1322,9 @@ nfs3svc_encode_commitres(struct svc_rqst *rqstp, __be32 *p)
 	p = encode_wcc_data(rqstp, p, &resp->fh);
 	/* Write verifier */
 	if (resp->status == 0) {
-		*p++ = htonl(nn->nfssvc_boot.tv_sec);
-		*p++ = htonl(nn->nfssvc_boot.tv_usec);
+		/* unique identifier, y2038 overflow can be ignored */
+		*p++ = htonl((u32)nn->nfssvc_boot.tv_sec);
+		*p++ = htonl(nn->nfssvc_boot.tv_nsec);
 	}
 	return xdr_ressize_check(rqstp, p);
 }

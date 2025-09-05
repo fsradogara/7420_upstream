@@ -186,8 +186,7 @@ static int gfs2_dir_write_data(struct gfs2_inode *ip, const char *buf,
 	if (!size)
 		return 0;
 
-	if (gfs2_is_stuffed(ip) &&
-	    offset + size <= sdp->sd_sb.sb_bsize - sizeof(struct gfs2_dinode))
+	if (gfs2_is_stuffed(ip) && offset + size <= gfs2_max_stuffed_size(ip))
 		return gfs2_dir_write_stuffed(ip, buf, (unsigned int)offset,
 					      size);
 
@@ -978,7 +977,7 @@ static struct gfs2_leaf *new_leaf(struct inode *inode, struct buffer_head **pbh,
 	struct buffer_head *bh;
 	struct gfs2_leaf *leaf;
 	struct gfs2_dirent *dent;
-	struct timespec tv = current_time(inode);
+	struct timespec64 tv = current_time(inode);
 
 	error = gfs2_alloc_blocks(ip, &bn, &n, 0, NULL);
 	if (error)
@@ -1126,7 +1125,7 @@ static int dir_split_leaf(struct inode *inode, const struct qstr *name)
 	u64 bn, leaf_no;
 	__be64 *lp;
 	u32 index;
-	int x, moved = 0;
+	int x;
 	int error;
 
 	index = name->hash >> (32 - dip->i_depth);
@@ -1174,6 +1173,7 @@ static int dir_split_leaf(struct inode *inode, const struct qstr *name)
 	   This code is complicated enough already. */
 	lp = kmalloc(half_len * sizeof(__be64), GFP_NOFS | __GFP_NOFAIL);
 	lp = kmalloc(half_len * sizeof(__be64), GFP_NOFS);
+	lp = kmalloc_array(half_len, sizeof(__be64), GFP_NOFS);
 	if (!lp) {
 		error = -ENOMEM;
 		goto fail_brelse;
@@ -1232,8 +1232,6 @@ static int dir_split_leaf(struct inode *inode, const struct qstr *name)
 
 			if (!prev)
 				prev = dent;
-
-			moved = 1;
 		} else {
 			prev = dent;
 		}
@@ -1347,7 +1345,7 @@ fail:
 	if (IS_ERR(hc))
 		return PTR_ERR(hc);
 
-	hc2 = kmalloc(hsize_bytes * 2, GFP_NOFS | __GFP_NOWARN);
+	hc2 = kmalloc_array(hsize_bytes, 2, GFP_NOFS | __GFP_NOWARN);
 	if (hc2 == NULL)
 		hc2 = __vmalloc(hsize_bytes * 2, GFP_NOFS, PAGE_KERNEL);
 
@@ -1867,7 +1865,7 @@ int gfs2_dir_read(struct inode *inode, struct dir_context *ctx,
 
 	error = -ENOMEM;
 	/* 96 is max number of dirents which can be stuffed into an inode */
-	darr = kmalloc(96 * sizeof(struct gfs2_dirent *), GFP_NOFS);
+	darr = kmalloc_array(96, sizeof(struct gfs2_dirent *), GFP_NOFS);
 	if (darr) {
 		g.pdent = (const struct gfs2_dirent **)darr;
 		g.offset = 0;
@@ -2107,7 +2105,7 @@ int gfs2_dir_add(struct inode *inode, const struct qstr *name,
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct buffer_head *bh = da->bh;
 	struct gfs2_dirent *dent = da->dent;
-	struct timespec tv;
+	struct timespec64 tv;
 	struct gfs2_leaf *leaf;
 	int error;
 
@@ -2210,7 +2208,7 @@ int gfs2_dir_del(struct gfs2_inode *dip, const struct dentry *dentry)
 	const struct qstr *name = &dentry->d_name;
 	struct gfs2_dirent *dent, *prev = NULL;
 	struct buffer_head *bh;
-	struct timespec tv = current_time(&dip->i_inode);
+	struct timespec64 tv = current_time(&dip->i_inode);
 
 	/* Returns _either_ the entry (if its first in block) or the
 	   previous entry otherwise */
@@ -2288,7 +2286,6 @@ int gfs2_dir_mvino(struct gfs2_inode *dip, const struct qstr *filename,
 {
 	struct buffer_head *bh;
 	struct gfs2_dirent *dent;
-	int error;
 
 	dent = gfs2_dirent_search(&dip->i_inode, filename, gfs2_dirent_find, &bh);
 	if (!dent) {
@@ -2315,10 +2312,10 @@ int gfs2_dir_mvino(struct gfs2_inode *dip, const struct qstr *filename,
 		gfs2_trans_add_bh(dip->i_gl, bh, 1);
 		gfs2_trans_add_meta(dip->i_gl, bh);
 	}
+	brelse(bh);
 
 	dip->i_inode.i_mtime = dip->i_inode.i_ctime = current_time(&dip->i_inode);
-	gfs2_dinode_out(dip, bh->b_data);
-	brelse(bh);
+	mark_inode_dirty_sync(&dip->i_inode);
 	return 0;
 }
 

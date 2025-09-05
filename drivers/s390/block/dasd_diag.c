@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * File...........: linux/drivers/s390/block/dasd_diag.c
  * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
@@ -35,7 +36,6 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/vtoc.h>
-#include <asm/diag.h>
 
 #include "dasd_int.h"
 #include "dasd_diag.h"
@@ -624,6 +624,8 @@ static struct dasd_ccw_req *dasd_diag_build_cp(struct dasd_device *memdev,
 	cqr = dasd_smalloc_request(dasd_diag_discipline.name, 0,
 				   datasize, memdev);
 	cqr = dasd_smalloc_request(DASD_DIAG_MAGIC, 0, datasize, memdev);
+	cqr = dasd_smalloc_request(DASD_DIAG_MAGIC, 0, datasize, memdev,
+				   blk_mq_rq_to_pdu(req));
 	if (IS_ERR(cqr))
 		return cqr;
 

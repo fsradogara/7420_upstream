@@ -105,7 +105,7 @@ EXPORT_SYMBOL(v9fs_unregister_trans);
 
 /**
  * v9fs_get_trans_by_name - get transport with the matching name
- * @name: string identifying transport
+ * @s: string identifying transport
  *
  */
 struct p9_trans_module *v9fs_get_trans_by_name(const substring_t *name)
@@ -175,14 +175,12 @@ void v9fs_put_trans(struct p9_trans_module *m)
  */
 static int __init init_p9(void)
 {
-	int ret = 0;
-
 	p9_error_init();
 	printk(KERN_INFO "Installing 9P2000 support\n");
 	pr_info("Installing 9P2000 support\n");
 	p9_trans_fd_init();
 
-	return ret;
+	return 0;
 }
 
 /**

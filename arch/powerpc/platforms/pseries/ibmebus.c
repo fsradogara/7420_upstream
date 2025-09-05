@@ -354,7 +354,7 @@ out:
 		return rc;
 	return count;
 }
-static BUS_ATTR(probe, S_IWUSR, NULL, ibmebus_store_probe);
+static BUS_ATTR(probe, 0200, NULL, ibmebus_store_probe);
 
 static ssize_t ibmebus_store_remove(struct bus_type *bus,
 				    const char *buf, size_t count)
@@ -393,6 +393,7 @@ struct bus_type ibmebus_bus_type = {
 	.uevent    = of_device_uevent,
 	.bus_attrs = ibmebus_bus_attrs
 static BUS_ATTR(remove, S_IWUSR, NULL, ibmebus_store_remove);
+static BUS_ATTR(remove, 0200, NULL, ibmebus_store_remove);
 
 static struct attribute *ibmbus_bus_attrs[] = {
 	&bus_attr_probe.attr,

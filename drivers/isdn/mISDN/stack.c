@@ -632,6 +632,7 @@ create_l2entity(struct mISDNdevice *dev, struct mISDNchannel *ch,
 		rq.protocol = ISDN_P_NT_S0;
 		if (dev->Dprotocols & (1 << ISDN_P_NT_E1))
 			rq.protocol = ISDN_P_NT_E1;
+		/* fall through */
 	case ISDN_P_LAPD_TE:
 #ifdef PROTOCOL_CHECK
 		/* this should be enhanced */

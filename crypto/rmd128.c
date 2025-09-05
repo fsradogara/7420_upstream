@@ -219,8 +219,6 @@ static void rmd128_transform(u32 *state, const __le32 *in)
 	state[2] = state[3] + aa + bbb;
 	state[3] = state[0] + bb + ccc;
 	state[0] = ddd;
-
-	return;
 }
 
 static void rmd128_init(struct crypto_tfm *tfm)
@@ -346,7 +344,6 @@ static struct shash_alg alg = {
 	.descsize	=	sizeof(struct rmd128_ctx),
 	.base		=	{
 		.cra_name	 =	"rmd128",
-		.cra_flags	 =	CRYPTO_ALG_TYPE_SHASH,
 		.cra_blocksize	 =	RMD128_BLOCK_SIZE,
 		.cra_module	 =	THIS_MODULE,
 	}

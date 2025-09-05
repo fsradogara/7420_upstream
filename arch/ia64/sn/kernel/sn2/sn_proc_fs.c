@@ -18,20 +18,10 @@ static int partition_id_show(struct seq_file *s, void *p)
 	return 0;
 }
 
-static int partition_id_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, partition_id_show, NULL);
-}
-
 static int system_serial_number_show(struct seq_file *s, void *p)
 {
 	seq_printf(s, "%s\n", sn_system_serial_number());
 	return 0;
-}
-
-static int system_serial_number_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, system_serial_number_show, NULL);
 }
 
 static int licenseID_show(struct seq_file *s, void *p)
@@ -83,11 +73,6 @@ static int coherence_id_show(struct seq_file *s, void *p)
 	seq_printf(s, "%d\n", partition_coherence_id());
 
 	return 0;
-}
-
-static int coherence_id_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, coherence_id_show, NULL);
 }
 
 /* /proc/sgi_sn/sn_topology uses seq_file, see sn_hwperf.c */
@@ -154,6 +139,13 @@ void register_sn_procfs(void)
 		    &proc_sn_force_intr_fops);
 	proc_create("coherence_id", 0444, sgi_proc_dir,
 		    &proc_coherence_id_fops);
+	proc_create_single("partition_id", 0444, sgi_proc_dir,
+			partition_id_show);
+	proc_create_single("system_serial_number", 0444, sgi_proc_dir,
+			system_serial_number_show);
+	proc_create_single("licenseID", 0444, sgi_proc_dir, licenseID_show);
+	proc_create_single("coherence_id", 0444, sgi_proc_dir,
+			coherence_id_show);
 	proc_create("sn_topology", 0444, sgi_proc_dir, &proc_sn_topo_fops);
 }
 

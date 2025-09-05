@@ -741,7 +741,6 @@ static struct shash_alg tgr_algs[3] = { {
 	.descsize	=	sizeof(struct tgr192_ctx),
 	.base		=	{
 		.cra_name	=	"tgr192",
-		.cra_flags	=	CRYPTO_ALG_TYPE_SHASH,
 		.cra_blocksize	=	TGR192_BLOCK_SIZE,
 		.cra_module	=	THIS_MODULE,
 	}
@@ -753,7 +752,6 @@ static struct shash_alg tgr_algs[3] = { {
 	.descsize	=	sizeof(struct tgr192_ctx),
 	.base		=	{
 		.cra_name	=	"tgr160",
-		.cra_flags	=	CRYPTO_ALG_TYPE_SHASH,
 		.cra_blocksize	=	TGR192_BLOCK_SIZE,
 		.cra_module	=	THIS_MODULE,
 	}
@@ -765,7 +763,6 @@ static struct shash_alg tgr_algs[3] = { {
 	.descsize	=	sizeof(struct tgr192_ctx),
 	.base		=	{
 		.cra_name	=	"tgr128",
-		.cra_flags	=	CRYPTO_ALG_TYPE_SHASH,
 		.cra_blocksize	=	TGR192_BLOCK_SIZE,
 		.cra_module	=	THIS_MODULE,
 	}

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/tape_core.c
  *    basic function of the tape device driver
@@ -38,7 +39,7 @@
 
 static void __tape_do_irq (struct ccw_device *, unsigned long, struct irb *);
 static void tape_delayed_next_request(struct work_struct *);
-static void tape_long_busy_timeout(unsigned long data);
+static void tape_long_busy_timeout(struct timer_list *t);
 
 /*
  * One list to contain all tape devices of all disciplines, so
@@ -413,8 +414,7 @@ tape_generic_online(struct tape_device *device,
 		return -EINVAL;
 	}
 
-	init_timer(&device->lb_timeout);
-	device->lb_timeout.function = tape_long_busy_timeout;
+	timer_setup(&device->lb_timeout, tape_long_busy_timeout, 0);
 
 	/* Let the discipline have a go at the device. */
 	device->discipline = discipline;
@@ -982,12 +982,11 @@ tape_delayed_next_request(struct work_struct *work)
 	spin_unlock_irq(get_ccwdev_lock(device->cdev));
 }
 
-static void tape_long_busy_timeout(unsigned long data)
+static void tape_long_busy_timeout(struct timer_list *t)
 {
+	struct tape_device *device = from_timer(device, t, lb_timeout);
 	struct tape_request *request;
-	struct tape_device *device;
 
-	device = (struct tape_device *) data;
 	spin_lock_irq(get_ccwdev_lock(device->cdev));
 	request = list_entry(device->req_queue.next, struct tape_request, list);
 	if (request->status != TAPE_REQUEST_LONG_BUSY)
@@ -998,7 +997,6 @@ static void tape_long_busy_timeout(unsigned long data)
 	BUG_ON(request->status != TAPE_REQUEST_LONG_BUSY);
 	DBF_LH(6, "%08x: Long busy timeout.\n", device->cdev_id);
 	__tape_start_next_request(device);
-	device->lb_timeout.data = 0UL;
 	tape_put_device(device);
 	spin_unlock_irq(get_ccwdev_lock(device->cdev));
 }

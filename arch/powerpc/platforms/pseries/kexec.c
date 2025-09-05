@@ -29,7 +29,12 @@
 
 void pseries_kexec_cpu_down(int crash_shutdown, int secondary)
 {
-	/* Don't risk a hypervisor call if we're crashing */
+	/*
+	 * Don't risk a hypervisor call if we're crashing
+	 * XXX: Why? The hypervisor is not crashing. It might be better
+	 * to at least attempt unregister to avoid the hypervisor stepping
+	 * on our memory.
+	 */
 	if (firmware_has_feature(FW_FEATURE_SPLPAR) && !crash_shutdown) {
 		unsigned long addr;
 
@@ -72,9 +77,12 @@ void pseries_kexec_cpu_down(int crash_shutdown, int secondary)
 		}
 	}
 
-	if (xive_enabled())
-		xive_kexec_teardown_cpu(secondary);
-	else
+	if (xive_enabled()) {
+		xive_teardown_cpu();
+
+		if (!secondary)
+			xive_shutdown();
+	} else
 		xics_kexec_teardown_cpu(secondary);
 }
 

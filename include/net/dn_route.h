@@ -78,6 +78,7 @@ struct dn_route {
 
 	struct flowi fl;
 	struct dst_entry dst;
+	struct dn_route __rcu *dn_next;
 
 	struct neighbour *n;
 

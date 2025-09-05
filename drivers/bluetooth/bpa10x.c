@@ -44,6 +44,7 @@
 
 static struct usb_device_id bpa10x_table[] = {
 #include "hci_uart.h"
+#include "h4_recv.h"
 
 #define VERSION "0.11"
 
@@ -242,7 +243,7 @@ static void bpa10x_rx_complete(struct urb *urb)
 						bpa10x_recv_pkts,
 						ARRAY_SIZE(bpa10x_recv_pkts));
 		if (IS_ERR(data->rx_skb[idx])) {
-			BT_ERR("%s corrupted event packet", hdev->name);
+			bt_dev_err(hdev, "corrupted event packet");
 			hdev->stat.err_rx++;
 			data->rx_skb[idx] = NULL;
 		}
@@ -252,8 +253,7 @@ static void bpa10x_rx_complete(struct urb *urb)
 
 	err = usb_submit_urb(urb, GFP_ATOMIC);
 	if (err < 0) {
-		BT_ERR("%s urb %p failed to resubmit (%d)",
-						hdev->name, urb, -err);
+		bt_dev_err(hdev, "urb %p failed to resubmit (%d)", urb, -err);
 		usb_unanchor_urb(urb);
 	}
 }
@@ -290,8 +290,7 @@ static inline int bpa10x_submit_intr_urb(struct hci_dev *hdev)
 
 	err = usb_submit_urb(urb, GFP_KERNEL);
 	if (err < 0) {
-		BT_ERR("%s urb %p submission failed (%d)",
-						hdev->name, urb, -err);
+		bt_dev_err(hdev, "urb %p submission failed (%d)", urb, -err);
 		usb_unanchor_urb(urb);
 	}
 
@@ -332,8 +331,7 @@ static inline int bpa10x_submit_bulk_urb(struct hci_dev *hdev)
 
 	err = usb_submit_urb(urb, GFP_KERNEL);
 	if (err < 0) {
-		BT_ERR("%s urb %p submission failed (%d)",
-						hdev->name, urb, -err);
+		bt_dev_err(hdev, "urb %p submission failed (%d)", urb, -err);
 		usb_unanchor_urb(urb);
 	}
 
@@ -407,7 +405,7 @@ static int bpa10x_send_frame(struct sk_buff *skb)
 	struct bpa10x_data *data = hdev->driver_data;
 static int bpa10x_setup(struct hci_dev *hdev)
 {
-	const u8 req[] = { 0x07 };
+	static const u8 req[] = { 0x07 };
 	struct sk_buff *skb;
 
 	BT_DBG("%s", hdev->name);
@@ -417,7 +415,7 @@ static int bpa10x_setup(struct hci_dev *hdev)
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
 
-	BT_INFO("%s: %s", hdev->name, (char *)(skb->data + 1));
+	bt_dev_info(hdev, "%s", (char *)(skb->data + 1));
 
 	hci_set_fw_info(hdev, "%s", skb->data + 1);
 
@@ -439,7 +437,7 @@ static int bpa10x_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 		return -EBUSY;
 	skb->dev = (void *) hdev;
 
-	urb = usb_alloc_urb(0, GFP_ATOMIC);
+	urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!urb)
 		return -ENOMEM;
 
@@ -448,7 +446,7 @@ static int bpa10x_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 
 	switch (hci_skb_pkt_type(skb)) {
 	case HCI_COMMAND_PKT:
-		dr = kmalloc(sizeof(*dr), GFP_ATOMIC);
+		dr = kmalloc(sizeof(*dr), GFP_KERNEL);
 		if (!dr) {
 			usb_free_urb(urb);
 			return -ENOMEM;
@@ -493,9 +491,9 @@ static int bpa10x_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 
 	usb_anchor_urb(urb, &data->tx_anchor);
 
-	err = usb_submit_urb(urb, GFP_ATOMIC);
+	err = usb_submit_urb(urb, GFP_KERNEL);
 	if (err < 0) {
-		BT_ERR("%s urb %p submission failed", hdev->name, urb);
+		bt_dev_err(hdev, "urb %p submission failed", urb);
 		kfree(urb->setup_packet);
 		usb_unanchor_urb(urb);
 	}

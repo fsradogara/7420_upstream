@@ -32,7 +32,6 @@ static inline void setup_cputime_one_jiffy(void) { }
 #include <asm/div64.h>
 #include <asm/time.h>
 #include <asm/param.h>
-#include <asm/cpu_has_feature.h>
 
 typedef u64 cputime_t;
 typedef u64 cputime64_t;
@@ -298,9 +297,23 @@ static inline cputime_t clock_t_to_cputime(const unsigned long clk)
 #endif /* __KERNEL__ */
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 #ifdef CONFIG_PPC64
+#define get_accounting(tsk)	(&get_paca()->accounting)
 static inline void arch_vtime_task_switch(struct task_struct *tsk) { }
 #else
-void arch_vtime_task_switch(struct task_struct *tsk);
+#define get_accounting(tsk)	(&task_thread_info(tsk)->accounting)
+/*
+ * Called from the context switch with interrupts disabled, to charge all
+ * accumulated times to the current process, and to prepare accounting on
+ * the next process.
+ */
+static inline void arch_vtime_task_switch(struct task_struct *prev)
+{
+	struct cpu_accounting_data *acct = get_accounting(current);
+	struct cpu_accounting_data *acct0 = get_accounting(prev);
+
+	acct->starttime = acct0->starttime;
+	acct->startspurr = acct0->startspurr;
+}
 #endif
 
 #endif /* __KERNEL__ */

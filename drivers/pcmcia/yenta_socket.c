@@ -618,9 +618,9 @@ static irqreturn_t yenta_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void yenta_interrupt_wrapper(unsigned long data)
+static void yenta_interrupt_wrapper(struct timer_list *t)
 {
-	struct yenta_socket *socket = (struct yenta_socket *) data;
+	struct yenta_socket *socket = from_timer(socket, t, poll_timer);
 
 	yenta_interrupt(0, (void *)socket);
 	socket->poll_timer.expires = jiffies + HZ;
@@ -1437,6 +1437,7 @@ static int yenta_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		       KERN_INFO "Yenta: check your BIOS CardBus, BIOS IRQ or ACPI settings.\n");
 		setup_timer(&socket->poll_timer, yenta_interrupt_wrapper,
 			    (unsigned long)socket);
+		timer_setup(&socket->poll_timer, yenta_interrupt_wrapper, 0);
 		mod_timer(&socket->poll_timer, jiffies + HZ);
 		dev_info(&dev->dev,
 			 "no PCI IRQ, CardBus support disabled for this socket.\n");

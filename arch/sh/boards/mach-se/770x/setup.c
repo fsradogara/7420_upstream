@@ -11,6 +11,7 @@
 #include <linux/platform_device.h>
 #include <asm/machvec.h>
 #include <mach-se/mach/se.h>
+#include <linux/sh_eth.h>
 #include <mach-se/mach/se.h>
 #include <mach-se/mach/mrshpc.h>
 #include <asm/machvec.h>
@@ -128,13 +129,23 @@ static struct platform_device heartbeat_device = {
 #if defined(CONFIG_CPU_SUBTYPE_SH7710) ||\
 	defined(CONFIG_CPU_SUBTYPE_SH7712)
 /* SH771X Ethernet driver */
+static struct sh_eth_plat_data sh_eth_plat = {
+	.phy = PHY_ID,
+	.phy_interface = PHY_INTERFACE_MODE_MII,
+};
+
 static struct resource sh_eth0_resources[] = {
 	[0] = {
 		.start = SH_ETH0_BASE,
-		.end = SH_ETH0_BASE + 0x1B8,
+		.end = SH_ETH0_BASE + 0x1B8 - 1,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
+		.start = SH_TSU_BASE,
+		.end = SH_TSU_BASE + 0x200 - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[2] = {
 		.start = SH_ETH0_IRQ,
 		.end = SH_ETH0_IRQ,
 		.flags = IORESOURCE_IRQ,
@@ -147,7 +158,7 @@ static struct platform_device sh_eth0_device = {
 	.name = "sh771x-ether",
 	.id = 0,
 	.dev = {
-		.platform_data = PHY_ID,
+		.platform_data = &sh_eth_plat,
 	},
 	.num_resources = ARRAY_SIZE(sh_eth0_resources),
 	.resource = sh_eth0_resources,
@@ -156,10 +167,15 @@ static struct platform_device sh_eth0_device = {
 static struct resource sh_eth1_resources[] = {
 	[0] = {
 		.start = SH_ETH1_BASE,
-		.end = SH_ETH1_BASE + 0x1B8,
+		.end = SH_ETH1_BASE + 0x1B8 - 1,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
+		.start = SH_TSU_BASE,
+		.end = SH_TSU_BASE + 0x200 - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[2] = {
 		.start = SH_ETH1_IRQ,
 		.end = SH_ETH1_IRQ,
 		.flags = IORESOURCE_IRQ,
@@ -172,7 +188,7 @@ static struct platform_device sh_eth1_device = {
 	.name = "sh771x-ether",
 	.id = 1,
 	.dev = {
-		.platform_data = PHY_ID,
+		.platform_data = &sh_eth_plat,
 	},
 	.num_resources = ARRAY_SIZE(sh_eth1_resources),
 	.resource = sh_eth1_resources,

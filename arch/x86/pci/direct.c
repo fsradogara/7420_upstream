@@ -214,7 +214,7 @@ static int __init pci_sanity_check(struct pci_raw_ops *o)
 static int __init pci_sanity_check(const struct pci_raw_ops *o)
 {
 	u32 x = 0;
-	int year, devfn;
+	int devfn;
 
 	if (pci_probe & PCI_NO_CHECKS)
 		return 1;
@@ -223,6 +223,7 @@ static int __init pci_sanity_check(const struct pci_raw_ops *o)
 	if (dmi_get_year(DMI_BIOS_DATE) >= 2001)
 	dmi_get_date(DMI_BIOS_DATE, &year, NULL, NULL);
 	if (year >= 2001)
+	if (dmi_get_bios_year() >= 2001)
 		return 1;
 
 	for (devfn = 0; devfn < 0x100; devfn++) {

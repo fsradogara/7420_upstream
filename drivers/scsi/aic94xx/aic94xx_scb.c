@@ -868,11 +868,12 @@ void asd_build_initiate_link_adm_task(struct asd_ascb *ascb, int phy_id,
  * end of their timeout function.  To do this, one should initialize
  * the ascb->timer.{function, data, expires} prior to calling the post
  * funcion.  The timer is started by the post function.
+ * the ascb->timer.{function, expires} prior to calling the post
  * function. The timer is started by the post function.
  */
-void asd_ascb_timedout(unsigned long data)
+void asd_ascb_timedout(struct timer_list *t)
 {
-	struct asd_ascb *ascb = (void *) data;
+	struct asd_ascb *ascb = from_timer(ascb, t, timer);
 	struct asd_seq_data *seq = &ascb->ha->seq;
 	unsigned long flags;
 

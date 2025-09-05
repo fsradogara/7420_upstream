@@ -142,6 +142,7 @@ int kernel_execve(const char *filename, char *const argv[], char *const envp[])
 	return ret;
 }
 	err = sys_mmap_pgoff(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
+	err = ksys_mmap_pgoff(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
  out:
 	return err;
 }

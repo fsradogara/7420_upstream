@@ -314,6 +314,10 @@ static int snd_pcm_plug_formats(const struct snd_mask *mask,
 }
 
 static int preferred_formats[] = {
+	if (formats.bits[0] & lower_32_bits(linfmts))
+		formats.bits[0] |= lower_32_bits(linfmts);
+	if (formats.bits[1] & upper_32_bits(linfmts))
+		formats.bits[1] |= upper_32_bits(linfmts);
 	return snd_mask_test(&formats, (__force int)format);
 }
 
@@ -402,6 +406,7 @@ snd_pcm_format_t snd_pcm_plug_slave_format(snd_pcm_format_t format,
 				if (snd_mask_test(format_mask, (__force int)format1))
 					return format1;
 			}
+			/* fall through */
 		default:
 			return (__force snd_pcm_format_t)-EINVAL;
 		}
@@ -644,18 +649,26 @@ snd_pcm_sframes_t snd_pcm_plug_write_transfer(struct snd_pcm_substream *plug, st
 	snd_pcm_sframes_t frames = size;
 
 	plugin = snd_pcm_plug_first(plug);
-	while (plugin && frames > 0) {
+	while (plugin) {
+		if (frames <= 0)
+			return frames;
 		if ((next = plugin->next) != NULL) {
 			snd_pcm_sframes_t frames1 = frames;
-			if (plugin->dst_frames)
+			if (plugin->dst_frames) {
 				frames1 = plugin->dst_frames(plugin, frames);
+				if (frames1 <= 0)
+					return frames1;
+			}
 			if ((err = next->client_channels(next, frames1, &dst_channels)) < 0) {
 				return err;
 			}
 			if (err != frames1) {
 				frames = err;
-				if (plugin->src_frames)
+				if (plugin->src_frames) {
 					frames = plugin->src_frames(plugin, frames1);
+					if (frames <= 0)
+						return frames;
+				}
 			}
 		} else
 			dst_channels = NULL;

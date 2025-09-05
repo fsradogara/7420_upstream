@@ -43,7 +43,7 @@ static struct inet_diag_handler tcp_diag_handler = {
 	.idiag_type	 = TCPDIAG_GETSOCK,
 	struct tcp_info *info = _info;
 
-	if (sk_state_load(sk) == TCP_LISTEN) {
+	if (inet_sk_state_load(sk) == TCP_LISTEN) {
 		r->idiag_rqueue = sk->sk_ack_backlog;
 		r->idiag_wqueue = sk->sk_max_ack_backlog;
 	} else if (sk->sk_type == SOCK_STREAM) {

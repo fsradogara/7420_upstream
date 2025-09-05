@@ -178,9 +178,6 @@ struct netlink_skb_parms
 	__u32			sessionid;	/* Session id (audit) */
 	__u32			sid;		/* SELinux security id */
 enum netlink_skb_flags {
-	NETLINK_SKB_MMAPED	= 0x1,	/* Packet data is mmaped */
-	NETLINK_SKB_TX		= 0x2,	/* Packet was sent by userspace */
-	NETLINK_SKB_DELIVERED	= 0x4,	/* Packet was delivered */
 	NETLINK_SKB_DST		= 0x8,	/* Dst set in sendto or sendmsg */
 };
 
@@ -263,7 +260,7 @@ struct netlink_ext_ack {
  * to the lack of an output buffer.)
  */
 #define NL_SET_ERR_MSG(extack, msg) do {		\
-	static const char __msg[] = (msg);		\
+	static const char __msg[] = msg;		\
 	struct netlink_ext_ack *__extack = (extack);	\
 							\
 	if (__extack)					\
@@ -279,7 +276,7 @@ struct netlink_ext_ack {
 } while (0)
 
 #define NL_SET_ERR_MSG_ATTR(extack, attr, msg) do {	\
-	static const char __msg[] = (msg);		\
+	static const char __msg[] = msg;		\
 	struct netlink_ext_ack *__extack = (extack);	\
 							\
 	if (__extack) {					\
@@ -400,7 +397,6 @@ extern void netlink_set_nonroot(int protocol, unsigned flag);
 struct netlink_callback {
 	struct sk_buff		*skb;
 	const struct nlmsghdr	*nlh;
-	int			(*start)(struct netlink_callback *);
 	int			(*dump)(struct sk_buff * skb,
 					struct netlink_callback *cb);
 	int			(*done)(struct netlink_callback *cb);

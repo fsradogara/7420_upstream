@@ -17,6 +17,8 @@
  *
  */
 
+#define pr_fmt(fmt) "%s: " fmt, __func__
+
 #include <linux/list.h>
 #include <linux/irq.h>
 #include <linux/spinlock.h>
@@ -543,7 +545,7 @@ static int iss_net_poll(void)
 }
 
 
-static void iss_net_timer(unsigned long priv)
+static void iss_net_timer(struct timer_list *t)
 {
 	struct iss_net_private* lp = (struct iss_net_private*) priv;
 
@@ -554,6 +556,7 @@ static void iss_net_timer(unsigned long priv)
 	mod_timer(&lp->timer, jiffies + lp->timer_val);
 
 	struct iss_net_private *lp = (struct iss_net_private *)priv;
+	struct iss_net_private *lp = from_timer(lp, t, timer);
 
 	iss_net_poll();
 	spin_lock(&lp->lock);
@@ -605,10 +608,8 @@ static int iss_net_open(struct net_device *dev)
 	spin_unlock_bh(&opened_lock);
 	spin_lock_bh(&lp->lock);
 
-	init_timer(&lp->timer);
+	timer_setup(&lp->timer, iss_net_timer, 0);
 	lp->timer_val = ISS_NET_TIMER_VALUE;
-	lp->timer.data = (unsigned long) lp;
-	lp->timer.function = iss_net_timer;
 	mod_timer(&lp->timer, jiffies + lp->timer_val);
 
 out:
@@ -758,7 +759,7 @@ static int iss_net_change_mtu(struct net_device *dev, int new_mtu)
 	return -EINVAL;
 }
 
-void iss_net_user_timer_expire(unsigned long _conn)
+void iss_net_user_timer_expire(struct timer_list *unused)
 {
 }
 
@@ -901,8 +902,7 @@ static int iss_net_configure(int index, char *init)
 		return 1;
 	}
 
-	init_timer(&lp->tl);
-	lp->tl.function = iss_net_user_timer_expire;
+	timer_setup(&lp->tl, iss_net_user_timer_expire, 0);
 
 #if 0
 	if (lp->have_mac)
@@ -967,14 +967,14 @@ static int __init iss_net_setup(char *str)
 
 	end = strchr(str, '=');
 	if (!end) {
-		printk(ERR "Expected '=' after device number\n");
+		pr_err("Expected '=' after device number\n");
 		return 1;
 	}
 	*end = 0;
 	rc = kstrtouint(str, 0, &n);
 	*end = '=';
 	if (rc < 0) {
-		printk(ERR "Failed to parse '%s'\n", str);
+		pr_err("Failed to parse '%s'\n", str);
 		return 1;
 	}
 	str = end;
@@ -997,12 +997,13 @@ static int __init iss_net_setup(char *str)
 	if ((new = alloc_bootmem(sizeof new)) == NULL) {
 		printk("Alloc_bootmem failed\n");
 		printk(ERR "Device %u already configured\n", n);
+		pr_err("Device %u already configured\n", n);
 		return 1;
 	}
 
 	new = alloc_bootmem(sizeof(*new));
 	if (new == NULL) {
-		printk(ERR "Alloc_bootmem failed\n");
+		pr_err("Alloc_bootmem failed\n");
 		return 1;
 	}
 

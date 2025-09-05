@@ -133,20 +133,18 @@ static int pxa2xx_i2s_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 static int clk_ena = 0;
 
-static unsigned long pxa2xx_i2s_pcm_stereo_out_req = 3;
 static struct snd_dmaengine_dai_dma_data pxa2xx_i2s_pcm_stereo_out = {
 	.addr		= __PREG(SADR),
 	.addr_width	= DMA_SLAVE_BUSWIDTH_4_BYTES,
+	.chan_name	= "tx",
 	.maxburst	= 32,
-	.filter_data	= &pxa2xx_i2s_pcm_stereo_out_req,
 };
 
-static unsigned long pxa2xx_i2s_pcm_stereo_in_req = 2;
 static struct snd_dmaengine_dai_dma_data pxa2xx_i2s_pcm_stereo_in = {
 	.addr		= __PREG(SADR),
 	.addr_width	= DMA_SLAVE_BUSWIDTH_4_BYTES,
+	.chan_name	= "rx",
 	.maxburst	= 32,
-	.filter_data	= &pxa2xx_i2s_pcm_stereo_in_req,
 };
 
 static int pxa2xx_i2s_startup(struct snd_pcm_substream *substream,
@@ -515,6 +513,9 @@ static struct platform_driver pxa2xx_i2s_driver = {
 
 static const struct snd_soc_component_driver pxa_i2s_component = {
 	.name		= "pxa-i2s",
+	.ops		= &pxa2xx_pcm_ops,
+	.pcm_new	= pxa2xx_soc_pcm_new,
+	.pcm_free	= pxa2xx_pcm_free_dma_buffers,
 };
 
 static int pxa2xx_i2s_drv_probe(struct platform_device *pdev)

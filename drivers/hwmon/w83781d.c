@@ -1912,10 +1912,8 @@ w83781d_isa_remove(struct platform_device *pdev)
 	release_region(data->client.addr + W83781D_ADDR_REG_OFFSET, 2);
 	kfree(data);
 	w83781d_remove_files(dev);
-	if (data->lm75[0])
-		i2c_unregister_device(data->lm75[0]);
-	if (data->lm75[1])
-		i2c_unregister_device(data->lm75[1]);
+	i2c_unregister_device(data->lm75[0]);
+	i2c_unregister_device(data->lm75[1]);
 	return err;
 }
 
@@ -1928,10 +1926,8 @@ w83781d_remove(struct i2c_client *client)
 	hwmon_device_unregister(data->hwmon_dev);
 	w83781d_remove_files(dev);
 
-	if (data->lm75[0])
-		i2c_unregister_device(data->lm75[0]);
-	if (data->lm75[1])
-		i2c_unregister_device(data->lm75[1]);
+	i2c_unregister_device(data->lm75[0]);
+	i2c_unregister_device(data->lm75[1]);
 
 	return 0;
 }

@@ -31,8 +31,6 @@ static int snd_opl3_reset_seq_oss(struct snd_seq_oss_arg *arg);
 
 /* operators */
 
-extern struct snd_midi_op opl3_ops;
-
 static struct snd_seq_oss_callback oss_callback = {
 	.owner = 	THIS_MODULE,
 	.open =		snd_opl3_open_seq_oss,
@@ -249,7 +247,6 @@ static int snd_opl3_ioctl_seq_oss(struct snd_seq_oss_arg *arg, unsigned int cmd,
 			snd_printk("OPL3: Obsolete ioctl(SNDCTL_FM_LOAD_INSTR) used. Fix the program.\n");
 	if (snd_BUG_ON(!arg))
 		return -ENXIO;
-	opl3 = arg->private_data;
 	switch (cmd) {
 		case SNDCTL_FM_LOAD_INSTR:
 			snd_printk(KERN_ERR "OPL3: "
@@ -278,7 +275,6 @@ static int snd_opl3_reset_seq_oss(struct snd_seq_oss_arg *arg)
 	snd_assert(arg != NULL, return -ENXIO);
 	if (snd_BUG_ON(!arg))
 		return -ENXIO;
-	opl3 = arg->private_data;
 
 	return 0;
 }

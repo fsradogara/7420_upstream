@@ -103,6 +103,7 @@ static int slram_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	instr->state = MTD_ERASE_DONE;
 	mtd_erase_callback(instr);
+
 	return(0);
 }
 
@@ -197,8 +198,9 @@ static int register_device(char *name, unsigned long start, unsigned long length
 	}
 
 	if (!(((slram_priv_t *)(*curmtd)->mtdinfo->priv)->start =
-				ioremap(start, length))) {
-		E("slram: ioremap failed\n");
+		memremap(start, length,
+			 MEMREMAP_WB | MEMREMAP_WT | MEMREMAP_WC))) {
+		E("slram: memremap failed\n");
 		return -EIO;
 	}
 	((slram_priv_t *)(*curmtd)->mtdinfo->priv)->end =
@@ -226,7 +228,7 @@ static int register_device(char *name, unsigned long start, unsigned long length
 	if (add_mtd_device((*curmtd)->mtdinfo))	{
 	if (mtd_device_register((*curmtd)->mtdinfo, NULL, 0))	{
 		E("slram: Failed to register new device\n");
-		iounmap(((slram_priv_t *)(*curmtd)->mtdinfo->priv)->start);
+		memunmap(((slram_priv_t *)(*curmtd)->mtdinfo->priv)->start);
 		kfree((*curmtd)->mtdinfo->priv);
 		kfree((*curmtd)->mtdinfo);
 		return(-EAGAIN);
@@ -247,7 +249,7 @@ static void unregister_devices(void)
 		nextitem = slram_mtdlist->next;
 		del_mtd_device(slram_mtdlist->mtdinfo);
 		mtd_device_unregister(slram_mtdlist->mtdinfo);
-		iounmap(((slram_priv_t *)slram_mtdlist->mtdinfo->priv)->start);
+		memunmap(((slram_priv_t *)slram_mtdlist->mtdinfo->priv)->start);
 		kfree(slram_mtdlist->mtdinfo->priv);
 		kfree(slram_mtdlist->mtdinfo);
 		kfree(slram_mtdlist);

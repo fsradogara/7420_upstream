@@ -29,7 +29,7 @@
 #include "udf_i.h"
 #include "udf_sb.h"
 
-struct buffer_head *udf_tgetblk(struct super_block *sb, int block)
+struct buffer_head *udf_tgetblk(struct super_block *sb, udf_pblk_t block)
 {
 	if (UDF_QUERY_FLAG(sb, UDF_FLAG_VARCONV))
 		return sb_getblk(sb, udf_fixed_to_variable(block));
@@ -37,7 +37,7 @@ struct buffer_head *udf_tgetblk(struct super_block *sb, int block)
 		return sb_getblk(sb, block);
 }
 
-struct buffer_head *udf_tread(struct super_block *sb, int block)
+struct buffer_head *udf_tread(struct super_block *sb, udf_pblk_t block)
 {
 	if (UDF_QUERY_FLAG(sb, UDF_FLAG_VARCONV))
 		return sb_bread(sb, udf_fixed_to_variable(block));
@@ -223,6 +223,7 @@ struct buffer_head *udf_read_tagged(struct super_block *sb, uint32_t block,
 
 	tag_p = (tag *)(bh->b_data);
 		udf_err(sb, "read failed, block=%u, location=%d\n",
+		udf_err(sb, "read failed, block=%u, location=%u\n",
 			block, location);
 		return NULL;
 	}
@@ -270,6 +271,7 @@ struct buffer_head *udf_read_tagged(struct super_block *sb, uint32_t block,
 	udf_debug("Crc failure block %d: crc = %d, crclen = %d\n", block,
 	    le16_to_cpu(tag_p->descCRC), le16_to_cpu(tag_p->descCRCLength));
 
+	udf_debug("Crc failure block %u: crc = %u, crclen = %u\n", block,
 		  le16_to_cpu(tag_p->descCRC),
 		  le16_to_cpu(tag_p->descCRCLength));
 error_out:

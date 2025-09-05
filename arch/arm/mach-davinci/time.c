@@ -49,6 +49,7 @@ static int timer_irqs[NUM_TIMERS] = {
 #include <linux/io.h>
 #include <linux/clk.h>
 #include <linux/err.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/sched_clock.h>
 
@@ -58,8 +59,6 @@ static int timer_irqs[NUM_TIMERS] = {
 #include <mach/cputype.h>
 #include <mach/hardware.h>
 #include <mach/time.h>
-
-#include "clock.h"
 
 static struct clock_event_device clockevent_davinci;
 static unsigned int davinci_clock_tick_rate;
@@ -129,13 +128,6 @@ enum {
 #define TGCR_RESET                   0x0
 #define TGCR_UNRESET                 0x1
 #define TGCR_RESET_MASK              0x3
-
-#define WDTCR_WDEN_SHIFT             14
-#define WDTCR_WDEN_DISABLE           0x0
-#define WDTCR_WDEN_ENABLE            0x1
-#define WDTCR_WDKEY_SHIFT            16
-#define WDTCR_WDKEY_SEQ0             0xa5c6
-#define WDTCR_WDKEY_SEQ1             0xda7e
 
 struct timer_s {
 	char *name;
@@ -506,10 +498,8 @@ static struct clock_event_device clockevent_davinci = {
 	.set_state_oneshot	= davinci_set_oneshot,
 };
 
-
-void __init davinci_timer_init(void)
+void __init davinci_timer_init(struct clk *timer_clk)
 {
-	struct clk *timer_clk;
 	struct davinci_soc_info *soc_info = &davinci_soc_info;
 	unsigned int clockevent_id;
 	unsigned int clocksource_id;
@@ -545,7 +535,6 @@ void __init davinci_timer_init(void)
 		}
 	}
 
-	timer_clk = clk_get(NULL, "timer0");
 	BUG_ON(IS_ERR(timer_clk));
 	clk_prepare_enable(timer_clk);
 
@@ -629,21 +618,15 @@ void davinci_watchdog_reset(void) {
 		timer32_config(&timers[i]);
 }
 
-/* reset board using watchdog timer */
-void davinci_watchdog_reset(struct platform_device *pdev)
+static int __init of_davinci_timer_init(struct device_node *np)
 {
-	u32 tgcr, wdtcr;
-	void __iomem *base;
-	struct clk *wd_clk;
+	struct clk *clk;
 
-	base = ioremap(pdev->resource[0].start, SZ_4K);
-	if (WARN_ON(!base))
-		return;
+	clk = of_clk_get(np, 0);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
 
-	wd_clk = clk_get(&pdev->dev, NULL);
-	if (WARN_ON(IS_ERR(wd_clk)))
-		return;
-	clk_prepare_enable(wd_clk);
+	davinci_timer_init(clk);
 
 	/* disable, internal clock source */
 	__raw_writel(0, base + TCR);
@@ -679,4 +662,6 @@ void davinci_watchdog_reset(struct platform_device *pdev)
 	wdtcr = 0x00004000;
 	davinci_writel(wdtcr, base + WDTCR);
 	__raw_writel(wdtcr, base + WDTCR);
+	return 0;
 }
+TIMER_OF_DECLARE(davinci_timer, "ti,da830-timer", of_davinci_timer_init);

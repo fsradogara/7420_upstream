@@ -21,14 +21,6 @@
 #include <linux/pagemap.h>
 #include "nodelist.h"
 
-struct erase_priv_struct {
-	struct jffs2_eraseblock *jeb;
-	struct jffs2_sb_info *c;
-};
-
-#ifndef __ECOS
-static void jffs2_erase_callback(struct erase_info *);
-#endif
 static void jffs2_erase_failed(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb, uint32_t bad_offset);
 static void jffs2_erase_succeeded(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
 static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
@@ -56,7 +48,7 @@ static void jffs2_erase_block(struct jffs2_sb_info *c,
 	jffs2_dbg(1, "%s(): erase block %#08x (range %#08x-%#08x)\n",
 		  __func__,
 		  jeb->offset, jeb->offset, jeb->offset + c->sector_size);
-	instr = kmalloc(sizeof(struct erase_info) + sizeof(struct erase_priv_struct), GFP_KERNEL);
+	instr = kmalloc(sizeof(struct erase_info), GFP_KERNEL);
 	if (!instr) {
 		pr_warn("kmalloc for struct erase_info in jffs2_erase_block failed. Refiling block for later\n");
 		mutex_lock(&c->erase_free_sem);
@@ -72,7 +64,6 @@ static void jffs2_erase_block(struct jffs2_sb_info *c,
 
 	memset(instr, 0, sizeof(*instr));
 
-	instr->mtd = c->mtd;
 	instr->addr = jeb->offset;
 	instr->len = c->sector_size;
 	instr->callback = jffs2_erase_callback;
@@ -84,8 +75,11 @@ static void jffs2_erase_block(struct jffs2_sb_info *c,
 
 	ret = c->mtd->erase(c->mtd, instr);
 	ret = mtd_erase(c->mtd, instr);
-	if (!ret)
+	if (!ret) {
+		jffs2_erase_succeeded(c, jeb);
+		kfree(instr);
 		return;
+	}
 
 	bad_offset = instr->fail_addr;
 	kfree(instr);

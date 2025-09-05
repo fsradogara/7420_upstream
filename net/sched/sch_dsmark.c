@@ -70,7 +70,8 @@ static inline int dsmark_valid_index(struct dsmark_qdisc_data *p, u16 index)
 /* ------------------------- Class/flow operations ------------------------- */
 
 static int dsmark_graft(struct Qdisc *sch, unsigned long arg,
-			struct Qdisc *new, struct Qdisc **old)
+			struct Qdisc *new, struct Qdisc **old,
+			struct netlink_ext_ack *extack)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 
@@ -85,7 +86,7 @@ static int dsmark_graft(struct Qdisc *sch, unsigned long arg,
 
 	if (new == NULL) {
 		new = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops,
-					sch->handle);
+					sch->handle, NULL);
 		if (new == NULL)
 			new = &noop_qdisc;
 	}
@@ -140,7 +141,8 @@ static const struct nla_policy dsmark_policy[TCA_DSMARK_MAX + 1] = {
 };
 
 static int dsmark_change(struct Qdisc *sch, u32 classid, u32 parent,
-			 struct nlattr **tca, unsigned long *arg)
+			 struct nlattr **tca, unsigned long *arg,
+			 struct netlink_ext_ack *extack)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 	struct nlattr *opt = tca[TCA_OPTIONS];
@@ -236,6 +238,8 @@ static inline struct tcf_proto **dsmark_find_tcf(struct Qdisc *sch,
 static inline struct tcf_proto __rcu **dsmark_find_tcf(struct Qdisc *sch,
 						       unsigned long cl)
 static struct tcf_block *dsmark_tcf_block(struct Qdisc *sch, unsigned long cl)
+static struct tcf_block *dsmark_tcf_block(struct Qdisc *sch, unsigned long cl,
+					  struct netlink_ext_ack *extack)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 
@@ -447,6 +451,8 @@ static unsigned int dsmark_drop(struct Qdisc *sch)
 }
 
 static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
+static int dsmark_init(struct Qdisc *sch, struct nlattr *opt,
+		       struct netlink_ext_ack *extack)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 	struct nlattr *tb[TCA_DSMARK_MAX + 1];
@@ -463,7 +469,7 @@ static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
 	if (!opt)
 		goto errout;
 
-	err = tcf_block_get(&p->block, &p->filter_list);
+	err = tcf_block_get(&p->block, &p->filter_list, sch, extack);
 	if (err)
 		return err;
 
@@ -515,6 +521,8 @@ static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
 
 	pr_debug("dsmark_init: qdisc %p\n", p->q);
 	p->q = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops, sch->handle);
+	p->q = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops, sch->handle,
+				 NULL);
 	if (p->q == NULL)
 		p->q = &noop_qdisc;
 	else

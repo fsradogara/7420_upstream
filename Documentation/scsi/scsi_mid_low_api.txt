@@ -117,9 +117,7 @@ called "xxx" could be defined as
 "static int xxx_slave_alloc(struct scsi_device * sdev) { /* code */ }"
 
 ** the scsi_host_alloc() function is a replacement for the rather vaguely
-named scsi_register() function in most situations. The scsi_register()
-and scsi_unregister() functions remain to support legacy LLDs that use
-the passive initialization model.
+named scsi_register() function in most situations.
 
 
 Hotplug initialization model
@@ -320,12 +318,12 @@ struct Scsi_Host:
         instance. If the reference count reaches 0 then the given instance
         is freed
 
-The Scsi_device structure has had reference counting infrastructure added.
-This effectively spreads the ownership of struct Scsi_device instances
+The scsi_device structure has had reference counting infrastructure added.
+This effectively spreads the ownership of struct scsi_device instances
 across the various SCSI layers which use them. Previously such instances
 were exclusively owned by the mid level. See the access functions declared
 towards the end of include/scsi/scsi_device.h . If an LLD wants to keep
-a copy of a pointer to a Scsi_device instance it should use scsi_device_get()
+a copy of a pointer to a scsi_device instance it should use scsi_device_get()
 to bump its reference count. When it is finished with the pointer it can
 use scsi_device_put() to decrement its reference count (and potentially
 delete it).
@@ -785,7 +783,6 @@ The interface functions are listed below in alphabetical order.
 
 Summary:
    bios_param - fetch head, sector, cylinder info for a disk
-   detect - detects HBAs this driver wants to control
    eh_timed_out - notify the host that a command timer expired
    eh_abort_handler - abort given command
    eh_bus_reset_handler - issue SCSI bus reset
@@ -795,7 +792,6 @@ Summary:
    ioctl - driver can respond to ioctls
    proc_info - supports /proc/scsi/{driver_name}/{host_no}
    queuecommand - queue scsi command, invoke 'done' on completion
-   release - release all resources associated with given host
    slave_alloc - prior to any commands being sent to a new device 
    slave_configure - driver fine tuning for given device after attach
    slave_destroy - given device is about to be shut down
@@ -829,28 +825,6 @@ Details:
  **/
     int bios_param(struct scsi_device * sdev, struct block_device *bdev,
                    sector_t capacity, int params[3])
-
-
-/**
- *      detect - detects HBAs this driver wants to control
- *      @shtp: host template for this driver.
- *
- *      Returns number of hosts this driver wants to control. 0 means no
- *      suitable hosts found.
- *
- *      Locks: none held
- *
- *      Calling context: process [invoked from init_this_scsi_driver()]
- *
- *      Notes: First function called from the SCSI mid level on this
- *      driver. Upper level drivers (e.g. sd) may not (yet) be present.
- *      For each host found, this method should call scsi_register() 
- *      [see hosts.c].
- *
- *      Defined in: LLD (required if "passive initialization mode" is used,
- *                       not invoked in "hotplug initialization mode")
- **/
-    int detect(struct scsi_host_template * shtp)
 
 
 /**
@@ -1154,27 +1128,6 @@ Details:
     int queuecommand(struct scsi_cmnd * scp, 
                      void (*done)(struct scsi_cmnd *))
     int queuecommand(struct Scsi_Host *shost, struct scsi_cmnd * scp)
-
-
-/**
- *      release - release all resources associated with given host
- *      @shp: host to be released.
- *
- *      Return value ignored (could soon be a function returning void).
- *
- *      Locks: none held
- *
- *      Calling context: process
- *
- *      Notes: Invoked from scsi_module.c's exit_this_scsi_driver().
- *      LLD's implementation of this function should call 
- *      scsi_unregister(shp) prior to returning.
- *      Only needed for old-style host templates.
- *
- *      Defined in: LLD (required in "passive initialization model",
- *                       should not be defined in hotplug model)
- **/
-    int release(struct Scsi_Host * shp)
 
 
 /**

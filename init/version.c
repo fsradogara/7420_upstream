@@ -13,7 +13,8 @@
 #include <linux/utsrelease.h>
 #include <linux/version.h>
 #include <generated/compile.h>
-#include <linux/module.h>
+#include <linux/build-salt.h>
+#include <linux/export.h>
 #include <linux/uts.h>
 #include <linux/utsname.h>
 #include <generated/utsrelease.h>
@@ -55,3 +56,5 @@ const char linux_proc_banner[] =
 	"%s version %s"
 	" (" LINUX_COMPILE_BY "@" LINUX_COMPILE_HOST ")"
 	" (" LINUX_COMPILER ") %s\n";
+
+BUILD_SALT;

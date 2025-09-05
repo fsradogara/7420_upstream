@@ -187,7 +187,6 @@ static int uml_net_open(struct net_device *dev)
 		goto out_close;
 	}
 
-	lp->tl.data = (unsigned long) &lp->user;
 	netif_start_queue(dev);
 
 	/* clear buffer - it can happen that the host side of the interface
@@ -346,10 +345,11 @@ static const struct ethtool_ops uml_net_ethtool_ops = {
 	.get_ts_info	= ethtool_op_get_ts_info,
 };
 
-static void uml_net_user_timer_expire(unsigned long _conn)
+static void uml_net_user_timer_expire(struct timer_list *t)
 {
 #ifdef undef
-	struct connection *conn = (struct connection *)_conn;
+	struct uml_net_private *lp = from_timer(lp, t, tl);
+	struct connection *conn = &lp->user;
 
 	dprintk(KERN_INFO "uml_net_user_timer_expire [%p]\n", conn);
 	do_connect(conn);
@@ -359,6 +359,7 @@ static void uml_net_user_timer_expire(unsigned long _conn)
 static void setup_etheraddr(char *str, unsigned char *addr, char *name)
 {
 static void setup_etheraddr(struct net_device *dev, char *str)
+void uml_net_setup_etheraddr(struct net_device *dev, char *str)
 {
 	unsigned char *addr = dev->dev_addr;
 	char *end;
@@ -500,6 +501,7 @@ static void eth_configure(int n, void *init, char *mac,
 
 	lp = dev->priv;
 	setup_etheraddr(dev, mac);
+	uml_net_setup_etheraddr(dev, mac);
 
 	printk(KERN_INFO "Netdevice %d (%pM) : ", n, dev->dev_addr);
 
@@ -546,7 +548,7 @@ static void eth_configure(int n, void *init, char *mac,
 		  .add_address 		= transport->user->add_address,
 		  .delete_address  	= transport->user->delete_address });
 
-	init_timer(&lp->tl);
+	timer_setup(&lp->tl, uml_net_user_timer_expire, 0);
 	spin_lock_init(&lp->lock);
 	lp->tl.function = uml_net_user_timer_expire;
 	memcpy(lp->mac, device->mac, sizeof(lp->mac));

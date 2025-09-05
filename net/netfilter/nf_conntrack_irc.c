@@ -260,8 +260,6 @@ static struct nf_conntrack_helper irc[MAX_PORTS] __read_mostly;
 static char irc_names[MAX_PORTS][sizeof("irc-65535")] __read_mostly;
 static struct nf_conntrack_expect_policy irc_exp_policy;
 
-static void nf_conntrack_irc_fini(void);
-
 static int __init nf_conntrack_irc_init(void)
 {
 	int i, ret;
@@ -338,9 +336,7 @@ static int __init nf_conntrack_irc_init(void)
 	return 0;
 }
 
-/* This function is intentionally _NOT_ defined as __exit, because
- * it is needed by the init function */
-static void nf_conntrack_irc_fini(void)
+static void __exit nf_conntrack_irc_fini(void)
 {
 	nf_conntrack_helpers_unregister(irc, ports_c);
 	kfree(irc_buffer);

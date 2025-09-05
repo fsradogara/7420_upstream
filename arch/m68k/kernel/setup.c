@@ -518,3 +518,8 @@ __setup("adb_sync", adb_probe_sync_enable);
 #else
 #include "setup_no.c"
 #endif
+
+#if IS_ENABLED(CONFIG_INPUT_M68K_BEEP)
+void (*mach_beep)(unsigned int, unsigned int);
+EXPORT_SYMBOL(mach_beep);
+#endif

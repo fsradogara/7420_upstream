@@ -272,6 +272,7 @@ found:
 
 	d_add(dentry, inode);
 	return NULL;
+	return d_splice_alias(inode, dentry);
 }
 
 static int openpromfs_readdir(struct file * filp, void * dirent, filldir_t filldir)
@@ -443,7 +444,7 @@ static struct inode *openprom_iget(struct super_block *sb, ino_t ino)
 static int openprom_remount(struct super_block *sb, int *flags, char *data)
 {
 	sync_filesystem(sb);
-	*flags |= MS_NOATIME;
+	*flags |= SB_NOATIME;
 	return 0;
 }
 
@@ -460,7 +461,7 @@ static int openprom_fill_super(struct super_block *s, void *data, int silent)
 	struct op_inode_info *oi;
 	int ret;
 
-	s->s_flags |= MS_NOATIME;
+	s->s_flags |= SB_NOATIME;
 	s->s_blocksize = 1024;
 	s->s_blocksize_bits = 10;
 	s->s_magic = OPENPROM_SUPER_MAGIC;

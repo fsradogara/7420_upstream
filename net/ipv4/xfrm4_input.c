@@ -30,6 +30,12 @@ static inline int xfrm4_rcv_encap_finish(struct sk_buff *skb)
 
 		if (ip_route_input(skb, iph->daddr, iph->saddr, iph->tos,
 				   skb->dev))
+static int xfrm4_rcv_encap_finish2(struct net *net, struct sock *sk,
+				   struct sk_buff *skb)
+{
+	return dst_input(skb);
+}
+
 static inline int xfrm4_rcv_encap_finish(struct net *net, struct sock *sk,
 					 struct sk_buff *skb)
 {
@@ -40,7 +46,11 @@ static inline int xfrm4_rcv_encap_finish(struct net *net, struct sock *sk,
 					 iph->tos, skb->dev))
 			goto drop;
 	}
-	return dst_input(skb);
+
+	if (xfrm_trans_queue(skb, xfrm4_rcv_encap_finish2))
+		goto drop;
+
+	return 0;
 drop:
 	kfree_skb(skb);
 	return NET_RX_DROP;
@@ -74,6 +84,7 @@ int xfrm4_transport_finish(struct sk_buff *skb, int async)
 	NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, skb, skb->dev, NULL,
 	if (xo && (xo->flags & XFRM_GRO)) {
 		skb_mac_header_rebuild(skb);
+		skb_reset_transport_header(skb);
 		return 0;
 	}
 

@@ -42,17 +42,7 @@ static inline void set_bit_area(unsigned long *map, unsigned long i,
 }
 #include <linux/export.h>
 #include <linux/bitmap.h>
-#include <linux/bug.h>
-
-int iommu_is_span_boundary(unsigned int index, unsigned int nr,
-			   unsigned long shift,
-			   unsigned long boundary_size)
-{
-	BUG_ON(!is_power_of_2(boundary_size));
-
-	shift = (shift + index) & (boundary_size - 1);
-	return shift + nr > boundary_size;
-}
+#include <linux/iommu-helper.h>
 
 unsigned long iommu_area_alloc(unsigned long *map, unsigned long size,
 			       unsigned long start, unsigned int nr,
@@ -94,4 +84,3 @@ EXPORT_SYMBOL(iommu_area_free);
 	}
 	return -1;
 }
-EXPORT_SYMBOL(iommu_area_alloc);

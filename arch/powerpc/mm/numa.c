@@ -50,6 +50,7 @@
 #include <asm/hvcall.h>
 #include <asm/setup.h>
 #include <asm/vdso.h>
+#include <asm/drmem.h>
 
 static int numa_enabled = 1;
 
@@ -168,11 +169,6 @@ static void reset_numa_cpu_lookup_table(void)
 
 	for_each_possible_cpu(cpu)
 		numa_cpu_lookup_table[cpu] = -1;
-}
-
-static void update_numa_cpu_lookup_table(unsigned int cpu, int node)
-{
-	numa_cpu_lookup_table[cpu] = node;
 }
 
 static void map_cpu_to_node(int cpu, int node)
@@ -635,23 +631,31 @@ struct assoc_arrays {
  * indicating the size of each associativity array, followed by a list
  * of N associativity arrays.
  */
-static int of_get_assoc_arrays(struct device_node *memory,
-			       struct assoc_arrays *aa)
+static int of_get_assoc_arrays(struct assoc_arrays *aa)
 {
 	const u32 *prop;
+	struct device_node *memory;
 	const __be32 *prop;
 	u32 len;
 
-	prop = of_get_property(memory, "ibm,associativity-lookup-arrays", &len);
-	if (!prop || len < 2 * sizeof(unsigned int))
+	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
+	if (!memory)
 		return -1;
 
 	aa->n_arrays = *prop++;
 	aa->array_sz = *prop++;
 
 	/* Now that we know the number of arrrays and size of each array,
+	prop = of_get_property(memory, "ibm,associativity-lookup-arrays", &len);
+	if (!prop || len < 2 * sizeof(unsigned int)) {
+		of_node_put(memory);
+		return -1;
+	}
+
 	aa->n_arrays = of_read_number(prop++, 1);
 	aa->array_sz = of_read_number(prop++, 1);
+
+	of_node_put(memory);
 
 	/* Now that we know the number of arrays and size of each array,
 	 * revalidate the size of the property read in.
@@ -667,12 +671,12 @@ static int of_get_assoc_arrays(struct device_node *memory,
  * This is like of_node_to_nid_single() for memory represented in the
  * ibm,dynamic-reconfiguration-memory node.
  */
-static int of_drconf_to_nid_single(struct of_drconf_cell *drmem,
-				   struct assoc_arrays *aa)
+static int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 {
+	struct assoc_arrays aa = { .arrays = NULL };
 	int default_nid = 0;
 	int nid = default_nid;
-	int index;
+	int rc, index;
 
 	if (min_common_depth > 0 && min_common_depth <= aa->array_sz &&
 	    !(drmem->flags & DRCONF_MEM_AI_INVALID) &&
@@ -683,14 +687,23 @@ static int of_drconf_to_nid_single(struct of_drconf_cell *drmem,
 		if (nid == 0xffff || nid >= MAX_NUMNODES)
 			nid = default_nid;
 		nid = of_read_number(&aa->arrays[index], 1);
+	rc = of_get_assoc_arrays(&aa);
+	if (rc)
+		return default_nid;
+
+	if (min_common_depth > 0 && min_common_depth <= aa.array_sz &&
+	    !(lmb->flags & DRCONF_MEM_AI_INVALID) &&
+	    lmb->aa_index < aa.n_arrays) {
+		index = lmb->aa_index * aa.array_sz + min_common_depth - 1;
+		nid = of_read_number(&aa.arrays[index], 1);
 
 		if (nid == 0xffff || nid >= MAX_NUMNODES)
 			nid = default_nid;
 
 		if (nid > 0) {
-			index = drmem->aa_index * aa->array_sz;
+			index = lmb->aa_index * aa.array_sz;
 			initialize_distance_lookup_table(nid,
-							&aa->arrays[index]);
+							&aa.arrays[index]);
 		}
 	}
 
@@ -753,7 +766,7 @@ static int __cpuinit cpu_numa_callback(struct notifier_block *nfb,
 	unsigned long lcpu = (unsigned long)hcpu;
 	int ret = NOTIFY_DONE;
 out_present:
-	if (nid < 0 || !node_online(nid))
+	if (nid < 0 || !node_possible(nid))
 		nid = first_online_node;
 
 	map_cpu_to_node(lcpu, nid);
@@ -881,7 +894,8 @@ static inline int __init read_usm_ranges(const __be32 **usm)
  * Extract NUMA information from the ibm,dynamic-reconfiguration-memory
  * node.  This assumes n_mem_{addr,size}_cells have been set.
  */
-static void __init parse_drconf_memory(struct device_node *memory)
+static void __init numa_setup_drmem_lmb(struct drmem_lmb *lmb,
+					const __be32 **usm)
 {
 	const u32 *dm;
 	unsigned int n, rc;
@@ -891,28 +905,24 @@ static void __init parse_drconf_memory(struct device_node *memory)
 	const __be32 *uninitialized_var(dm), *usm;
 	unsigned int n, rc, ranges, is_kexec_kdump = 0;
 	unsigned long lmb_size, base, size, sz;
+	unsigned int ranges, is_kexec_kdump = 0;
+	unsigned long base, size, sz;
 	int nid;
-	struct assoc_arrays aa = { .arrays = NULL };
 
-	n = of_get_drconf_memory(memory, &dm);
-	if (!n)
+	/*
+	 * Skip this block if the reserved bit is set in flags (0x80)
+	 * or if the block is not assigned to this partition (0x8)
+	 */
+	if ((lmb->flags & DRCONF_MEM_RESERVED)
+	    || !(lmb->flags & DRCONF_MEM_ASSIGNED))
 		return;
 
-	lmb_size = of_get_lmb_size(memory);
-	if (!lmb_size)
-		return;
-
-	rc = of_get_assoc_arrays(memory, &aa);
-	if (rc)
-		return;
-
-	/* check if this is a kexec/kdump kernel */
-	usm = of_get_usable_memory(memory);
-	if (usm != NULL)
+	if (*usm)
 		is_kexec_kdump = 1;
 
-	for (; n != 0; --n) {
-		struct of_drconf_cell drmem;
+	base = lmb->base_addr;
+	size = drmem_lmb_size();
+	ranges = 1;
 
 		read_drconf_cell(&drmem, &dm);
 
@@ -961,7 +971,26 @@ static void __init parse_drconf_memory(struct device_node *memory)
 				memblock_set_node(base, sz,
 						  &memblock.memory, nid);
 		} while (--ranges);
+	if (is_kexec_kdump) {
+		ranges = read_usm_ranges(usm);
+		if (!ranges) /* there are no (base, size) duple */
+			return;
 	}
+
+	do {
+		if (is_kexec_kdump) {
+			base = read_n_cells(n_mem_addr_cells, usm);
+			size = read_n_cells(n_mem_size_cells, usm);
+		}
+
+		nid = of_drconf_to_nid_single(lmb);
+		fake_numa_create_new_node(((base + size) >> PAGE_SHIFT),
+					  &nid);
+		node_set_online(nid);
+		sz = numa_enforce_memory_limit(base, size);
+		if (sz)
+			memblock_set_node(base, sz, &memblock.memory, nid);
+	} while (--ranges);
 }
 
 static int __init parse_numa_properties(void)
@@ -1076,8 +1105,10 @@ new_range:
 	 * ibm,dynamic-reconfiguration-memory node.
 	 */
 	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
-	if (memory)
-		parse_drconf_memory(memory);
+	if (memory) {
+		walk_drmem_lmbs(memory, numa_setup_drmem_lmb);
+		of_node_put(memory);
+	}
 
 	return 0;
 }
@@ -1277,12 +1308,35 @@ static void __init setup_node_data(int nid, u64 start_pfn, u64 end_pfn)
 	NODE_DATA(nid)->node_spanned_pages = spanned_pages;
 }
 
-void __init initmem_init(void)
+static void __init find_possible_nodes(void)
 {
-	int nid, cpu;
+	struct device_node *rtas;
+	u32 numnodes, i;
 
-	max_low_pfn = memblock_end_of_DRAM() >> PAGE_SHIFT;
-	max_pfn = max_low_pfn;
+	if (min_common_depth <= 0)
+		return;
+
+	rtas = of_find_node_by_path("/rtas");
+	if (!rtas)
+		return;
+
+	if (of_property_read_u32_index(rtas,
+				"ibm,max-associativity-domains",
+				min_common_depth, &numnodes))
+		goto out;
+
+	for (i = 0; i < numnodes; i++) {
+		if (!node_possible(i))
+			node_set(i, node_possible_map);
+	}
+
+out:
+	of_node_put(rtas);
+}
+
+void __init mem_topology_setup(void)
+{
+	int cpu;
 
 	if (parse_numa_properties())
 		setup_nonnuma();
@@ -1373,11 +1427,31 @@ void __init paging_init(void)
 	memblock_dump_all();
 
 	/*
-	 * Reduce the possible NUMA nodes to the online NUMA nodes,
-	 * since we do not support node hotplug. This ensures that  we
-	 * lower the maximum NUMA node ID to what is actually present.
+	 * Modify the set of possible NUMA nodes to reflect information
+	 * available about the set of online nodes, and the set of nodes
+	 * that we expect to make use of for this platform's affinity
+	 * calculations.
 	 */
 	nodes_and(node_possible_map, node_possible_map, node_online_map);
+
+	find_possible_nodes();
+
+	setup_node_to_cpumask_map();
+
+	reset_numa_cpu_lookup_table();
+
+	for_each_present_cpu(cpu)
+		numa_setup_cpu(cpu);
+}
+
+void __init initmem_init(void)
+{
+	int nid;
+
+	max_low_pfn = memblock_end_of_DRAM() >> PAGE_SHIFT;
+	max_pfn = max_low_pfn;
+
+	memblock_dump_all();
 
 	for_each_online_node(nid) {
 		unsigned long start_pfn, end_pfn;
@@ -1389,10 +1463,6 @@ void __init paging_init(void)
 
 	sparse_init();
 
-	setup_node_to_cpumask_map();
-
-	reset_numa_cpu_lookup_table();
-
 	/*
 	 * We need the numa_cpu_lookup_table to be accurate for all CPUs,
 	 * even before we online them, so that we can use cpu_to_{node,mem}
@@ -1402,8 +1472,6 @@ void __init paging_init(void)
 	 */
 	cpuhp_setup_state_nocalls(CPUHP_POWER_NUMA_PREPARE, "powerpc/numa:prepare",
 				  ppc_numa_cpu_prepare, ppc_numa_cpu_dead);
-	for_each_present_cpu(cpu)
-		numa_setup_cpu(cpu);
 }
 
 static int __init early_numa(char *p)
@@ -1472,8 +1540,7 @@ early_param("topology_updates", early_topology_updates);
  * memory represented in the device tree by the property
  * ibm,dynamic-reconfiguration-memory/ibm,dynamic-memory.
  */
-static int hot_add_drconf_scn_to_nid(struct device_node *memory,
-				     unsigned long scn_addr)
+static int hot_add_drconf_scn_to_nid(unsigned long scn_addr)
 {
 	const u32 *dm;
 	unsigned int n, rc;
@@ -1497,31 +1564,17 @@ static int hot_add_drconf_scn_to_nid(struct device_node *memory,
 	for (; n != 0; --n) {
 	const __be32 *dm;
 	unsigned int drconf_cell_cnt, rc;
+	struct drmem_lmb *lmb;
 	unsigned long lmb_size;
-	struct assoc_arrays aa;
 	int nid = -1;
 
-	drconf_cell_cnt = of_get_drconf_memory(memory, &dm);
-	if (!drconf_cell_cnt)
-		return -1;
+	lmb_size = drmem_lmb_size();
 
-	lmb_size = of_get_lmb_size(memory);
-	if (!lmb_size)
-		return -1;
-
-	rc = of_get_assoc_arrays(memory, &aa);
-	if (rc)
-		return -1;
-
-	for (; drconf_cell_cnt != 0; --drconf_cell_cnt) {
-		struct of_drconf_cell drmem;
-
-		read_drconf_cell(&drmem, &dm);
-
+	for_each_drmem_lmb(lmb) {
 		/* skip this block if it is reserved or not assigned to
 		 * this partition */
-		if ((drmem.flags & DRCONF_MEM_RESERVED)
-		    || !(drmem.flags & DRCONF_MEM_ASSIGNED))
+		if ((lmb->flags & DRCONF_MEM_RESERVED)
+		    || !(lmb->flags & DRCONF_MEM_ASSIGNED))
 			continue;
 
 		nid = of_drconf_to_nid_single(&drmem, &aa);
@@ -1561,9 +1614,11 @@ int hot_add_scn_to_nid(unsigned long scn_addr)
 		const unsigned int *memcell_buf;
 		if ((scn_addr < drmem.base_addr)
 		    || (scn_addr >= (drmem.base_addr + lmb_size)))
+		if ((scn_addr < lmb->base_addr)
+		    || (scn_addr >= (lmb->base_addr + lmb_size)))
 			continue;
 
-		nid = of_drconf_to_nid_single(&drmem, &aa);
+		nid = of_drconf_to_nid_single(lmb);
 		break;
 	}
 
@@ -1645,7 +1700,7 @@ int hot_add_scn_to_nid(unsigned long scn_addr)
 
 	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
 	if (memory) {
-		nid = hot_add_drconf_scn_to_nid(memory, scn_addr);
+		nid = hot_add_drconf_scn_to_nid(scn_addr);
 		of_node_put(memory);
 	} else {
 		nid = hot_add_node_scn_to_nid(scn_addr);
@@ -1661,11 +1716,7 @@ static u64 hot_add_drconf_memory_max(void)
 {
 	struct device_node *memory = NULL;
 	struct device_node *dn = NULL;
-	unsigned int drconf_cell_cnt = 0;
-	u64 lmb_size = 0;
-	const __be32 *dm = NULL;
 	const __be64 *lrdr = NULL;
-	struct of_drconf_cell drmem;
 
 	dn = of_find_node_by_path("/rtas");
 	if (dn) {
@@ -1677,14 +1728,8 @@ static u64 hot_add_drconf_memory_max(void)
 
 	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
 	if (memory) {
-		drconf_cell_cnt = of_get_drconf_memory(memory, &dm);
-		lmb_size = of_get_lmb_size(memory);
-
-		/* Advance to the last cell, each cell has 6 32 bit integers */
-		dm += (drconf_cell_cnt - 1) * 6;
-		read_drconf_cell(&drmem, &dm);
 		of_node_put(memory);
-		return drmem.base_addr + lmb_size;
+		return drmem_lmb_memory_max();
 	}
 	return 0;
 }
@@ -1713,11 +1758,32 @@ struct topology_update_data {
 	int new_nid;
 };
 
+#define TOPOLOGY_DEF_TIMER_SECS	60
+
 static u8 vphn_cpu_change_counts[NR_CPUS][MAX_DISTANCE_REF_POINTS];
 static cpumask_t cpu_associativity_changes_mask;
 static int vphn_enabled;
 static int prrn_enabled;
 static void reset_topology_timer(void);
+static int topology_timer_secs = 1;
+static int topology_inited;
+
+/*
+ * Change polling interval for associativity changes.
+ */
+int timed_topology_update(int nsecs)
+{
+	if (vphn_enabled) {
+		if (nsecs > 0)
+			topology_timer_secs = nsecs;
+		else
+			topology_timer_secs = TOPOLOGY_DEF_TIMER_SECS;
+
+		reset_topology_timer();
+	}
+
+	return 0;
+}
 
 /*
  * Store the current values of the associativity change counters in the
@@ -1733,7 +1799,7 @@ static void setup_cpu_associativity_change_counters(void)
 	for_each_possible_cpu(cpu) {
 		int i;
 		u8 *counts = vphn_cpu_change_counts[cpu];
-		volatile u8 *hypervisor_counts = lppaca[cpu].vphn_assoc_counts;
+		volatile u8 *hypervisor_counts = lppaca_of(cpu).vphn_assoc_counts;
 
 		for (i = 0; i < distance_ref_points_depth; i++)
 			counts[i] = hypervisor_counts[i];
@@ -1759,7 +1825,7 @@ static int update_cpu_associativity_changes_mask(void)
 	for_each_possible_cpu(cpu) {
 		int i, changed = 0;
 		u8 *counts = vphn_cpu_change_counts[cpu];
-		volatile u8 *hypervisor_counts = lppaca[cpu].vphn_assoc_counts;
+		volatile u8 *hypervisor_counts = lppaca_of(cpu).vphn_assoc_counts;
 
 		for (i = 0; i < distance_ref_points_depth; i++) {
 			if (hypervisor_counts[i] != counts[i]) {
@@ -1811,9 +1877,53 @@ static long vphn_get_associativity(unsigned long cpu,
 			"hcall_vphn() experienced a hardware fault "
 			"preventing VPHN. Disabling polling...\n");
 		stop_topology_update();
+		break;
+	case H_SUCCESS:
+		dbg("VPHN hcall succeeded. Reset polling...\n");
+		timed_topology_update(0);
+		break;
 	}
 
 	return rc;
+}
+
+int find_and_online_cpu_nid(int cpu)
+{
+	__be32 associativity[VPHN_ASSOC_BUFSIZE] = {0};
+	int new_nid;
+
+	/* Use associativity from first thread for all siblings */
+	if (vphn_get_associativity(cpu, associativity))
+		return cpu_to_node(cpu);
+
+	new_nid = associativity_to_nid(associativity);
+	if (new_nid < 0 || !node_possible(new_nid))
+		new_nid = first_online_node;
+
+	if (NODE_DATA(new_nid) == NULL) {
+#ifdef CONFIG_MEMORY_HOTPLUG
+		/*
+		 * Need to ensure that NODE_DATA is initialized for a node from
+		 * available memory (see memblock_alloc_try_nid). If unable to
+		 * init the node, then default to nearest node that has memory
+		 * installed. Skip onlining a node if the subsystems are not
+		 * yet initialized.
+		 */
+		if (!topology_inited || try_online_node(new_nid))
+			new_nid = first_online_node;
+#else
+		/*
+		 * Default to using the nearest node that has memory installed.
+		 * Otherwise, it would be necessary to patch the kernel MM code
+		 * to deal with more memoryless-node error conditions.
+		 */
+		new_nid = first_online_node;
+#endif
+	}
+
+	pr_debug("%s:%d cpu %d nid %d\n", __FUNCTION__, __LINE__,
+		cpu, new_nid);
+	return new_nid;
 }
 
 /*
@@ -1883,19 +1993,18 @@ int numa_update_cpu_topology(bool cpus_locked)
 {
 	unsigned int cpu, sibling, changed = 0;
 	struct topology_update_data *updates, *ud;
-	__be32 associativity[VPHN_ASSOC_BUFSIZE] = {0};
 	cpumask_t updated_cpus;
 	struct device *dev;
 	int weight, new_nid, i = 0;
 
-	if (!prrn_enabled && !vphn_enabled)
+	if (!prrn_enabled && !vphn_enabled && topology_inited)
 		return 0;
 
 	weight = cpumask_weight(&cpu_associativity_changes_mask);
 	if (!weight)
 		return 0;
 
-	updates = kzalloc(weight * (sizeof(*updates)), GFP_KERNEL);
+	updates = kcalloc(weight, sizeof(*updates), GFP_KERNEL);
 	if (!updates)
 		return 0;
 
@@ -1918,31 +2027,35 @@ int numa_update_cpu_topology(bool cpus_locked)
 			continue;
 		}
 
-		/* Use associativity from first thread for all siblings */
-		vphn_get_associativity(cpu, associativity);
-		new_nid = associativity_to_nid(associativity);
-		if (new_nid < 0 || !node_online(new_nid))
-			new_nid = first_online_node;
+		new_nid = find_and_online_cpu_nid(cpu);
 
 		if (new_nid == numa_cpu_lookup_table[cpu]) {
 			cpumask_andnot(&cpu_associativity_changes_mask,
 					&cpu_associativity_changes_mask,
 					cpu_sibling_mask(cpu));
+			dbg("Assoc chg gives same node %d for cpu%d\n",
+					new_nid, cpu);
 			cpu = cpu_last_thread_sibling(cpu);
 			continue;
 		}
 
 		for_each_cpu(sibling, cpu_sibling_mask(cpu)) {
 			ud = &updates[i++];
+			ud->next = &updates[i];
 			ud->cpu = sibling;
 			ud->new_nid = new_nid;
 			ud->old_nid = numa_cpu_lookup_table[sibling];
 			cpumask_set_cpu(sibling, &updated_cpus);
-			if (i < weight)
-				ud->next = &updates[i];
 		}
 		cpu = cpu_last_thread_sibling(cpu);
 	}
+
+	/*
+	 * Prevent processing of 'updates' from overflowing array
+	 * where last entry filled in a 'next' pointer.
+	 */
+	if (i)
+		updates[i-1].next = NULL;
 
 	pr_debug("Topology update for the following CPUs:\n");
 	if (cpumask_weight(&updated_cpus)) {
@@ -2017,7 +2130,7 @@ static void topology_schedule_update(void)
 	schedule_work(&topology_work);
 }
 
-static void topology_timer_fn(unsigned long ignored)
+static void topology_timer_fn(struct timer_list *unused)
 {
 	if (prrn_enabled && cpumask_weight(&cpu_associativity_changes_mask))
 		topology_schedule_update();
@@ -2027,14 +2140,12 @@ static void topology_timer_fn(unsigned long ignored)
 		reset_topology_timer();
 	}
 }
-static struct timer_list topology_timer =
-	TIMER_INITIALIZER(topology_timer_fn, 0, 0);
+static struct timer_list topology_timer;
 
 static void reset_topology_timer(void)
 {
-	topology_timer.data = 0;
-	topology_timer.expires = jiffies + 60 * HZ;
-	mod_timer(&topology_timer, topology_timer.expires);
+	if (vphn_enabled)
+		mod_timer(&topology_timer, jiffies + topology_timer_secs * HZ);
 }
 
 #ifdef CONFIG_SMP
@@ -2083,18 +2194,18 @@ int start_topology_update(void)
 	if (firmware_has_feature(FW_FEATURE_PRRN)) {
 		if (!prrn_enabled) {
 			prrn_enabled = 1;
-			vphn_enabled = 0;
 #ifdef CONFIG_SMP
 			rc = of_reconfig_notifier_register(&dt_update_nb);
 #endif
 		}
-	} else if (firmware_has_feature(FW_FEATURE_VPHN) &&
+	}
+	if (firmware_has_feature(FW_FEATURE_VPHN) &&
 		   lppaca_shared_proc(get_lppaca())) {
 		if (!vphn_enabled) {
-			prrn_enabled = 0;
 			vphn_enabled = 1;
 			setup_cpu_associativity_change_counters();
-			init_timer_deferrable(&topology_timer);
+			timer_setup(&topology_timer, topology_timer_fn,
+				    TIMER_DEFERRABLE);
 			reset_topology_timer();
 		}
 	}
@@ -2114,7 +2225,8 @@ int stop_topology_update(void)
 #ifdef CONFIG_SMP
 		rc = of_reconfig_notifier_unregister(&dt_update_nb);
 #endif
-	} else if (vphn_enabled) {
+	}
+	if (vphn_enabled) {
 		vphn_enabled = 0;
 		rc = del_timer_sync(&topology_timer);
 	}
@@ -2125,6 +2237,15 @@ int stop_topology_update(void)
 int prrn_is_enabled(void)
 {
 	return prrn_enabled;
+}
+
+void __init shared_proc_topology_init(void)
+{
+	if (lppaca_shared_proc(get_lppaca())) {
+		bitmap_fill(cpumask_bits(&cpu_associativity_changes_mask),
+			    nr_cpumask_bits);
+		numa_update_cpu_topology(false);
+	}
 }
 
 static int topology_read(struct seq_file *file, void *v)
@@ -2177,9 +2298,13 @@ static int topology_update_init(void)
 	if (topology_updates_enabled)
 		start_topology_update();
 
+	if (vphn_enabled)
+		topology_schedule_update();
+
 	if (!proc_create("powerpc/topology_updates", 0644, NULL, &topology_ops))
 		return -ENOMEM;
 
+	topology_inited = 1;
 	return 0;
 }
 device_initcall(topology_update_init);

@@ -54,6 +54,7 @@ choice
 config MTD_CFI_NOSWAP
 	bool "NO"
 	---help---
+	help
 	  This option defines the way in which the CPU attempts to arrange
 	  data bits when writing the 'magic' commands to the chips. Saying
 	  'NO', which is the default when CONFIG_MTD_CFI_ADV_OPTIONS isn't

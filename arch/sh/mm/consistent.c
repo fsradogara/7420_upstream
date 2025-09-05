@@ -1,9 +1,5 @@
 /*
- * arch/sh/mm/consistent.c
- *
  * Copyright (C) 2004 - 2007  Paul Mundt
- *
- * Declared coherent memory functions based on arch/x86/kernel/pci-dma_32.c
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -29,7 +25,6 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
-#include <linux/dma-debug.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/gfp.h>
@@ -197,7 +192,7 @@ int __init platform_resource_setup_memory(struct platform_device *pdev,
 	if (!memsize)
 		return 0;
 
-	buf = dma_alloc_coherent(NULL, memsize, &dma_handle, GFP_KERNEL);
+	buf = dma_alloc_coherent(&pdev->dev, memsize, &dma_handle, GFP_KERNEL);
 	if (!buf) {
 		pr_warning("%s: unable to allocate memory\n", name);
 		return -ENOMEM;

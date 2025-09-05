@@ -232,6 +232,17 @@ static int fib4_rule_match(struct fib_rule *rule, struct flowi *fl, int flags)
 	if (r->tos && (r->tos != fl4->flowi4_tos))
 		return 0;
 
+	if (rule->ip_proto && (rule->ip_proto != fl4->flowi4_proto))
+		return 0;
+
+	if (fib_rule_port_range_set(&rule->sport_range) &&
+	    !fib_rule_port_inrange(&rule->sport_range, fl4->fl4_sport))
+		return 0;
+
+	if (fib_rule_port_range_set(&rule->dport_range) &&
+	    !fib_rule_port_inrange(&rule->dport_range, fl4->fl4_dport))
+		return 0;
+
 	return 1;
 }
 
@@ -254,14 +265,17 @@ static const struct nla_policy fib4_rule_policy[FRA_MAX+1] = {
 static int fib4_rule_configure(struct fib_rule *rule, struct sk_buff *skb,
 			       struct nlmsghdr *nlh, struct fib_rule_hdr *frh,
 			       struct fib_rule_hdr *frh,
-			       struct nlattr **tb)
+			       struct nlattr **tb,
+			       struct netlink_ext_ack *extack)
 {
 	struct net *net = sock_net(skb->sk);
 	int err = -EINVAL;
 	struct fib4_rule *rule4 = (struct fib4_rule *) rule;
 
-	if (frh->tos & ~IPTOS_TOS_MASK)
+	if (frh->tos & ~IPTOS_TOS_MASK) {
+		NL_SET_ERR_MSG(extack, "Invalid tos");
 		goto errout;
+	}
 
 	/* split local/main if they are not already split */
 	err = fib_unmerge(net);
@@ -305,6 +319,9 @@ static int fib4_rule_configure(struct fib_rule *rule, struct sk_buff *skb,
 	}
 #endif
 
+	if (fib_rule_requires_fldissect(rule))
+		net->ipv4.fib_rules_require_fldissect++;
+
 	rule4->src_len = frh->src_len;
 	rule4->srcmask = inet_make_mask(rule4->src_len);
 	rule4->dst_len = frh->dst_len;
@@ -333,6 +350,10 @@ static int fib4_rule_delete(struct fib_rule *rule)
 		net->ipv4.fib_num_tclassid_users--;
 #endif
 	net->ipv4.fib_has_custom_rules = true;
+
+	if (net->ipv4.fib_rules_require_fldissect &&
+	    fib_rule_requires_fldissect(rule))
+		net->ipv4.fib_rules_require_fldissect--;
 errout:
 	return err;
 }
@@ -503,6 +524,7 @@ int __net_init fib4_rules_init(struct net *net)
 		goto fail;
 	net->ipv4.rules_ops = ops;
 	net->ipv4.fib_has_custom_rules = false;
+	net->ipv4.fib_rules_require_fldissect = 0;
 	return 0;
 
 fail:

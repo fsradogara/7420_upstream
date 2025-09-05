@@ -126,6 +126,7 @@ static void mdiobb_cmd(struct mdiobb_ctrl *ctrl, int op, u8 phy, u8 reg)
 	mdiobb_send_bit(ctrl, read);
 	mdiobb_send_bit(ctrl, !read);
 	/* send the start bit (01) and the read opcode (10) or write (10).
+	/* send the start bit (01) and the read opcode (10) or write (01).
 	   Clause 45 operation uses 00 for the start and 11, 10 for
 	   read/write */
 	mdiobb_send_bit(ctrl, 0);
@@ -223,14 +224,6 @@ static int mdiobb_write(struct mii_bus *bus, int phy, int reg, u16 val)
 	return 0;
 }
 
-static int mdiobb_reset(struct mii_bus *bus)
-{
-	struct mdiobb_ctrl *ctrl = bus->priv;
-	if (ctrl->reset)
-		ctrl->reset(bus);
-	return 0;
-}
-
 struct mii_bus *alloc_mdio_bitbang(struct mdiobb_ctrl *ctrl)
 {
 	struct mii_bus *bus;
@@ -244,7 +237,6 @@ struct mii_bus *alloc_mdio_bitbang(struct mdiobb_ctrl *ctrl)
 
 	bus->read = mdiobb_read;
 	bus->write = mdiobb_write;
-	bus->reset = mdiobb_reset;
 	bus->priv = ctrl;
 
 	return bus;

@@ -49,6 +49,8 @@ void module_bug_cleanup(struct module *);
 /* These are defined by the architecture */
 int is_valid_bugaddr(unsigned long addr);
 
+void generic_bug_clear_once(void);
+
 #else	/* !CONFIG_GENERIC_BUG */
 
 static inline enum bug_trap_type report_bug(unsigned long bug_addr,
@@ -63,6 +65,9 @@ static inline int  module_bug_finalize(const Elf_Ehdr *hdr,
 	return 0;
 }
 static inline void module_bug_cleanup(struct module *mod) {}
+
+
+static inline void generic_bug_clear_once(void) {}
 
 #endif	/* CONFIG_GENERIC_BUG */
 

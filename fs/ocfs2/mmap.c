@@ -92,11 +92,11 @@ static int __ocfs2_page_mkwrite(struct inode *inode, struct buffer_head *di_bh,
 #include "ocfs2_trace.h"
 
 
-static int ocfs2_fault(struct vm_fault *vmf)
+static vm_fault_t ocfs2_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	sigset_t oldset;
-	int ret;
+	vm_fault_t ret;
 
 	ocfs2_block_signals(&oldset);
 	ret = filemap_fault(vmf);
@@ -107,10 +107,11 @@ static int ocfs2_fault(struct vm_fault *vmf)
 	return ret;
 }
 
-static int __ocfs2_page_mkwrite(struct file *file, struct buffer_head *di_bh,
-				struct page *page)
+static vm_fault_t __ocfs2_page_mkwrite(struct file *file,
+			struct buffer_head *di_bh, struct page *page)
 {
-	int ret = VM_FAULT_NOPAGE;
+	int err;
+	vm_fault_t ret = VM_FAULT_NOPAGE;
 	struct inode *inode = file_inode(file);
 	struct address_space *mapping = inode->i_mapping;
 	loff_t pos = page_offset(page);
@@ -178,7 +179,7 @@ static int __ocfs2_page_mkwrite(struct file *file, struct buffer_head *di_bh,
 		len = ((size - 1) & ~PAGE_CACHE_MASK) + 1;
 		len = ((size - 1) & ~PAGE_MASK) + 1;
 
-	ret = ocfs2_write_begin_nolock(mapping, pos, len, OCFS2_WRITE_MMAP,
+	err = ocfs2_write_begin_nolock(mapping, pos, len, OCFS2_WRITE_MMAP,
 				       &locked_page, &fsdata, di_bh, page);
 	if (ret) {
 		if (ret != -ENOSPC)
@@ -198,6 +199,10 @@ static int __ocfs2_page_mkwrite(struct file *file, struct buffer_head *di_bh,
 			ret = VM_FAULT_OOM;
 		else
 			ret = VM_FAULT_SIGBUS;
+	if (err) {
+		if (err != -ENOSPC)
+			mlog_errno(err);
+		ret = vmf_error(err);
 		goto out;
 	}
 
@@ -205,8 +210,8 @@ static int __ocfs2_page_mkwrite(struct file *file, struct buffer_head *di_bh,
 		ret = VM_FAULT_NOPAGE;
 		goto out;
 	}
-	ret = ocfs2_write_end_nolock(mapping, pos, len, len, fsdata);
-	BUG_ON(ret != len);
+	err = ocfs2_write_end_nolock(mapping, pos, len, len, fsdata);
+	BUG_ON(err != len);
 	ret = VM_FAULT_LOCKED;
 out:
 	return ret;
@@ -226,12 +231,14 @@ static int ocfs2_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 	}
 static int ocfs2_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 static int ocfs2_page_mkwrite(struct vm_fault *vmf)
+static vm_fault_t ocfs2_page_mkwrite(struct vm_fault *vmf)
 {
 	struct page *page = vmf->page;
 	struct inode *inode = file_inode(vmf->vma->vm_file);
 	struct buffer_head *di_bh = NULL;
 	sigset_t oldset;
-	int ret;
+	int err;
+	vm_fault_t ret;
 
 	sb_start_pagefault(inode->i_sb);
 	ocfs2_block_signals(&oldset);
@@ -241,13 +248,10 @@ static int ocfs2_page_mkwrite(struct vm_fault *vmf)
 	 * node. Taking the data lock will also ensure that we don't
 	 * attempt page truncation as part of a downconvert.
 	 */
-	ret = ocfs2_inode_lock(inode, &di_bh, 1);
-	if (ret < 0) {
-		mlog_errno(ret);
-		if (ret == -ENOMEM)
-			ret = VM_FAULT_OOM;
-		else
-			ret = VM_FAULT_SIGBUS;
+	err = ocfs2_inode_lock(inode, &di_bh, 1);
+	if (err < 0) {
+		mlog_errno(err);
+		ret = vmf_error(err);
 		goto out;
 	}
 
@@ -293,7 +297,7 @@ int ocfs2_mmap(struct file *file, struct vm_area_struct *vma)
 	ret = ocfs2_inode_lock_atime(file->f_dentry->d_inode,
 				    file->f_vfsmnt, &lock_level);
 	ret = ocfs2_inode_lock_atime(file_inode(file),
-				    file->f_path.mnt, &lock_level);
+				    file->f_path.mnt, &lock_level, 1);
 	if (ret < 0) {
 		mlog_errno(ret);
 		goto out;

@@ -199,8 +199,8 @@ static struct xt_match connbytes_mt_reg[] __read_mostly = {
 
 	ret = nf_ct_netns_get(par->net, par->family);
 	if (ret < 0)
-		pr_info("cannot load conntrack support for proto=%u\n",
-			par->family);
+		pr_info_ratelimited("cannot load conntrack support for proto=%u\n",
+				    par->family);
 
 	/*
 	 * This filter cannot function correctly unless connection tracking

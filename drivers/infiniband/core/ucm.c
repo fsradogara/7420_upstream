@@ -46,12 +46,16 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 
+#include <linux/nospec.h>
+
 #include <linux/uaccess.h>
 
 #include <rdma/ib.h>
 #include <rdma/ib_cm.h>
 #include <rdma/ib_user_cm.h>
 #include <rdma/ib_marshall.h>
+
+#include "core_priv.h"
 
 MODULE_AUTHOR("Libor Michalek");
 MODULE_DESCRIPTION("InfiniBand userspace Connection Manager access");
@@ -104,7 +108,9 @@ struct ib_ucm_event {
 enum {
 	IB_UCM_MAJOR = 231,
 	IB_UCM_BASE_MINOR = 224,
-	IB_UCM_MAX_DEVICES = 32
+	IB_UCM_MAX_DEVICES = RDMA_MAX_PORTS,
+	IB_UCM_NUM_FIXED_MINOR = 32,
+	IB_UCM_NUM_DYNAMIC_MINOR = IB_UCM_MAX_DEVICES - IB_UCM_NUM_FIXED_MINOR,
 };
 
 /* ib_cm and ib_user_cm modules share /sys/class/infiniband_cm */
@@ -115,6 +121,7 @@ extern struct class cm_class;
 static void ib_ucm_add_one(struct ib_device *device);
 static void ib_ucm_remove_one(struct ib_device *device);
 #define IB_UCM_BASE_DEV MKDEV(IB_UCM_MAJOR, IB_UCM_BASE_MINOR)
+static dev_t dynamic_ucm_dev;
 
 static void ib_ucm_add_one(struct ib_device *device);
 static void ib_ucm_remove_one(struct ib_device *device, void *client_data);
@@ -221,7 +228,7 @@ error:
 }
 
 static void ib_ucm_event_req_get(struct ib_ucm_req_event_resp *ureq,
-				 struct ib_cm_req_event_param *kreq)
+				 const struct ib_cm_req_event_param *kreq)
 {
 	ureq->remote_ca_guid             = kreq->remote_ca_guid;
 	ureq->remote_qkey                = kreq->remote_qkey;
@@ -245,7 +252,7 @@ static void ib_ucm_event_req_get(struct ib_ucm_req_event_resp *ureq,
 }
 
 static void ib_ucm_event_rep_get(struct ib_ucm_rep_event_resp *urep,
-				 struct ib_cm_rep_event_param *krep)
+				 const struct ib_cm_rep_event_param *krep)
 {
 	urep->remote_ca_guid      = krep->remote_ca_guid;
 	urep->remote_qkey         = krep->remote_qkey;
@@ -261,14 +268,14 @@ static void ib_ucm_event_rep_get(struct ib_ucm_rep_event_resp *urep,
 }
 
 static void ib_ucm_event_sidr_rep_get(struct ib_ucm_sidr_rep_event_resp *urep,
-				      struct ib_cm_sidr_rep_event_param *krep)
+				      const struct ib_cm_sidr_rep_event_param *krep)
 {
 	urep->status = krep->status;
 	urep->qkey   = krep->qkey;
 	urep->qpn    = krep->qpn;
 };
 
-static int ib_ucm_event_process(struct ib_cm_event *evt,
+static int ib_ucm_event_process(const struct ib_cm_event *evt,
 				struct ib_ucm_event *uvt)
 {
 	void *info = NULL;
@@ -365,7 +372,7 @@ err1:
 }
 
 static int ib_ucm_event_handler(struct ib_cm_id *cm_id,
-				struct ib_cm_event *event)
+				const struct ib_cm_event *event)
 {
 	struct ib_ucm_event *uevent;
 	struct ib_ucm_context *ctx;
@@ -445,7 +452,7 @@ static ssize_t ib_ucm_event(struct ib_ucm_file *file,
 		uevent->resp.id = ctx->id;
 	}
 
-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &uevent->resp, sizeof(uevent->resp))) {
 		result = -EFAULT;
 		goto done;
@@ -456,7 +463,7 @@ static ssize_t ib_ucm_event(struct ib_ucm_file *file,
 			result = -ENOMEM;
 			goto done;
 		}
-		if (copy_to_user((void __user *)(unsigned long)cmd.data,
+		if (copy_to_user(u64_to_user_ptr(cmd.data),
 				 uevent->data, uevent->data_len)) {
 			result = -EFAULT;
 			goto done;
@@ -468,7 +475,7 @@ static ssize_t ib_ucm_event(struct ib_ucm_file *file,
 			result = -ENOMEM;
 			goto done;
 		}
-		if (copy_to_user((void __user *)(unsigned long)cmd.info,
+		if (copy_to_user(u64_to_user_ptr(cmd.info),
 				 uevent->info, uevent->info_len)) {
 			result = -EFAULT;
 			goto done;
@@ -517,7 +524,7 @@ static ssize_t ib_ucm_create_id(struct ib_ucm_file *file,
 	}
 
 	resp.id = ctx->id;
-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp))) {
 		result = -EFAULT;
 		goto err2;
@@ -571,7 +578,7 @@ static ssize_t ib_ucm_destroy_id(struct ib_ucm_file *file,
 	ib_ucm_cleanup_events(ctx);
 
 	resp.events_reported = ctx->events_reported;
-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp)))
 		result = -EFAULT;
 
@@ -603,7 +610,7 @@ static ssize_t ib_ucm_attr_id(struct ib_ucm_file *file,
 	resp.local_id     = ctx->cm_id->local_id;
 	resp.remote_id    = ctx->cm_id->remote_id;
 
-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp)))
 		result = -EFAULT;
 
@@ -640,7 +647,7 @@ static ssize_t ib_ucm_init_qp_attr(struct ib_ucm_file *file,
 
 	ib_copy_qp_attr_to_user(ctx->cm_id->device, &resp, &qp_attr);
 
-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp)))
 		result = -EFAULT;
 
@@ -725,6 +732,7 @@ static int ib_ucm_alloc_data(const void **dest, u64 src, u32 len)
 		return -EFAULT;
 	}
 	data = memdup_user((void __user *)(unsigned long)src, len);
+	data = memdup_user(u64_to_user_ptr(src), len);
 	if (IS_ERR(data))
 		return PTR_ERR(data);
 
@@ -746,7 +754,7 @@ static int ib_ucm_path_get(struct sa_path_rec **path, u64 src)
 	if (!sa_path)
 		return -ENOMEM;
 
-	if (copy_from_user(&upath, (void __user *)(unsigned long)src,
+	if (copy_from_user(&upath, u64_to_user_ptr(src),
 			   sizeof(upath))) {
 
 		kfree(sa_path);
@@ -1025,13 +1033,10 @@ static ssize_t ib_ucm_send_sidr_req(struct ib_ucm_file *file,
 				    const char __user *inbuf,
 				    int in_len, int out_len)
 {
-	struct ib_cm_sidr_req_param param;
+	struct ib_cm_sidr_req_param param = {};
 	struct ib_ucm_context *ctx;
 	struct ib_ucm_sidr_req cmd;
 	int result;
-
-	param.private_data = NULL;
-	param.path = NULL;
 
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
@@ -1149,6 +1154,7 @@ static ssize_t ib_ucm_write(struct file *filp, const char __user *buf,
 	if (hdr.cmd < 0 || hdr.cmd >= ARRAY_SIZE(ucm_cmd_table))
 	if (hdr.cmd >= ARRAY_SIZE(ucm_cmd_table))
 		return -EINVAL;
+	hdr.cmd = array_index_nospec(hdr.cmd, ARRAY_SIZE(ucm_cmd_table));
 
 	if (hdr.in + sizeof(hdr) > len)
 		return -EINVAL;
@@ -1161,16 +1167,16 @@ static ssize_t ib_ucm_write(struct file *filp, const char __user *buf,
 	return result;
 }
 
-static unsigned int ib_ucm_poll(struct file *filp,
+static __poll_t ib_ucm_poll(struct file *filp,
 				struct poll_table_struct *wait)
 {
 	struct ib_ucm_file *file = filp->private_data;
-	unsigned int mask = 0;
+	__poll_t mask = 0;
 
 	poll_wait(filp, &file->poll_wait, wait);
 
 	if (!list_empty(&file->events))
-		mask = POLLIN | POLLRDNORM;
+		mask = EPOLLIN | EPOLLRDNORM;
 
 	return mask;
 }
@@ -1231,7 +1237,6 @@ static int ib_ucm_close(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static DECLARE_BITMAP(overflow_map, IB_UCM_MAX_DEVICES);
 static void ib_ucm_release_dev(struct device *dev)
 {
 	struct ib_ucm_device *ucm_dev;
@@ -1244,10 +1249,7 @@ static void ib_ucm_release_dev(struct device *dev)
 
 static void ib_ucm_free_dev(struct ib_ucm_device *ucm_dev)
 {
-	if (ucm_dev->devnum < IB_UCM_MAX_DEVICES)
-		clear_bit(ucm_dev->devnum, dev_map);
-	else
-		clear_bit(ucm_dev->devnum - IB_UCM_MAX_DEVICES, overflow_map);
+	clear_bit(ucm_dev->devnum, dev_map);
 }
 
 static const struct file_operations ucm_fops = {
@@ -1324,19 +1326,14 @@ static void ib_ucm_add_one(struct ib_device *device)
 
 	set_bit(ucm_dev->devnum, dev_map);
 	devnum = find_first_zero_bit(dev_map, IB_UCM_MAX_DEVICES);
-	if (devnum >= IB_UCM_MAX_DEVICES) {
-		devnum = find_overflow_devnum();
-		if (devnum < 0)
-			goto err;
-
-		ucm_dev->devnum = devnum + IB_UCM_MAX_DEVICES;
-		base = devnum + overflow_maj;
-		set_bit(devnum, overflow_map);
-	} else {
-		ucm_dev->devnum = devnum;
-		base = devnum + IB_UCM_BASE_DEV;
-		set_bit(devnum, dev_map);
-	}
+	if (devnum >= IB_UCM_MAX_DEVICES)
+		goto err;
+	ucm_dev->devnum = devnum;
+	set_bit(devnum, dev_map);
+	if (devnum >= IB_UCM_NUM_FIXED_MINOR)
+		base = dynamic_ucm_dev + devnum - IB_UCM_NUM_FIXED_MINOR;
+	else
+		base = IB_UCM_BASE_DEV + devnum;
 
 	cdev_init(&ucm_dev->cdev, &ucm_fops);
 	ucm_dev->cdev.owner = THIS_MODULE;
@@ -1410,7 +1407,7 @@ static int __init ib_ucm_init(void)
 {
 	int ret;
 
-	ret = register_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_MAX_DEVICES,
+	ret = register_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_NUM_FIXED_MINOR,
 				     "infiniband_cm");
 	if (ret) {
 		pr_err("ucm: couldn't register device number\n");
@@ -1418,6 +1415,13 @@ static int __init ib_ucm_init(void)
 	}
 
 	ret = class_create_file(&cm_class, &class_attr_abi_version);
+	ret = alloc_chrdev_region(&dynamic_ucm_dev, 0, IB_UCM_NUM_DYNAMIC_MINOR,
+				  "infiniband_cm");
+	if (ret) {
+		pr_err("ucm: couldn't register dynamic device number\n");
+		goto err_alloc;
+	}
+
 	ret = class_create_file(&cm_class, &class_attr_abi_version.attr);
 	if (ret) {
 		pr_err("ucm: couldn't create abi_version attribute\n");
@@ -1435,7 +1439,9 @@ error3:
 	class_remove_file(&cm_class, &class_attr_abi_version);
 	class_remove_file(&cm_class, &class_attr_abi_version.attr);
 error2:
-	unregister_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_MAX_DEVICES);
+	unregister_chrdev_region(dynamic_ucm_dev, IB_UCM_NUM_DYNAMIC_MINOR);
+err_alloc:
+	unregister_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_NUM_FIXED_MINOR);
 error1:
 	return ret;
 }
@@ -1446,9 +1452,8 @@ static void __exit ib_ucm_cleanup(void)
 	class_remove_file(&cm_class, &class_attr_abi_version);
 	unregister_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_MAX_DEVICES);
 	class_remove_file(&cm_class, &class_attr_abi_version.attr);
-	unregister_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_MAX_DEVICES);
-	if (overflow_maj)
-		unregister_chrdev_region(overflow_maj, IB_UCM_MAX_DEVICES);
+	unregister_chrdev_region(IB_UCM_BASE_DEV, IB_UCM_NUM_FIXED_MINOR);
+	unregister_chrdev_region(dynamic_ucm_dev, IB_UCM_NUM_DYNAMIC_MINOR);
 	idr_destroy(&ctx_id_table);
 }
 

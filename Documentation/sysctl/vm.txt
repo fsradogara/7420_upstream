@@ -100,10 +100,10 @@ for swap because we only cluster swap data in 32-page groups.
 - dirty_bytes
 - dirty_expire_centisecs
 - dirty_ratio
+- dirtytime_expire_seconds
 - dirty_writeback_centisecs
 - drop_caches
 - extfrag_threshold
-- hugepages_treat_as_movable
 - hugetlb_shm_group
 - laptop_mode
 - legacy_va_layout
@@ -118,6 +118,7 @@ for swap because we only cluster swap data in 32-page groups.
 - mmap_rnd_bits
 - mmap_rnd_compat_bits
 - nr_hugepages
+- nr_hugepages_mempolicy
 - nr_overcommit_hugepages
 - nr_trim_pages         (only if CONFIG_MMU=n)
 - numa_zonelist_order
@@ -131,6 +132,7 @@ for swap because we only cluster swap data in 32-page groups.
 - percpu_pagelist_fraction
 - stat_interval
 - stat_refresh
+- numa_stat
 - swappiness
 - user_reserve_kbytes
 - vfs_cache_pressure
@@ -239,6 +241,17 @@ and reclaimable pages, the number of pages at which a process which is
 generating disk writes will itself start writing out dirty data.
 
 The total available memory is not equal to total system memory.
+
+
+dirtytime_expire_seconds
+
+When a lazytime inode is constantly having its pages dirtied, the inode with
+an updated timestamp will never get chance to be written out.  And, if the
+only thing that has happened on the file system is a dirtytime inode caused
+by an atime update, a worker will be scheduled to make sure that inode
+eventually gets pushed out to disk.  This tunable is used to define when dirty
+inode is old enough to be eligible for writeback by the kernel flusher threads.
+And, it is also used as the interval to wakeup dirtytime_writeback thread.
 
 
 dirty_writeback_centisecs
@@ -391,8 +404,6 @@ The lowmem_reserve_ratio is an array. You can see them by reading this file.
 % cat /proc/sys/vm/lowmem_reserve_ratio
 256     256     32
 -
-Note: # of this elements is one fewer than number of zones. Because the highest
-      zone's value is not necessary for following calculation.
 
 But, these values are not used directly. The kernel calculates # of protection
 pages for each zones from them. These are shown as array of protection pages
@@ -443,7 +454,8 @@ As above expression, they are reciprocal number of ratio.
 pages of higher zones on the node.
 
 If you would like to protect more pages, smaller values are effective.
-The minimum value is 1 (1/1 -> 100%).
+The minimum value is 1 (1/1 -> 100%). The value less than 1 completely
+disables protection of the pages.
 
 
 max_map_count:
@@ -715,7 +727,15 @@ nr_hugepages
 
 Change the minimum size of the hugepage pool.
 
-See Documentation/vm/hugetlbpage.txt
+See Documentation/admin-guide/mm/hugetlbpage.rst
+
+
+nr_hugepages_mempolicy
+
+Change the size of the hugepage pool at run-time on a specific
+set of NUMA nodes.
+
+See Documentation/admin-guide/mm/hugetlbpage.rst
 
 
 nr_overcommit_hugepages
@@ -723,7 +743,7 @@ nr_overcommit_hugepages
 Change the maximum size of the hugepage pool. The maximum is
 nr_hugepages + nr_overcommit_hugepages.
 
-See Documentation/vm/hugetlbpage.txt
+See Documentation/admin-guide/mm/hugetlbpage.rst
 
 
 nr_trim_pages
@@ -817,7 +837,7 @@ oom_dump_tasks
 
 Enables a system-wide task dump (excluding kernel threads) to be produced
 when the kernel performs an OOM-killing and includes such information as
-pid, uid, tgid, vm size, rss, nr_ptes, nr_pmds, swapents, oom_score_adj
+pid, uid, tgid, vm size, rss, pgtables_bytes, swapents, oom_score_adj
 score, and name.  This is helpful to determine why the OOM killer was
 invoked, to identify the rogue task that caused it, and to determine why
 the OOM killer chose the task it did to kill.
@@ -884,8 +904,8 @@ and don't use much of it.
 
 The default value is 0.
 
-See Documentation/vm/overcommit-accounting and
-mm/mmap.c::__vm_enough_memory() for more information.
+See Documentation/vm/overcommit-accounting.rst and
+mm/util.c::__vm_enough_memory() for more information.
 
 
 overcommit_ratio:
@@ -977,10 +997,24 @@ as 0) and "fails" with EINVAL if any are found, with a warning in dmesg.
 with no ill effects: errors and warnings on these stats are suppressed.)
 
 
+numa_stat
+
+This interface allows runtime configuration of numa statistics.
+
+When page allocation performance becomes a bottleneck and you can tolerate
+some possible tool breakage and decreased numa counter precision, you can
+do:
+	echo 0 > /proc/sys/vm/numa_stat
+
+When page allocation performance is not a bottleneck and you want all
+tooling to work, you can do:
+	echo 1 > /proc/sys/vm/numa_stat
+
+
 swappiness
 
 This control is used to define how aggressive the kernel will swap
-memory pages.  Higher values will increase agressiveness, lower values
+memory pages.  Higher values will increase aggressiveness, lower values
 decrease the amount of swap.  A value of 0 instructs the kernel not to
 initiate swap until the amount of free and file-backed pages is less
 than the high water mark in a zone.

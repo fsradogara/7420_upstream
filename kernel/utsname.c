@@ -20,6 +20,8 @@
 #include <linux/proc_ns.h>
 #include <linux/sched/task.h>
 
+static struct kmem_cache *uts_ns_cache __ro_after_init;
+
 static struct ucounts *inc_uts_namespaces(struct user_namespace *ns)
 {
 	return inc_ucount(ns, current_euid(), UCOUNT_UTS_NAMESPACES);
@@ -34,7 +36,7 @@ static struct uts_namespace *create_uts_ns(void)
 {
 	struct uts_namespace *uts_ns;
 
-	uts_ns = kmalloc(sizeof(struct uts_namespace), GFP_KERNEL);
+	uts_ns = kmem_cache_alloc(uts_ns_cache, GFP_KERNEL);
 	if (uts_ns)
 		kref_init(&uts_ns->kref);
 	return uts_ns;
@@ -58,6 +60,7 @@ static struct uts_namespace *clone_uts_ns(struct uts_namespace *old_ns)
 	up_read(&uts_sem);
 	kref_init(&ns->kref);
  * Return ERR_PTR(-ENOMEM) on error (failure to kmalloc), new ns otherwise
+ * Return ERR_PTR(-ENOMEM) on error (failure to allocate), new ns otherwise
  */
 static struct uts_namespace *clone_uts_ns(struct user_namespace *user_ns,
 					  struct uts_namespace *old_ns)
@@ -90,7 +93,7 @@ static struct uts_namespace *clone_uts_ns(struct user_namespace *user_ns,
 	return ns;
 
 fail_free:
-	kfree(ns);
+	kmem_cache_free(uts_ns_cache, ns);
 fail_dec:
 	dec_uts_namespaces(ucounts);
 fail:
@@ -132,7 +135,7 @@ void free_uts_ns(struct kref *kref)
 	dec_uts_namespaces(ns->ucounts);
 	put_user_ns(ns->user_ns);
 	ns_free_inum(&ns->ns);
-	kfree(ns);
+	kmem_cache_free(uts_ns_cache, ns);
 }
 
 static inline struct uts_namespace *to_uts_ns(struct ns_common *ns)
@@ -188,3 +191,13 @@ const struct proc_ns_operations utsns_operations = {
 	.install	= utsns_install,
 	.owner		= utsns_owner,
 };
+
+void __init uts_ns_init(void)
+{
+	uts_ns_cache = kmem_cache_create_usercopy(
+			"uts_namespace", sizeof(struct uts_namespace), 0,
+			SLAB_PANIC|SLAB_ACCOUNT,
+			offsetof(struct uts_namespace, name),
+			sizeof_field(struct uts_namespace, name),
+			NULL);
+}

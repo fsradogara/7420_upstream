@@ -23,7 +23,7 @@
 
 #define FIRST_KERNEL_PGD_NR	(FIRST_USER_PGD_NR + USER_PTRS_PER_PGD)
 #ifdef CONFIG_ARM_LPAE
-#define __pgd_alloc()	kmalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL)
+#define __pgd_alloc()	kmalloc_array(PTRS_PER_PGD, sizeof(pgd_t), GFP_KERNEL)
 #define __pgd_free(pgd)	kfree(pgd)
 #else
 #define __pgd_alloc()	(pgd_t *)__get_free_pages(GFP_KERNEL, 2)
@@ -200,6 +200,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd_base)
 free:
 	free_pages((unsigned long) pgd, 2);
 	atomic_long_dec(&mm->nr_ptes);
+	mm_dec_nr_ptes(mm);
 no_pmd:
 	pud_clear(pud);
 	pmd_free(mm, pmd);

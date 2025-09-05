@@ -7,6 +7,7 @@
 #include <linux/wait.h>
 
 #include <linux/atomic.h>
+#include <linux/timer.h>
 #include <linux/wait.h>
 #include <linux/notifier.h>
 #include <linux/kernel_stat.h>
@@ -180,6 +181,7 @@ extern struct bus_type ccw_bus_type;
 void ccw_device_set_disconnected(struct ccw_device *cdev);
 void ccw_device_set_notoper(struct ccw_device *cdev);
 
+void ccw_device_timeout(struct timer_list *t);
 void ccw_device_set_timeout(struct ccw_device *, int);
 void ccw_device_schedule_recovery(void);
 

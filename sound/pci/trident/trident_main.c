@@ -3459,7 +3459,7 @@ static int snd_trident_tlb_alloc(struct snd_trident *trident)
 		dev_err(trident->card->dev, "unable to allocate TLB buffer\n");
 		return -ENOMEM;
 	}
-	trident->tlb.entries = (unsigned int*)ALIGN((unsigned long)trident->tlb.buffer.area, SNDRV_TRIDENT_MAX_PAGES * 4);
+	trident->tlb.entries = (__le32 *)ALIGN((unsigned long)trident->tlb.buffer.area, SNDRV_TRIDENT_MAX_PAGES * 4);
 	trident->tlb.entries_dmaaddr = ALIGN(trident->tlb.buffer.addr, SNDRV_TRIDENT_MAX_PAGES * 4);
 	/* allocate shadow TLB page table (virtual addresses) */
 	trident->tlb.shadow_entries = vmalloc(SNDRV_TRIDENT_MAX_PAGES*sizeof(unsigned long));
@@ -3467,6 +3467,9 @@ static int snd_trident_tlb_alloc(struct snd_trident *trident)
 		snd_printk(KERN_ERR "trident: unable to allocate shadow TLB entries\n");
 		dev_err(trident->card->dev,
 			"unable to allocate shadow TLB entries\n");
+	trident->tlb.shadow_entries =
+		vmalloc(array_size(SNDRV_TRIDENT_MAX_PAGES,
+				   sizeof(unsigned long)));
 	if (!trident->tlb.shadow_entries)
 		return -ENOMEM;
 

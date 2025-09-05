@@ -399,7 +399,7 @@ static struct omap_usb_config innovator1510_usb_config __initdata = {
 	.pins[0]	= 2,
 };
 
-static struct omap_lcd_config innovator1510_lcd_config __initdata = {
+static const struct omap_lcd_config innovator1510_lcd_config __initconst = {
 	.ctrl_name	= "internal",
 };
 #endif
@@ -421,7 +421,7 @@ static struct omap_usb_config h2_usb_config __initdata = {
 	.pins[1]	= 3,
 };
 
-static struct omap_lcd_config innovator1610_lcd_config __initdata = {
+static const struct omap_lcd_config innovator1610_lcd_config __initconst = {
 	.ctrl_name	= "internal",
 };
 #endif

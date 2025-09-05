@@ -20,6 +20,7 @@ extern int pci_cleanup_aer_uncorrect_error_status(struct pci_dev *dev);
 #define AER_NONFATAL			0
 #define AER_FATAL			1
 #define AER_CORRECTABLE			2
+#define DPC_FATAL			3
 
 struct pci_dev;
 

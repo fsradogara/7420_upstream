@@ -505,7 +505,7 @@ cifs_do_create(struct inode *inode, struct dentry *direntry, unsigned int xid,
 	oparms.path = full_path;
 	oparms.fid = fid;
 	oparms.reconnect = false;
-
+	oparms.mode = mode;
 	rc = server->ops->open(xid, &oparms, oplock, buf);
 	if (rc) {
 		cifs_dbg(FYI, "cifs_create returned 0x%x\n", rc);
@@ -723,8 +723,7 @@ out_err:
 
 int
 cifs_atomic_open(struct inode *inode, struct dentry *direntry,
-		 struct file *file, unsigned oflags, umode_t mode,
-		 int *opened)
+		 struct file *file, unsigned oflags, umode_t mode)
 {
 	int rc;
 	unsigned int xid;
@@ -797,9 +796,9 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 	}
 
 	if ((oflags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL))
-		*opened |= FILE_CREATED;
+		file->f_mode |= FMODE_CREATED;
 
-	rc = finish_open(file, direntry, generic_file_open, opened);
+	rc = finish_open(file, direntry, generic_file_open);
 	if (rc) {
 		if (server->ops->close)
 			server->ops->close(xid, tcon, &fid);
@@ -1063,6 +1062,9 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 		goto mknod_out;
 	}
 
+	if (!S_ISCHR(mode) && !S_ISBLK(mode))
+		goto mknod_out;
+
 	if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_UNX_EMUL))
 		goto mknod_out;
 
@@ -1071,10 +1073,8 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 
 	buf = kmalloc(sizeof(FILE_ALL_INFO), GFP_KERNEL);
 	if (buf == NULL) {
-		kfree(full_path);
 		rc = -ENOMEM;
-		free_xid(xid);
-		return rc;
+		goto mknod_out;
 	}
 
 	if (backup_cred(cifs_sb))
@@ -1121,7 +1121,7 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 		pdev->minor = cpu_to_le64(MINOR(device_number));
 		rc = tcon->ses->server->ops->sync_write(xid, &fid, &io_parms,
 							&bytes_written, iov, 1);
-	} /* else if (S_ISFIFO) */
+	}
 	tcon->ses->server->ops->close(xid, tcon, &fid);
 	d_drop(direntry);
 
@@ -1173,13 +1173,16 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	tlink = cifs_sb_tlink(cifs_sb);
 	if (IS_ERR(tlink)) {
 		free_xid(xid);
-		return (struct dentry *)tlink;
+		return ERR_CAST(tlink);
 	}
 	pTcon = tlink_tcon(tlink);
 
 	rc = check_name(direntry, pTcon);
-	if (rc)
-		goto lookup_out;
+	if (unlikely(rc)) {
+		cifs_put_tlink(tlink);
+		free_xid(xid);
+		return ERR_PTR(rc);
+	}
 
 	/* can not grab the rename sem here since it would
 	deadlock in the cases (beginning of sys_rename itself)
@@ -1214,6 +1217,9 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 
 		rc = -ENOMEM;
 		goto lookup_out;
+		cifs_put_tlink(tlink);
+		free_xid(xid);
+		return ERR_PTR(-ENOMEM);
 	}
 
 	if (d_really_is_positive(direntry)) {
@@ -1232,12 +1238,10 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 				parent_dir_inode->i_sb, xid, NULL);
 	}
 
-	if ((rc == 0) && (newInode != NULL)) {
-		d_add(direntry, newInode);
+	if (rc == 0) {
 		/* since paths are not looked up by component - the parent
 		   directories are presumed to be good here */
 		renew_parental_timestamps(direntry);
-
 	} else if (rc == -ENOENT) {
 		rc = 0;
 		direntry->d_time = jiffies;
@@ -1259,10 +1263,20 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	kfree(full_path);
 	FreeXid(xid);
 lookup_out:
+		cifs_set_time(direntry, jiffies);
+		newInode = NULL;
+	} else {
+		if (rc != -EACCES) {
+			cifs_dbg(FYI, "Unexpected lookup error %d\n", rc);
+			/* We special case check for Access Denied - since that
+			is a common return code */
+		}
+		newInode = ERR_PTR(rc);
+	}
 	kfree(full_path);
 	cifs_put_tlink(tlink);
 	free_xid(xid);
-	return ERR_PTR(rc);
+	return d_splice_alias(newInode, direntry);
 }
 
 static int

@@ -21,6 +21,7 @@ MODULE_DESCRIPTION("Xtables: string-based matching");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("ipt_string");
 MODULE_ALIAS("ip6t_string");
+MODULE_ALIAS("ebt_string");
 
 static bool
 string_mt(const struct sk_buff *skb, const struct net_device *in,

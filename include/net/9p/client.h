@@ -27,6 +27,7 @@
 #define NET_9P_CLIENT_H
 
 #include <linux/utsname.h>
+#include <linux/idr.h>
 
 /* Number of requests per row */
 #define P9_ROW_MAXTAG 255
@@ -112,7 +113,7 @@ enum p9_req_status_t {
 struct p9_req_t {
 	int status;
 	int t_err;
-	wait_queue_head_t *wq;
+	wait_queue_head_t wq;
 	struct p9_fcall *tc;
 	struct p9_fcall *rc;
 	void *aux;
@@ -136,8 +137,7 @@ struct p9_req_t {
  * @proto_version: 9P protocol version to use
  * @trans_mod: module API instantiated with this client
  * @trans: tranport instance state and API
- * @fidpool: fid handle accounting for session
- * @fidlist: List of active fid handles
+ * @fids: All active FID handles
  * @tagpool - transaction id accounting for session
  * @reqs - 2D array of requests
  * @max_tag - current maximum tag id allocated
@@ -185,8 +185,7 @@ struct p9_client {
 		} tcp;
 	} trans_opts;
 
-	struct p9_idpool *fidpool;
-	struct list_head fidlist;
+	struct idr fids;
 
 	struct p9_idpool *tagpool;
 	struct p9_req_t *reqs[P9_ROW_MAXTAG];
@@ -208,7 +207,6 @@ struct p9_client {
  * @rdir_pos: (unused?)
  * @rdir_fcall: holds response of last directory read request
  * @rdir: readdir accounting structure (allocated on demand)
- * @flist: per-client-instance fid tracking
  * @dlist: per-dentry fid tracking
  *
  * TODO: This needs lots of explanation.
@@ -258,7 +256,6 @@ struct p9_stat *p9_client_dirread(struct p9_fid *fid, u64 offset);
 
 	void *rdir;
 
-	struct list_head flist;
 	struct hlist_node dlist;	/* list of all fids attached to a dentry */
 };
 

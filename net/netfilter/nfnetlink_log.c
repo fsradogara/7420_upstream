@@ -50,7 +50,6 @@
 #include <net/sock.h>
 #include <net/netfilter/nf_log.h>
 #include <net/netns/generic.h>
-#include <net/netfilter/nfnetlink_log.h>
 
 #include <linux/atomic.h>
 #include <linux/refcount.h>
@@ -60,6 +59,7 @@
 #include "../bridge/br_private.h"
 #endif
 
+#define NFULNL_COPY_DISABLED	0xff
 #define NFULNL_NLBUFSIZ_DEFAULT	NLMSG_GOODSIZE
 #define NFULNL_TIMEOUT_DEFAULT 	HZ	/* every second */
 #define NFULNL_QTHRESH_DEFAULT 	100	/* 100 packets */
@@ -200,7 +200,7 @@ instance_put(struct nfulnl_instance *inst)
 		call_rcu_bh(&inst->rcu, nfulnl_instance_free_rcu);
 }
 
-static void nfulnl_timer(unsigned long data);
+static void nfulnl_timer(struct timer_list *t);
 
 static struct nfulnl_instance *
 instance_create(u_int16_t group_num, int pid)
@@ -240,7 +240,7 @@ instance_create(struct net *net, u_int16_t group_num,
 	/* needs to be two, since we _put() after creation */
 	refcount_set(&inst->use, 2);
 
-	setup_timer(&inst->timer, nfulnl_timer, (unsigned long)inst);
+	timer_setup(&inst->timer, nfulnl_timer, 0);
 
 	inst->peer_pid = pid;
 	inst->net = get_net(net);
@@ -481,9 +481,9 @@ __nfulnl_flush(struct nfulnl_instance *inst)
 }
 
 static void
-nfulnl_timer(unsigned long data)
+nfulnl_timer(struct timer_list *t)
 {
-	struct nfulnl_instance *inst = (struct nfulnl_instance *)data;
+	struct nfulnl_instance *inst = from_timer(inst, t, timer);
 
 	spin_lock_bh(&inst->lock);
 	if (inst->skb)
@@ -849,7 +849,7 @@ nfulnl_log_packet(struct net *net,
 	struct nfulnl_instance *inst;
 	const struct nf_loginfo *li;
 	unsigned int qthreshold;
-	unsigned int plen;
+	unsigned int plen = 0;
 	struct nfnl_log_net *log = nfnl_log_pernet(net);
 	const struct nfnl_ct_hook *nfnl_ct = NULL;
 	struct nf_conn *ct = NULL;
@@ -865,7 +865,6 @@ nfulnl_log_packet(struct net *net,
 	if (!inst)
 		return;
 
-	plen = 0;
 	if (prefix)
 		plen = strlen(prefix) + 1;
 
@@ -996,7 +995,6 @@ alloc_failure:
 	/* FIXME: statistics */
 	goto unlock_and_release;
 }
-EXPORT_SYMBOL_GPL(nfulnl_log_packet);
 
 static int
 nfulnl_rcv_nl_event(struct notifier_block *this,
@@ -1451,8 +1449,8 @@ static int __net_init nfnl_log_net_init(struct net *net)
 	spin_lock_init(&log->instances_lock);
 
 #ifdef CONFIG_PROC_FS
-	proc = proc_create("nfnetlink_log", 0440,
-			   net->nf.proc_netfilter, &nful_file_ops);
+	proc = proc_create_net("nfnetlink_log", 0440, net->nf.proc_netfilter,
+			&nful_seq_ops, sizeof(struct iter_state));
 	if (!proc)
 		return -ENOMEM;
 
@@ -1466,10 +1464,15 @@ static int __net_init nfnl_log_net_init(struct net *net)
 
 static void __net_exit nfnl_log_net_exit(struct net *net)
 {
+	struct nfnl_log_net *log = nfnl_log_pernet(net);
+	unsigned int i;
+
 #ifdef CONFIG_PROC_FS
 	remove_proc_entry("nfnetlink_log", net->nf.proc_netfilter);
 #endif
 	nf_log_unset(net, &nfulnl_logger);
+	for (i = 0; i < INSTANCE_BUCKETS; i++)
+		WARN_ON_ONCE(!hlist_empty(&log->instance_table[i]));
 }
 
 static struct pernet_operations nfnl_log_net_ops = {

@@ -105,9 +105,9 @@ static int validate_inode(struct ubifs_info *c, const struct inode *inode)
 	if (ui->xattr && !S_ISREG(inode->i_mode))
 		return 5;
 
-	if (!ubifs_compr_present(ui->compr_type)) {
+	if (!ubifs_compr_present(c, ui->compr_type)) {
 		ubifs_warn(c, "inode %lu uses '%s' compression, but it was not compiled in",
-			   inode->i_ino, ubifs_compr_name(ui->compr_type));
+			   inode->i_ino, ubifs_compr_name(c, ui->compr_type));
 	}
 
 	err = dbg_check_dir(c, inode);
@@ -325,7 +325,7 @@ static int ubifs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	struct ubifs_inode *ui = ubifs_inode(inode);
 
-	ubifs_assert(!ui->xattr);
+	ubifs_assert(c, !ui->xattr);
 	if (is_bad_inode(inode))
 		return 0;
 
@@ -386,6 +386,7 @@ static void ubifs_evict_inode(struct inode *inode)
 	ubifs_assert(inode->i_nlink == 0);
 
 	truncate_inode_pages(&inode->i_data, 0);
+	ubifs_assert(c, !atomic_read(&inode->i_count));
 
 	truncate_inode_pages_final(&inode->i_data);
 
@@ -420,16 +421,15 @@ static void ubifs_dirty_inode(struct inode *inode)
 	}
 done:
 	clear_inode(inode);
-#ifdef CONFIG_UBIFS_FS_ENCRYPTION
-	fscrypt_put_encryption_info(inode, NULL);
-#endif
+	fscrypt_put_encryption_info(inode);
 }
 
 static void ubifs_dirty_inode(struct inode *inode, int flags)
 {
+	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	struct ubifs_inode *ui = ubifs_inode(inode);
 
-	ubifs_assert(mutex_is_locked(&ui->ui_mutex));
+	ubifs_assert(c, mutex_is_locked(&ui->ui_mutex));
 	if (!ui->dirty) {
 		ui->dirty = 1;
 		dbg_gen("inode %lu",  inode->i_ino);
@@ -471,6 +471,7 @@ static int ubifs_show_options(struct seq_file *s, struct vfsmount *mnt)
 	else if (c->mount_opts.unmount_mode == 1)
 		seq_printf(s, ",norm_unmount");
 	ubifs_assert(buf->f_bfree <= c->block_cnt);
+	ubifs_assert(c, buf->f_bfree <= c->block_cnt);
 	return 0;
 }
 
@@ -495,9 +496,10 @@ static int ubifs_show_options(struct seq_file *s, struct dentry *root)
 
 	if (c->mount_opts.override_compr) {
 		seq_printf(s, ",compr=%s",
-			   ubifs_compr_name(c->mount_opts.compr_type));
+			   ubifs_compr_name(c, c->mount_opts.compr_type));
 	}
 
+	seq_printf(s, ",assert=%s", ubifs_assert_action_name(c));
 	seq_printf(s, ",ubi=%d,vol=%d", c->vi.ubi_num, c->vi.vol_id);
 
 	return 0;
@@ -1087,6 +1089,7 @@ static int check_volume_empty(struct ubifs_info *c)
  * Opt_chk_data_crc: check CRCs when reading data nodes
  * Opt_no_chk_data_crc: do not check CRCs when reading data nodes
  * Opt_override_compr: override default compressor
+ * Opt_assert: set ubifs_assert() action
  * Opt_err: just end of array marker
  */
 enum {
@@ -1103,6 +1106,7 @@ static match_table_t tokens = {
 	Opt_chk_data_crc,
 	Opt_no_chk_data_crc,
 	Opt_override_compr,
+	Opt_assert,
 	Opt_ignore,
 	Opt_err,
 };
@@ -1117,6 +1121,7 @@ static const match_table_t tokens = {
 	{Opt_override_compr, "compr=%s"},
 	{Opt_ignore, "ubi=%s"},
 	{Opt_ignore, "vol=%s"},
+	{Opt_assert, "assert=%s"},
 	{Opt_err, NULL},
 };
 
@@ -1138,7 +1143,7 @@ static int parse_standard_option(const char *option)
 
 	pr_notice("UBIFS: parse %s\n", option);
 	if (!strcmp(option, "sync"))
-		return MS_SYNCHRONOUS;
+		return SB_SYNCHRONOUS;
 	return 0;
 }
 
@@ -1229,6 +1234,26 @@ static int ubifs_parse_options(struct ubifs_info *c, char *options,
 			c->default_compr = c->mount_opts.compr_type;
 			break;
 		}
+		case Opt_assert:
+		{
+			char *act = match_strdup(&args[0]);
+
+			if (!act)
+				return -ENOMEM;
+			if (!strcmp(act, "report"))
+				c->assert_action = ASSACT_REPORT;
+			else if (!strcmp(act, "read-only"))
+				c->assert_action = ASSACT_RO;
+			else if (!strcmp(act, "panic"))
+				c->assert_action = ASSACT_PANIC;
+			else {
+				ubifs_err(c, "unknown assert action \"%s\"", act);
+				kfree(act);
+				return -EINVAL;
+			}
+			kfree(act);
+			break;
+		}
 		case Opt_ignore:
 			break;
 		default:
@@ -1287,7 +1312,7 @@ static void destroy_journal(struct ubifs_info *c)
  */
 static void bu_init(struct ubifs_info *c)
 {
-	ubifs_assert(c->bulk_read == 1);
+	ubifs_assert(c, c->bulk_read == 1);
 
 	if (c->bu.buf)
 		return; /* Already initialized */
@@ -1318,7 +1343,7 @@ again:
  */
 static int check_free_space(struct ubifs_info *c)
 {
-	ubifs_assert(c->dark_wm > 0);
+	ubifs_assert(c, c->dark_wm > 0);
 	if (c->lst.total_free + c->lst.total_dirty < c->dark_wm) {
 		ubifs_err(c, "insufficient free space to mount in R/W mode");
 		ubifs_dump_budg(c, &c->bi);
@@ -1353,8 +1378,8 @@ static int mount_ubifs(struct ubifs_info *c)
 	size_t sz;
 
 	c->ro_mount = !!sb_rdonly(c->vfs_sb);
-	/* Suppress error messages while probing if MS_SILENT is set */
-	c->probing = !!(c->vfs_sb->s_flags & MS_SILENT);
+	/* Suppress error messages while probing if SB_SILENT is set */
+	c->probing = !!(c->vfs_sb->s_flags & SB_SILENT);
 
 	err = init_constants_early(c);
 	if (err)
@@ -1400,7 +1425,8 @@ static int mount_ubifs(struct ubifs_info *c)
 	 * never exceed 64.
 	 */
 	err = -ENOMEM;
-	c->bottom_up_buf = kmalloc(BOTTOM_UP_HEIGHT * sizeof(int), GFP_KERNEL);
+	c->bottom_up_buf = kmalloc_array(BOTTOM_UP_HEIGHT, sizeof(int),
+					 GFP_KERNEL);
 	if (!c->bottom_up_buf)
 		goto out_free;
 
@@ -1453,9 +1479,9 @@ static int mount_ubifs(struct ubifs_info *c)
 	 * Make sure the compressor which is set as default in the superblock
 	 * or overridden by mount options is actually compiled in.
 	 */
-	if (!ubifs_compr_present(c->default_compr)) {
+	if (!ubifs_compr_present(c, c->default_compr)) {
 		ubifs_err(c, "'compressor \"%s\" is not compiled in",
-			  ubifs_compr_name(c->default_compr));
+			  ubifs_compr_name(c, c->default_compr));
 		err = -ENOTSUPP;
 		goto out_free;
 	}
@@ -1673,10 +1699,10 @@ static int mount_ubifs(struct ubifs_info *c)
 			 * the journal head LEBs may also be accounted as
 			 * "empty taken" if they are empty.
 			 */
-			ubifs_assert(c->lst.taken_empty_lebs > 0);
+			ubifs_assert(c, c->lst.taken_empty_lebs > 0);
 		}
 	} else
-		ubifs_assert(c->lst.taken_empty_lebs > 0);
+		ubifs_assert(c, c->lst.taken_empty_lebs > 0);
 
 	err = dbg_check_filesystem(c);
 	if (err)
@@ -1764,7 +1790,7 @@ static int mount_ubifs(struct ubifs_info *c)
 		  UBIFS_FORMAT_VERSION, UBIFS_RO_COMPAT_VERSION, c->uuid,
 		  c->big_lpt ? ", big LPT model" : ", small LPT model");
 
-	dbg_gen("default compressor:  %s", ubifs_compr_name(c->default_compr));
+	dbg_gen("default compressor:  %s", ubifs_compr_name(c, c->default_compr));
 	dbg_gen("data journal heads:  %d",
 		c->jhead_cnt - NONDATA_JHEADS_CNT);
 	dbg_gen("log LEBs:            %d (%d - %d)",
@@ -1971,7 +1997,7 @@ static int ubifs_remount_rw(struct ubifs_info *c)
 			goto out;
 	} else {
 		/* A readonly mount is not allowed to have orphans */
-		ubifs_assert(c->tot_orphans == 0);
+		ubifs_assert(c, c->tot_orphans == 0);
 		err = ubifs_clear_orphans(c);
 		if (err)
 			goto out;
@@ -2154,6 +2180,8 @@ static void ubifs_remount_ro(struct ubifs_info *c)
 	ubifs_assert(!c->need_recovery);
 	commit_on_unmount(c);
 	ubifs_assert(!c->ro_mount);
+	ubifs_assert(c, !c->need_recovery);
+	ubifs_assert(c, !c->ro_mount);
 
 	mutex_lock(&c->umount_mutex);
 	if (c->bgt) {
@@ -2184,8 +2212,11 @@ static void ubifs_remount_ro(struct ubifs_info *c)
 	ubifs_lpt_free(c, 1);
 	dbg_save_space_info(c);
 
-	for (i = 0; i < c->jhead_cnt; i++)
-		ubifs_wbuf_sync(&c->jheads[i].wbuf);
+	for (i = 0; i < c->jhead_cnt; i++) {
+		err = ubifs_wbuf_sync(&c->jheads[i].wbuf);
+		if (err)
+			ubifs_ro_mode(c, err);
+	}
 
 	c->mst_node->flags &= ~cpu_to_le32(UBIFS_MST_DIRTY);
 	c->mst_node->flags |= cpu_to_le32(UBIFS_MST_NO_ORPHS);
@@ -2227,9 +2258,9 @@ static void ubifs_put_super(struct super_block *sb)
 	ubifs_assert(c->budg_dd_growth == 0);
 	ubifs_assert(c->budg_data_growth == 0);
 	if (!c->ro_error) {
-		ubifs_assert(c->bi.idx_growth == 0);
-		ubifs_assert(c->bi.dd_growth == 0);
-		ubifs_assert(c->bi.data_growth == 0);
+		ubifs_assert(c, c->bi.idx_growth == 0);
+		ubifs_assert(c, c->bi.dd_growth == 0);
+		ubifs_assert(c, c->bi.data_growth == 0);
 	}
 
 	/*
@@ -2270,8 +2301,11 @@ static void ubifs_put_super(struct super_block *sb)
 			int err;
 
 			/* Synchronize write-buffers */
-			for (i = 0; i < c->jhead_cnt; i++)
-				ubifs_wbuf_sync(&c->jheads[i].wbuf);
+			for (i = 0; i < c->jhead_cnt; i++) {
+				err = ubifs_wbuf_sync(&c->jheads[i].wbuf);
+				if (err)
+					ubifs_ro_mode(c, err);
+			}
 
 			/*
 			 * We are being cleanly unmounted which means the
@@ -2335,7 +2369,7 @@ struct super_operations ubifs_super_operations = {
 		return err;
 	}
 
-	if (c->ro_mount && !(*flags & MS_RDONLY)) {
+	if (c->ro_mount && !(*flags & SB_RDONLY)) {
 		if (c->ro_error) {
 			ubifs_msg(c, "cannot re-mount R/W due to prior errors");
 			return -EROFS;
@@ -2347,7 +2381,7 @@ struct super_operations ubifs_super_operations = {
 		err = ubifs_remount_rw(c);
 		if (err)
 			return err;
-	} else if (!c->ro_mount && (*flags & MS_RDONLY)) {
+	} else if (!c->ro_mount && (*flags & SB_RDONLY)) {
 		if (c->ro_error) {
 			ubifs_msg(c, "cannot re-mount R/O due to prior errors");
 			return -EROFS;
@@ -2365,7 +2399,9 @@ struct super_operations ubifs_super_operations = {
 		mutex_unlock(&c->bu_mutex);
 	}
 
-	ubifs_assert(c->lst.taken_empty_lebs > 0);
+	if (!c->need_recovery)
+		ubifs_assert(c, c->lst.taken_empty_lebs > 0);
+
 	return 0;
 }
 
@@ -2418,6 +2454,9 @@ static struct ubi_volume_desc *open_ubi(const char *name, int mode)
 	struct ubi_volume_desc *ubi;
 	int dev, vol;
 	char *endptr;
+
+	if (!name || !*name)
+		return ERR_PTR(-EINVAL);
 
 	/* First, try to open using the device node path method */
 	ubi = ubi_open_volume_path(name, mode);
@@ -2538,6 +2577,7 @@ static struct ubifs_info *alloc_ubifs_info(struct ubi_volume_desc *ubi)
 		INIT_LIST_HEAD(&c->orph_list);
 		INIT_LIST_HEAD(&c->orph_new);
 		c->no_chk_data_crc = 1;
+		c->assert_action = ASSACT_RO;
 
 		c->highest_inum = UBIFS_FIRST_INO;
 		c->lhead_lnum = c->ltail_lnum = UBIFS_LOG_LNUM;
@@ -2547,12 +2587,6 @@ static struct ubifs_info *alloc_ubifs_info(struct ubi_volume_desc *ubi)
 	}
 	return c;
 }
-
-#ifndef CONFIG_UBIFS_FS_ENCRYPTION
-const struct fscrypt_operations ubifs_crypt_operations = {
-	.is_encrypted		= __ubifs_crypt_is_encrypted,
-};
-#endif
 
 static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 {
@@ -2612,13 +2646,17 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 	if (c->max_inode_sz > MAX_LFS_FILESIZE)
 		sb->s_maxbytes = c->max_inode_sz = MAX_LFS_FILESIZE;
 	sb->s_op = &ubifs_super_operations;
+#ifdef CONFIG_UBIFS_FS_XATTR
 	sb->s_xattr = ubifs_xattr_handlers;
+#endif
+#ifdef CONFIG_UBIFS_FS_ENCRYPTION
 	sb->s_cop = &ubifs_crypt_operations;
+#endif
 
 	mutex_lock(&c->umount_mutex);
 	err = mount_ubifs(c);
 	if (err) {
-		ubifs_assert(err < 0);
+		ubifs_assert(c, err < 0);
 		goto out_unlock;
 	}
 
@@ -2719,6 +2757,7 @@ static struct dentry *ubifs_mount(struct file_system_type *fs_type, int flags,
 		pr_err("UBIFS error (pid: %d): cannot open \"%s\", error %d",
 		       current->pid, name, (int)PTR_ERR(ubi));
 		if (!(flags & MS_SILENT))
+		if (!(flags & SB_SILENT))
 			pr_err("UBIFS error (pid: %d): cannot open \"%s\", error %d",
 			       current->pid, name, (int)PTR_ERR(ubi));
 		return ERR_CAST(ubi);
@@ -2747,7 +2786,7 @@ static struct dentry *ubifs_mount(struct file_system_type *fs_type, int flags,
 		kfree(c);
 		/* A new mount point for already mounted UBIFS */
 		dbg_gen("this ubi volume is already mounted");
-		if (!!(flags & MS_RDONLY) != c1->ro_mount) {
+		if (!!(flags & SB_RDONLY) != c1->ro_mount) {
 			err = -EBUSY;
 			goto out_deact;
 		}
@@ -2764,8 +2803,13 @@ static struct dentry *ubifs_mount(struct file_system_type *fs_type, int flags,
 		/* We do not support atime */
 		sb->s_flags |= MS_ACTIVE | MS_NOATIME;
 		sb->s_flags |= MS_ACTIVE;
+		err = ubifs_fill_super(sb, data, flags & SB_SILENT ? 1 : 0);
+		if (err)
+			goto out_deact;
+		/* We do not support atime */
+		sb->s_flags |= SB_ACTIVE;
 #ifndef CONFIG_UBIFS_ATIME_SUPPORT
-		sb->s_flags |= MS_NOATIME;
+		sb->s_flags |= SB_NOATIME;
 #else
 		ubifs_msg(c, "full atime support is enabled.");
 #endif
@@ -2964,8 +3008,8 @@ late_initcall(ubifs_init);
 
 static void __exit ubifs_exit(void)
 {
-	ubifs_assert(list_empty(&ubifs_infos));
-	ubifs_assert(atomic_long_read(&ubifs_clean_zn_cnt) == 0);
+	WARN_ON(!list_empty(&ubifs_infos));
+	WARN_ON(atomic_long_read(&ubifs_clean_zn_cnt) != 0);
 
 	ubifs_compressors_exit();
 	unregister_shrinker(&ubifs_shrinker_info);

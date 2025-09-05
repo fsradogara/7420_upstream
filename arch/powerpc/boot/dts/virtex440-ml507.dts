@@ -34,7 +34,7 @@
 		bootargs = "console=ttyS0 ip=on root=/dev/ram";
 		linux,stdout-path = "/plb@0/serial@83e00000";
 		bootargs = "console=ttyS0 root=/dev/ram";
-		linux,stdout-path = &RS232_Uart_1;
+		stdout-path = &RS232_Uart_1;
 	} ;
 	cpus {
 		#address-cells = <1>;

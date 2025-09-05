@@ -45,7 +45,7 @@
 #include <linux/cpu_rmap.h>
 #include <linux/crash_dump.h>
 
-#include <linux/atomic.h>
+#include <linux/refcount.h>
 
 #include <linux/timecounter.h>
 
@@ -253,6 +253,7 @@ enum {
 	MLX4_DEV_CAP_FLAG2_SVLAN_BY_QP          = 1ULL <<  36,
 	MLX4_DEV_CAP_FLAG2_SL_TO_VL_CHANGE_EVENT = 1ULL << 37,
 	MLX4_DEV_CAP_FLAG2_USER_MAC_EN		= 1ULL << 38,
+	MLX4_DEV_CAP_FLAG2_DRIVER_VERSION_TO_FW = 1ULL << 39,
 };
 
 enum {
@@ -282,10 +283,6 @@ enum {
 	MLX4_DEV_CAP_64B_CQE_ENABLED	= 1LL << 1,
 	MLX4_DEV_CAP_CQE_STRIDE_ENABLED	= 1LL << 2,
 	MLX4_DEV_CAP_EQE_STRIDE_ENABLED	= 1LL << 3
-};
-
-enum {
-	MLX4_USER_DEV_CAP_LARGE_CQE	= 1L << 0
 };
 
 enum {
@@ -691,6 +688,7 @@ struct mlx4_caps {
 	u32			vf_caps;
 	bool			wol_port[MLX4_MAX_PORTS + 1];
 	struct mlx4_rate_limit_caps rl_caps;
+	u32			health_buffer_addrs;
 };
 
 struct mlx4_buf_list {
@@ -813,7 +811,7 @@ struct mlx4_cq {
 	struct completion	free;
 	unsigned		vector;
 
-	atomic_t		refcount;
+	refcount_t		refcount;
 	struct completion	free;
 	struct {
 		struct list_head list;
@@ -830,7 +828,7 @@ struct mlx4_qp {
 
 	int			qpn;
 
-	atomic_t		refcount;
+	refcount_t		refcount;
 	struct completion	free;
 	u8			usage;
 };
@@ -843,7 +841,7 @@ struct mlx4_srq {
 	int			max_gs;
 	int			wqe_shift;
 
-	atomic_t		refcount;
+	refcount_t		refcount;
 	struct completion	free;
 };
 
@@ -925,6 +923,12 @@ struct mlx4_vf_dev {
 	u8			n_ports;
 };
 
+struct mlx4_fw_crdump {
+	bool snapshot_enable;
+	struct devlink_region *region_crspace;
+	struct devlink_region *region_fw_health;
+};
+
 enum mlx4_pci_status {
 	MLX4_PCI_STATUS_DISABLED,
 	MLX4_PCI_STATUS_ENABLED,
@@ -945,6 +949,7 @@ struct mlx4_dev_persistent {
 	u8	interface_state;
 	struct mutex		pci_status_mutex; /* sync pci state */
 	enum mlx4_pci_status	pci_status;
+	struct mlx4_fw_crdump	crdump;
 };
 
 struct mlx4_dev {

@@ -509,6 +509,7 @@ struct inode *diReadSpecial(struct super_block *sb, ino_t inum, int secondary)
 	 * will work fine and require no locking.
 	 */
 	hlist_add_fake(&ip->i_hash);
+	inode_fake_hash(ip);
 
 	return (ip);
 }

@@ -41,6 +41,7 @@
 #include "edma-pcm.h"
 #include "davinci-i2s.h"
 
+#define DRV_NAME "davinci-i2s"
 
 /*
  * NOTE:  terminology here is confusing.
@@ -266,7 +267,7 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 		struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	int playback = (substream->stream == SNDRV_PCM_STREAM_PLAYBACK);
 	u32 spcr;
 	u32 mask = playback ? DAVINCI_MCBSP_SPCR_XRST : DAVINCI_MCBSP_SPCR_RRST;
@@ -287,8 +288,8 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 	if (playback) {
 		/* Stop the DMA to avoid data loss */
 		/* while the transmitter is out of reset to handle XSYNCERR */
-		if (platform->driver->ops->trigger) {
-			int ret = platform->driver->ops->trigger(substream,
+		if (component->driver->ops->trigger) {
+			int ret = component->driver->ops->trigger(substream,
 				SNDRV_PCM_TRIGGER_STOP);
 			if (ret < 0)
 				printk(KERN_DEBUG "Playback DMA stop failed\n");
@@ -309,8 +310,8 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 		toggle_clock(dev, playback);
 
 		/* Restart the DMA */
-		if (platform->driver->ops->trigger) {
-			int ret = platform->driver->ops->trigger(substream,
+		if (component->driver->ops->trigger) {
+			int ret = component->driver->ops->trigger(substream,
 				SNDRV_PCM_TRIGGER_START);
 			if (ret < 0)
 				printk(KERN_DEBUG "Playback DMA start failed\n");
@@ -432,6 +433,7 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 		 * rate is lowered.
 		 */
 		inv_fs = true;
+		/* fall through */
 	case SND_SOC_DAIFMT_DSP_A:
 		dev->mode = MOD_DSP_A;
 		break;
@@ -933,7 +935,7 @@ EXPORT_SYMBOL_GPL(davinci_i2s_dai);
 };
 
 static const struct snd_soc_component_driver davinci_i2s_component = {
-	.name		= "davinci-i2s",
+	.name		= DRV_NAME,
 };
 
 static int davinci_i2s_probe(struct platform_device *pdev)

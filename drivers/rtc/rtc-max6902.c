@@ -215,6 +215,7 @@ static int max6902_set_datetime(struct device *dev, struct rtc_time *dt)
 	max6902_set_reg(dev, 0x0D, BIN2BCD(dt->tm_year%100));
 	max6902_set_reg(dev, 0x13, BIN2BCD(dt->tm_year/100));
 	return rtc_valid_tm(dt);
+	return 0;
 }
 
 static int max6902_set_time(struct device *dev, struct rtc_time *dt)

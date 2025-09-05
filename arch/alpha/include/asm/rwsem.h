@@ -54,7 +54,7 @@ static inline void init_rwsem(struct rw_semaphore *sem)
 	INIT_LIST_HEAD(&sem->wait_list);
 }
 
-static inline void __down_read(struct rw_semaphore *sem)
+static inline int ___down_read(struct rw_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -74,8 +74,22 @@ static inline void __down_read(struct rw_semaphore *sem)
 	:"=&r" (oldcount), "=m" (sem->count), "=&r" (temp)
 	:"Ir" (RWSEM_ACTIVE_READ_BIAS), "m" (sem->count) : "memory");
 #endif
-	if (unlikely(oldcount < 0))
+	return (oldcount < 0);
+}
+
+static inline void __down_read(struct rw_semaphore *sem)
+{
+	if (unlikely(___down_read(sem)))
 		rwsem_down_read_failed(sem);
+}
+
+static inline int __down_read_killable(struct rw_semaphore *sem)
+{
+	if (unlikely(___down_read(sem)))
+		if (IS_ERR(rwsem_down_read_failed_killable(sem)))
+			return -EINTR;
+
+	return 0;
 }
 
 /*
@@ -127,9 +141,10 @@ static inline void __down_write(struct rw_semaphore *sem)
 
 static inline int __down_write_killable(struct rw_semaphore *sem)
 {
-	if (unlikely(___down_write(sem)))
+	if (unlikely(___down_write(sem))) {
 		if (IS_ERR(rwsem_down_write_failed_killable(sem)))
 			return -EINTR;
+	}
 
 	return 0;
 }

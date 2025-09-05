@@ -43,7 +43,7 @@ Procedure for submitting patches to the -stable tree
    stable@kernel.org.
  - If the patch covers files in net/ or drivers/net please follow netdev stable
    submission guidelines as described in
-   Documentation/networking/netdev-FAQ.txt
+   :ref:`Documentation/networking/netdev-FAQ.rst <netdev-FAQ>`
  - Security patches should not be handled (solely) by the -stable review
    process but should follow the procedures in
    :ref:`Documentation/admin-guide/security-bugs.rst <securitybugs>`.

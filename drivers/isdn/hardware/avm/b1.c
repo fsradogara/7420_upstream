@@ -76,7 +76,7 @@ avmcard *b1_alloc_card(int nr_controllers)
 	if (!card)
 		return NULL;
 
-	cinfo = kzalloc(sizeof(*cinfo) * nr_controllers, GFP_KERNEL);
+	cinfo = kcalloc(nr_controllers, sizeof(*cinfo), GFP_KERNEL);
 	if (!cinfo) {
 		kfree(card);
 		return NULL;
@@ -747,6 +747,7 @@ int b1ctl_read_proc(char *page, char **start, off_t off,
 	len += sprintf(page+len, "%-16s 0x%x\n", "io", card->port);
 	len += sprintf(page+len, "%-16s %d\n", "irq", card->irq);
 static int b1ctl_proc_show(struct seq_file *m, void *v)
+int b1_proc_show(struct seq_file *m, void *v)
 {
 	struct capi_ctr *ctrl = m->private;
 	avmctrl_info *cinfo = (avmctrl_info *)(ctrl->driverdata);
@@ -853,20 +854,7 @@ static int b1ctl_proc_show(struct seq_file *m, void *v)
 
 	return 0;
 }
-
-static int b1ctl_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, b1ctl_proc_show, PDE_DATA(inode));
-}
-
-const struct file_operations b1ctl_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= b1ctl_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-EXPORT_SYMBOL(b1ctl_proc_fops);
+EXPORT_SYMBOL(b1_proc_show);
 
 /* ------------------------------------------------------------- */
 

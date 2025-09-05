@@ -118,6 +118,7 @@
 #else /* CONFIG_MMU */
 
 #ifndef __ASSEMBLY__
+extern unsigned long setup_vectors_base(void);
 extern unsigned long vectors_base;
 #define VECTORS_BASE		vectors_base
 #endif

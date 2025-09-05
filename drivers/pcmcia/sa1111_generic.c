@@ -88,11 +88,12 @@ void sa1111_pcmcia_socket_state(struct soc_pcmcia_socket *skt, struct pcmcia_sta
 #define IDX_IRQ_S1_READY_NINT	(3)
 #define IDX_IRQ_S1_CD_VALID	(4)
 #define IDX_IRQ_S1_BVD1_STSCHG	(5)
+#define NUM_IRQS		(6)
 
 void sa1111_pcmcia_socket_state(struct soc_pcmcia_socket *skt, struct pcmcia_state *state)
 {
 	struct sa1111_pcmcia_socket *s = to_skt(skt);
-	unsigned long status = sa1111_readl(s->dev->mapbase + PCSR);
+	u32 status = readl_relaxed(s->dev->mapbase + PCSR);
 
 	switch (skt->nr) {
 	case 0:
@@ -121,7 +122,7 @@ int sa1111_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_s
 {
 	struct sa1111_dev *sadev = SA1111_DEV(skt->dev);
 	struct sa1111_pcmcia_socket *s = to_skt(skt);
-	unsigned int pccr_skt_mask, pccr_set_mask, val;
+	u32 pccr_skt_mask, pccr_set_mask, val;
 	unsigned long flags;
 
 	switch (skt->nr) {
@@ -154,9 +155,10 @@ int sa1111_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_s
 	val |= pccr_set_mask & pccr_skt_mask;
 	sa1111_writel(val, sadev->mapbase + SA1111_PCCR);
 	val = sa1111_readl(s->dev->mapbase + PCCR);
+	val = readl_relaxed(s->dev->mapbase + PCCR);
 	val &= ~pccr_skt_mask;
 	val |= pccr_set_mask & pccr_skt_mask;
-	sa1111_writel(val, s->dev->mapbase + PCCR);
+	writel_relaxed(val, s->dev->mapbase + PCCR);
 	local_irq_restore(flags);
 
 	return 0;
@@ -175,11 +177,17 @@ int sa1111_pcmcia_add(struct sa1111_dev *dev, struct pcmcia_low_level *ops,
 {
 	struct sa1111_pcmcia_socket *s;
 	struct clk *clk;
-	int i, ret = 0;
+	int i, ret = 0, irqs[NUM_IRQS];
 
 	clk = devm_clk_get(&dev->dev, NULL);
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
+
+	for (i = 0; i < NUM_IRQS; i++) {
+		irqs[i] = sa1111_get_irq(dev, i);
+		if (irqs[i] <= 0)
+			return irqs[i] ? : -ENXIO;
+	}
 
 	ops->socket_state = sa1111_pcmcia_socket_state;
 
@@ -194,16 +202,16 @@ int sa1111_pcmcia_add(struct sa1111_dev *dev, struct pcmcia_low_level *ops,
 		soc_pcmcia_init_one(&s->soc, ops, &dev->dev);
 		s->dev = dev;
 		if (s->soc.nr) {
-			s->soc.socket.pci_irq = dev->irq[IDX_IRQ_S1_READY_NINT];
-			s->soc.stat[SOC_STAT_CD].irq = dev->irq[IDX_IRQ_S1_CD_VALID];
+			s->soc.socket.pci_irq = irqs[IDX_IRQ_S1_READY_NINT];
+			s->soc.stat[SOC_STAT_CD].irq = irqs[IDX_IRQ_S1_CD_VALID];
 			s->soc.stat[SOC_STAT_CD].name = "SA1111 CF card detect";
-			s->soc.stat[SOC_STAT_BVD1].irq = dev->irq[IDX_IRQ_S1_BVD1_STSCHG];
+			s->soc.stat[SOC_STAT_BVD1].irq = irqs[IDX_IRQ_S1_BVD1_STSCHG];
 			s->soc.stat[SOC_STAT_BVD1].name = "SA1111 CF BVD1";
 		} else {
-			s->soc.socket.pci_irq = dev->irq[IDX_IRQ_S0_READY_NINT];
-			s->soc.stat[SOC_STAT_CD].irq = dev->irq[IDX_IRQ_S0_CD_VALID];
+			s->soc.socket.pci_irq = irqs[IDX_IRQ_S0_READY_NINT];
+			s->soc.stat[SOC_STAT_CD].irq = irqs[IDX_IRQ_S0_CD_VALID];
 			s->soc.stat[SOC_STAT_CD].name = "SA1111 PCMCIA card detect";
-			s->soc.stat[SOC_STAT_BVD1].irq = dev->irq[IDX_IRQ_S0_BVD1_STSCHG];
+			s->soc.stat[SOC_STAT_BVD1].irq = irqs[IDX_IRQ_S0_BVD1_STSCHG];
 			s->soc.stat[SOC_STAT_BVD1].name = "SA1111 PCMCIA BVD1";
 		}
 
@@ -253,6 +261,8 @@ static int pcmcia_probe(struct sa1111_dev *dev)
 	pcmcia_jornada720_init(&dev->dev);
 	sa1111_writel(PCSSR_S0_SLEEP | PCSSR_S1_SLEEP, base + PCSSR);
 	sa1111_writel(PCCR_S0_FLT | PCCR_S1_FLT, base + PCCR);
+	writel_relaxed(PCSSR_S0_SLEEP | PCSSR_S1_SLEEP, base + PCSSR);
+	writel_relaxed(PCCR_S0_FLT | PCCR_S1_FLT, base + PCCR);
 
 	ret = -ENODEV;
 #ifdef CONFIG_SA1100_BADGE4

@@ -1,3 +1,5 @@
+.. SPDX-License-Identifier: GPL-2.0
+
 batman-adv
 
 Batman advanced is a new approach to wireless networking which does no longer

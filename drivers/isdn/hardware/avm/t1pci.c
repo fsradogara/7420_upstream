@@ -127,6 +127,7 @@ static int t1pci_add_card(struct capicardparams *p, struct pci_dev *pdev)
 	cinfo->capi_ctrl.procinfo      = t1pci_procinfo;
 	cinfo->capi_ctrl.ctr_read_proc = b1dmactl_read_proc;
 	cinfo->capi_ctrl.proc_fops = &b1dmactl_proc_fops;
+	cinfo->capi_ctrl.proc_show     = b1dma_proc_show;
 	strcpy(cinfo->capi_ctrl.name, card->name);
 
 	retval = attach_capi_ctr(&cinfo->capi_ctrl);

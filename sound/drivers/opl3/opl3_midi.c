@@ -243,10 +243,10 @@ static int opl3_get_voice(struct snd_opl3 *opl3, int instr_4op,
 /*
  * System timer interrupt function
  */
-void snd_opl3_timer_func(unsigned long data)
+void snd_opl3_timer_func(struct timer_list *t)
 {
 
-	struct snd_opl3 *opl3 = (struct snd_opl3 *)data;
+	struct snd_opl3 *opl3 = from_timer(opl3, t, tlist);
 	unsigned long flags;
 	int again = 0;
 	int i;
@@ -388,6 +388,7 @@ void snd_opl3_note_on(void *p, int note, int vel, struct snd_midi_channel *chan)
 			instr_4op = 1;
 			break;
 		}
+		/* fall through */
 	default:
 		spin_unlock_irqrestore(&opl3->voice_lock, flags);
 		return;
@@ -760,9 +761,6 @@ void snd_opl3_note_off(void *p, int note, int vel,
  */
 void snd_opl3_key_press(void *p, int note, int vel, struct snd_midi_channel *chan)
 {
-  	struct snd_opl3 *opl3;
-
-	opl3 = p;
 #ifdef DEBUG_MIDI
 	snd_printk("Key pressure, ch#: %i, inst#: %i\n",
 	snd_printk(KERN_DEBUG "Key pressure, ch#: %i, inst#: %i\n",
@@ -775,9 +773,6 @@ void snd_opl3_key_press(void *p, int note, int vel, struct snd_midi_channel *cha
  */
 void snd_opl3_terminate_note(void *p, int note, struct snd_midi_channel *chan)
 {
-  	struct snd_opl3 *opl3;
-
-	opl3 = p;
 #ifdef DEBUG_MIDI
 	snd_printk("Terminate note, ch#: %i, inst#: %i\n",
 	snd_printk(KERN_DEBUG "Terminate note, ch#: %i, inst#: %i\n",
@@ -904,9 +899,6 @@ void snd_opl3_control(void *p, int type, struct snd_midi_channel *chan)
 void snd_opl3_nrpn(void *p, struct snd_midi_channel *chan,
 		   struct snd_midi_channel_set *chset)
 {
-  	struct snd_opl3 *opl3;
-
-	opl3 = p;
 #ifdef DEBUG_MIDI
 	snd_printk("NRPN, ch#: %i, inst#: %i\n",
 	snd_printk(KERN_DEBUG "NRPN, ch#: %i, inst#: %i\n",
@@ -920,9 +912,6 @@ void snd_opl3_nrpn(void *p, struct snd_midi_channel *chan,
 void snd_opl3_sysex(void *p, unsigned char *buf, int len,
 		    int parsed, struct snd_midi_channel_set *chset)
 {
-  	struct snd_opl3 *opl3;
-
-	opl3 = p;
 #ifdef DEBUG_MIDI
 	snd_printk("SYSEX\n");
 	snd_printk(KERN_DEBUG "SYSEX\n");

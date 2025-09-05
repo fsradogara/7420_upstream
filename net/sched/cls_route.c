@@ -111,10 +111,7 @@ void route4_reset_fastmap(struct Qdisc *q, struct route4_head *head, u32 id)
 
 static inline void
 	struct tcf_proto	*tp;
-	union {
-		struct work_struct	work;
-		struct rcu_head		rcu;
-	};
+	struct rcu_work		rwork;
 };
 
 #define ROUTE4_FAILURE ((struct route4_filter *)(-1L))
@@ -426,22 +423,20 @@ static void __route4_delete_filter(struct route4_filter *f)
 
 static void route4_delete_filter_work(struct work_struct *work)
 {
-	struct route4_filter *f = container_of(work, struct route4_filter, work);
-
+	struct route4_filter *f = container_of(to_rcu_work(work),
+					       struct route4_filter,
+					       rwork);
 	rtnl_lock();
 	__route4_delete_filter(f);
 	rtnl_unlock();
 }
 
-static void route4_delete_filter(struct rcu_head *head)
+static void route4_queue_work(struct route4_filter *f)
 {
-	struct route4_filter *f = container_of(head, struct route4_filter, rcu);
-
-	INIT_WORK(&f->work, route4_delete_filter_work);
-	tcf_queue_work(&f->work);
+	tcf_queue_work(&f->rwork, route4_delete_filter_work);
 }
 
-static void route4_destroy(struct tcf_proto *tp)
+static void route4_destroy(struct tcf_proto *tp, struct netlink_ext_ack *extack)
 {
 	struct route4_head *head = rtnl_dereference(tp->root);
 	int h1, h2;
@@ -464,7 +459,7 @@ static void route4_destroy(struct tcf_proto *tp)
 					RCU_INIT_POINTER(b->ht[h2], next);
 					tcf_unbind_filter(tp, &f->res);
 					if (tcf_exts_get_net(&f->exts))
-						call_rcu(&f->rcu, route4_delete_filter);
+						route4_queue_work(f);
 					else
 						__route4_delete_filter(f);
 				}
@@ -476,7 +471,8 @@ static void route4_destroy(struct tcf_proto *tp)
 	kfree_rcu(head, rcu);
 }
 
-static int route4_delete(struct tcf_proto *tp, void *arg, bool *last)
+static int route4_delete(struct tcf_proto *tp, void *arg, bool *last,
+			 struct netlink_ext_ack *extack)
 {
 	struct route4_head *head = (struct route4_head*)tp->root;
 	struct route4_filter **fp, *f = (struct route4_filter*)arg;
@@ -533,7 +529,7 @@ static int route4_delete(struct tcf_proto *tp, void *arg, bool *last)
 			/* Delete it */
 			tcf_unbind_filter(tp, &f->res);
 			tcf_exts_get_net(&f->exts);
-			call_rcu(&f->rcu, route4_delete_filter);
+			tcf_queue_work(&f->rwork, route4_delete_filter_work);
 
 			/* Strip RTNL protected tree */
 			for (i = 0; i <= 32; i++) {
@@ -577,7 +573,7 @@ static int route4_set_parms(struct net *net, struct tcf_proto *tp,
 			    unsigned long base, struct route4_filter *f,
 			    u32 handle, struct route4_head *head,
 			    struct nlattr **tb, struct nlattr *est, int new,
-			    bool ovr)
+			    bool ovr, struct netlink_ext_ack *extack)
 {
 	u32 id = 0, to = 0, nhandle = 0x8000;
 	struct route4_filter *fp;
@@ -589,6 +585,7 @@ static int route4_set_parms(struct net *net, struct tcf_proto *tp,
 	tcf_exts_init(&e, TCA_ROUTE4_ACT, TCA_ROUTE4_POLICE);
 	err = tcf_exts_validate(net, tp, tb, est, &e, ovr);
 	err = tcf_exts_validate(net, tp, tb, est, &f->exts, ovr);
+	err = tcf_exts_validate(net, tp, tb, est, &f->exts, ovr, extack);
 	if (err < 0)
 		return err;
 
@@ -686,7 +683,8 @@ static int route4_change(struct tcf_proto *tp, unsigned long base,
 
 static int route4_change(struct net *net, struct sk_buff *in_skb,
 			 struct tcf_proto *tp, unsigned long base, u32 handle,
-			 struct nlattr **tca, void **arg, bool ovr)
+			 struct nlattr **tca, void **arg, bool ovr,
+			 struct netlink_ext_ack *extack)
 {
 	struct route4_head *head = rtnl_dereference(tp->root);
 	struct route4_filter __rcu **fp;
@@ -784,7 +782,7 @@ reinsert:
 	}
 
 	err = route4_set_parms(net, tp, base, f, handle, head, tb,
-			       tca[TCA_RATE], new, ovr);
+			       tca[TCA_RATE], new, ovr, extack);
 	if (err < 0)
 		goto errout;
 
@@ -796,7 +794,7 @@ reinsert:
 		if (f->handle < f1->handle)
 			break;
 
-	netif_keep_dst(qdisc_dev(tp->q));
+	tcf_block_netif_keep_dst(tp->chain->block);
 	rcu_assign_pointer(f->next, f1);
 	rcu_assign_pointer(*fp, f);
 
@@ -825,7 +823,7 @@ reinsert:
 	if (fold) {
 		tcf_unbind_filter(tp, &fold->res);
 		tcf_exts_get_net(&fold->exts);
-		call_rcu(&fold->rcu, route4_delete_filter);
+		tcf_queue_work(&fold->rwork, route4_delete_filter_work);
 	}
 	return 0;
 

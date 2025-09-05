@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/raw3270.c
  *    IBM/3270 Driver - core functions.

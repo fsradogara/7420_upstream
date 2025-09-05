@@ -1588,7 +1588,7 @@ ia64_mca_cmc_int_caller(int cmc_irq, void *arg)
  *
  */
 static void
-ia64_mca_cmc_poll (unsigned long dummy)
+ia64_mca_cmc_poll (struct timer_list *unused)
 {
 	/* Trigger a CMC interrupt cascade  */
 	platform_send_ipi(first_cpu(cpu_online_map), IA64_CMCP_VECTOR, IA64_IPI_DM_INT, 0);
@@ -1667,7 +1667,7 @@ ia64_mca_cpe_int_caller(int cpe_irq, void *arg)
  *
  */
 static void
-ia64_mca_cpe_poll (unsigned long dummy)
+ia64_mca_cpe_poll (struct timer_list *unused)
 {
 	/* Trigger a CPE interrupt cascade  */
 	platform_send_ipi(first_cpu(cpu_online_map), IA64_CPEP_VECTOR, IA64_IPI_DM_INT, 0);
@@ -2241,6 +2241,7 @@ ia64_mca_late_init(void)
 	init_timer(&cmc_poll_timer);
 	cmc_poll_timer.function = ia64_mca_cmc_poll;
 	setup_timer(&cmc_poll_timer, ia64_mca_cmc_poll, 0UL);
+	timer_setup(&cmc_poll_timer, ia64_mca_cmc_poll, 0);
 
 	/* Unmask/enable the vector */
 	cmc_polling_enabled = 0;
@@ -2257,6 +2258,7 @@ ia64_mca_late_init(void)
 	{
 		irq_desc_t *desc;
 	setup_timer(&cpe_poll_timer, ia64_mca_cpe_poll, 0UL);
+	timer_setup(&cpe_poll_timer, ia64_mca_cpe_poll, 0);
 
 	{
 		unsigned int irq;

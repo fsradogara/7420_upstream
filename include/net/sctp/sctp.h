@@ -150,6 +150,8 @@ void sctp_addr_wq_mgmt(struct net *, struct sctp_sockaddr_entry *, int);
 /*
  * sctp/socket.c
  */
+int sctp_inet_connect(struct socket *sock, struct sockaddr *uaddr,
+		      int addr_len, int flags);
 int sctp_backlog_rcv(struct sock *sk, struct sk_buff *skb);
 int sctp_inet_listen(struct socket *sock, int backlog);
 void sctp_write_space(struct sock *sk);
@@ -157,7 +159,7 @@ unsigned int sctp_poll(struct file *file, struct socket *sock,
 		poll_table *wait);
 void sctp_sock_rfree(struct sk_buff *skb);
 void sctp_data_ready(struct sock *sk);
-unsigned int sctp_poll(struct file *file, struct socket *sock,
+__poll_t sctp_poll(struct file *file, struct socket *sock,
 		poll_table *wait);
 void sctp_sock_rfree(struct sk_buff *skb);
 void sctp_copy_sock(struct sock *newsk, struct sock *sk,
@@ -166,7 +168,7 @@ extern struct percpu_counter sctp_sockets_allocated;
 int sctp_asconf_mgmt(struct sctp_sock *, struct sctp_sockaddr_entry *);
 struct sk_buff *sctp_skb_recv_datagram(struct sock *, int, int, int *);
 
-int sctp_transport_walk_start(struct rhashtable_iter *iter);
+void sctp_transport_walk_start(struct rhashtable_iter *iter);
 void sctp_transport_walk_stop(struct rhashtable_iter *iter);
 struct sctp_transport *sctp_transport_get_next(struct net *net,
 			struct rhashtable_iter *iter);
@@ -253,11 +255,17 @@ int sctp_assocs_proc_init(struct net *net);
 void sctp_assocs_proc_exit(struct net *net);
 int sctp_remaddr_proc_init(struct net *net);
 void sctp_remaddr_proc_exit(struct net *net);
+int __net_init sctp_proc_init(struct net *net);
 
 /*
  * sctp/offload.c
  */
 int sctp_offload_init(void);
+
+/*
+ * sctp/stream_sched.c
+ */
+void sctp_sched_ops_init(void);
 
 /*
  * sctp/stream.c
@@ -460,7 +468,6 @@ atomic_t sctp_dbg_objcnt_## name = ATOMIC_INIT(0)
 void sctp_dbg_objcnt_init(void);
 void sctp_dbg_objcnt_exit(void);
 void sctp_dbg_objcnt_init(struct net *);
-void sctp_dbg_objcnt_exit(struct net *);
 
 #else
 
@@ -470,7 +477,6 @@ void sctp_dbg_objcnt_exit(struct net *);
 static inline void sctp_dbg_objcnt_init(void) { return; }
 static inline void sctp_dbg_objcnt_exit(void) { return; }
 static inline void sctp_dbg_objcnt_init(struct net *net) { return; }
-static inline void sctp_dbg_objcnt_exit(struct net *net) { return; }
 
 #endif /* CONFIG_SCTP_DBG_OBJCOUNT */
 
@@ -915,17 +921,29 @@ static inline struct dst_entry *sctp_transport_dst_check(struct sctp_transport *
 	return t->dst;
 }
 
-static inline bool sctp_transport_pmtu_check(struct sctp_transport *t)
+/* Calculate max payload size given a MTU, or the total overhead if
+ * given MTU is zero
+ */
+static inline __u32 sctp_mtu_payload(const struct sctp_sock *sp,
+				     __u32 mtu, __u32 extra)
 {
-	__u32 pmtu = max_t(size_t, SCTP_TRUNC4(dst_mtu(t->dst)),
-			   SCTP_DEFAULT_MINSEGMENT);
+	__u32 overhead = sizeof(struct sctphdr) + extra;
 
-	if (t->pathmtu == pmtu)
-		return true;
+	if (sp)
+		overhead += sp->pf->af->net_header_len;
+	else
+		overhead += sizeof(struct ipv6hdr);
 
-	t->pathmtu = pmtu;
+	if (WARN_ON_ONCE(mtu && mtu <= overhead))
+		mtu = overhead;
 
-	return false;
+	return mtu ? mtu - overhead : overhead;
+}
+
+static inline __u32 sctp_dst_mtu(const struct dst_entry *dst)
+{
+	return SCTP_TRUNC4(max_t(__u32, dst_mtu(dst),
+				 SCTP_DEFAULT_MINSEGMENT));
 }
 
 #endif /* __net_sctp_h__ */

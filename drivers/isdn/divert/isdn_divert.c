@@ -74,7 +74,7 @@ DEFINE_SPINLOCK(divert_lock);
 /***************************/
 /* timer callback function */
 /***************************/
-static void deflect_timer_expire(ulong arg)
+static void deflect_timer_expire(struct timer_list *t)
 {
   unsigned long flags;
   struct call_struc *cs = (struct call_struc *) arg;
@@ -121,7 +121,7 @@ static void deflect_timer_expire(ulong arg)
 
    } /* switch */
 	unsigned long flags;
-	struct call_struc *cs = (struct call_struc *) arg;
+	struct call_struc *cs = from_timer(cs, t, timer);
 
 	spin_lock_irqsave(&divert_lock, flags);
 	del_timer(&cs->timer); /* delete active timer */
@@ -308,7 +308,7 @@ int cf_command(int drvid, int mode,
 	/* allocate mem for information struct */
 	if (!(cs = kmalloc(sizeof(struct call_struc), GFP_ATOMIC)))
 		return (-ENOMEM); /* no memory */
-	setup_timer(&cs->timer, deflect_timer_expire, (ulong)cs);
+	timer_setup(&cs->timer, deflect_timer_expire, 0);
 	cs->info[0] = '\0';
 	cs->ics.driver = drvid;
 	cs->ics.command = ISDN_CMD_PROT_IO; /* protocol specific io */
@@ -906,8 +906,7 @@ static int isdn_divert_icall(isdn_ctrl *ic)
 					return (0); /* no external deflection needed */
 			if (!(cs = kmalloc(sizeof(struct call_struc), GFP_ATOMIC)))
 				return (0); /* no memory */
-			setup_timer(&cs->timer, deflect_timer_expire,
-				    (ulong)cs);
+			timer_setup(&cs->timer, deflect_timer_expire, 0);
 			cs->info[0] = '\0';
 
 			cs->ics = *ic; /* copy incoming data */

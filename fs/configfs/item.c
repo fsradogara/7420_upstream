@@ -75,7 +75,6 @@ static void config_item_init(struct config_item *item)
 int config_item_set_name(struct config_item * item, const char * fmt, ...)
 int config_item_set_name(struct config_item *item, const char *fmt, ...)
 {
-	int error = 0;
 	int limit = CONFIGFS_ITEM_NAME_LEN;
 	int need;
 	va_list args;
@@ -106,15 +105,10 @@ int config_item_set_name(struct config_item *item, const char *fmt, ...)
 		va_start(args,fmt);
 		need = vsnprintf(name,limit,fmt,args);
 		va_start(args, fmt);
-		need = vsnprintf(name, limit, fmt, args);
+		name = kvasprintf(GFP_KERNEL, fmt, args);
 		va_end(args);
-
-		/* Still? Give up. */
-		if (need >= limit) {
-			kfree(name);
-			error = -EFAULT;
-			goto Done;
-		}
+		if (!name)
+			return -EFAULT;
 	}
 
 	/* Free the old name, if necessary. */
@@ -123,15 +117,14 @@ int config_item_set_name(struct config_item *item, const char *fmt, ...)
 
 	/* Now, set the new name */
 	item->ci_name = name;
- Done:
-	return error;
+	return 0;
 }
 
 EXPORT_SYMBOL(config_item_set_name);
 
 void config_item_init_type_name(struct config_item *item,
 				const char *name,
-				struct config_item_type *type)
+				const struct config_item_type *type)
 {
 	config_item_set_name(item, name);
 	config_item_set_name(item, "%s", name);
@@ -141,7 +134,7 @@ void config_item_init_type_name(struct config_item *item,
 EXPORT_SYMBOL(config_item_init_type_name);
 
 void config_group_init_type_name(struct config_group *group, const char *name,
-			 struct config_item_type *type)
+			 const struct config_item_type *type)
 {
 	config_item_set_name(&group->cg_item, name);
 	config_item_set_name(&group->cg_item, "%s", name);
@@ -177,7 +170,7 @@ EXPORT_SYMBOL(config_item_get_unless_zero);
 
 static void config_item_cleanup(struct config_item *item)
 {
-	struct config_item_type *t = item->ci_type;
+	const struct config_item_type *t = item->ci_type;
 	struct config_group *s = item->ci_group;
 	struct config_item *parent = item->ci_parent;
 

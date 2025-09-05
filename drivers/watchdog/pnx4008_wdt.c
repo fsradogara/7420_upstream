@@ -208,7 +208,7 @@ static ssize_t pnx4008_wdt_write(struct file *file, const char *data,
 
 static const struct watchdog_info ident = {
 static bool nowayout = WATCHDOG_NOWAYOUT;
-static unsigned int heartbeat = DEFAULT_HEARTBEAT;
+static unsigned int heartbeat;
 
 static DEFINE_SPINLOCK(io_lock);
 static void __iomem	*wdt_base;

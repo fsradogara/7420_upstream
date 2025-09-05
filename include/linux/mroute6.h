@@ -123,6 +123,8 @@ struct sioc_mif_req6
 #include <linux/skbuff.h>	/* for struct sk_buff_head */
 #include <net/net_namespace.h>
 #include <uapi/linux/mroute6.h>
+#include <linux/mroute_base.h>
+#include <net/fib_rules.h>
 
 #ifdef CONFIG_IPV6_MROUTE
 static inline int ip6_mroute_opt(int opt)
@@ -224,21 +226,32 @@ struct mfc6_cache {
 			unsigned char ttls[MAXMIFS];	/* TTL thresholds		*/
 		} res;
 	} mfc_un;
+#ifdef CONFIG_IPV6_MROUTE_MULTIPLE_TABLES
+bool ip6mr_rule_default(const struct fib_rule *rule);
+#else
+static inline bool ip6mr_rule_default(const struct fib_rule *rule)
+{
+	return true;
+}
+#endif
+
+#define VIFF_STATIC 0x8000
+
+struct mfc6_cache_cmp_arg {
+	struct in6_addr mf6c_mcastgrp;
+	struct in6_addr mf6c_origin;
 };
 
-#define MFC_STATIC		1
-#define MFC_NOTIFY		2
-
-#define MFC6_LINES		64
-
-#define MFC6_HASH(a, g) (((__force u32)(a)->s6_addr32[0] ^ \
-			  (__force u32)(a)->s6_addr32[1] ^ \
-			  (__force u32)(a)->s6_addr32[2] ^ \
-			  (__force u32)(a)->s6_addr32[3] ^ \
-			  (__force u32)(g)->s6_addr32[0] ^ \
-			  (__force u32)(g)->s6_addr32[1] ^ \
-			  (__force u32)(g)->s6_addr32[2] ^ \
-			  (__force u32)(g)->s6_addr32[3]) % MFC6_LINES)
+struct mfc6_cache {
+	struct mr_mfc _c;
+	union {
+		struct {
+			struct in6_addr mf6c_mcastgrp;
+			struct in6_addr mf6c_origin;
+		};
+		struct mfc6_cache_cmp_arg cmparg;
+	};
+};
 
 #define MFC_ASSERT_THRESH (3*HZ)		/* Maximal freq. of asserts */
 
@@ -282,12 +295,12 @@ extern int ip6mr_get_route(struct net *net, struct sk_buff *skb,
 			   struct rtmsg *rtm, u32 portid);
 
 #ifdef CONFIG_IPV6_MROUTE
-extern struct sock *mroute6_socket(struct net *net, struct sk_buff *skb);
+bool mroute6_is_socket(struct net *net, struct sk_buff *skb);
 extern int ip6mr_sk_done(struct sock *sk);
 #else
-static inline struct sock *mroute6_socket(struct net *net, struct sk_buff *skb)
+static inline bool mroute6_is_socket(struct net *net, struct sk_buff *skb)
 {
-	return NULL;
+	return false;
 }
 static inline int ip6mr_sk_done(struct sock *sk)
 {

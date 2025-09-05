@@ -99,6 +99,8 @@ static int ebt_limit_mt_check(const struct xt_mtchk_param *par)
 		printk("Overflow in ebt_limit, try lower: %u/%u\n",
 		pr_info("overflow, try lower: %u/%u\n",
 			info->avg, info->burst);
+		pr_info_ratelimited("overflow, try lower: %u/%u\n",
+				    info->avg, info->burst);
 		return -EINVAL;
 	}
 

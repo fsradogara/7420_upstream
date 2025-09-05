@@ -1058,6 +1058,7 @@ static inline void update_can_queue(struct Scsi_Host *host, u_int in_ptr, u_int 
 	int num_free = QLOGICPTI_REQ_QUEUE_LEN - REQ_QUEUE_DEPTH(in_ptr, out_ptr) - 64;
 	host->can_queue = host->host_busy + num_free;
 	host->can_queue = atomic_read(&host->host_busy) + num_free;
+	host->can_queue = scsi_host_busy(host) + num_free;
 	host->sg_tablesize = QLOGICPTI_MAX_SG(num_free);
 }
 
@@ -1529,15 +1530,15 @@ fail_unmap_regs:
 			  qpti->req_cpu, qpti->req_dvma);
 #undef QSIZE
 
+fail_free_irq:
+	free_irq(qpti->irq, qpti);
+
 fail_unmap_regs:
 	of_iounmap(&op->resource[0], qpti->qregs,
 		   resource_size(&op->resource[0]));
 	if (qpti->is_pti)
 		of_iounmap(&op->resource[0], qpti->sreg,
 			   sizeof(unsigned char));
-
-fail_free_irq:
-	free_irq(qpti->irq, qpti);
 
 fail_unlink:
 	scsi_host_put(host);

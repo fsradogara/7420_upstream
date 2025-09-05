@@ -52,9 +52,9 @@
 #define ACPI_BATTERY_CLASS		"battery"
 #include <linux/power_supply.h>
 #include <linux/platform_data/x86/apple.h>
+#include <acpi/battery.h>
 
 #include "sbshc.h"
-#include "battery.h"
 
 #define PREFIX "ACPI: "
 

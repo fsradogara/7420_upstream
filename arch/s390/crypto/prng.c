@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright IBM Corp. 2006,2007
  * Author(s): Jan Glauber <jan.glauber@de.ibm.com>

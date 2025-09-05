@@ -142,11 +142,6 @@
 #define IS_OFDLCK(fl)	(fl->fl_flags & FL_OFDLCK)
 #define IS_REMOTELCK(fl)	(fl->fl_pid <= 0)
 
-static inline bool is_remote_lock(struct file *filp)
-{
-	return likely(!(filp->f_path.dentry->d_sb->s_flags & MS_NOREMOTELOCK));
-}
-
 static bool lease_breaking(struct file_lock *fl)
 {
 	return fl->fl_flags & (FL_UNLOCK_PENDING | FL_DOWNGRADE_PENDING);
@@ -220,10 +215,6 @@ static DEFINE_HASHTABLE(blocked_hash, BLOCKED_HASH_BITS);
  * we often hold the flc_lock as well. In certain cases, when reading the fields
  * protected by this lock, we can skip acquiring it iff we already hold the
  * flc_lock.
- *
- * In particular, adding an entry to the fl_block list requires that you hold
- * both the flc_lock and the blocked_lock_lock (acquired in that order).
- * Deleting an entry from the list however only requires the file_lock_lock.
  */
 static DEFINE_SPINLOCK(blocked_lock_lock);
 
@@ -776,7 +767,7 @@ lease_setup(struct file_lock *fl, void **priv)
 	if (!fasync_insert_entry(fa->fa_fd, filp, &fl->fl_fasync, fa))
 		*priv = NULL;
 
-	__f_setown(filp, task_pid(current), PIDTYPE_PID, 0);
+	__f_setown(filp, task_pid(current), PIDTYPE_TGID, 0);
 }
 
 static const struct lock_manager_operations lease_manager_ops = {
@@ -790,7 +781,7 @@ static const struct lock_manager_operations lease_manager_ops = {
  */
 static int lease_init(struct file *filp, int type, struct file_lock *fl)
 static int lease_init(struct file *filp, long type, struct file_lock *fl)
- {
+{
 	if (assign_type(fl, type) != 0)
 		return -EINVAL;
 
@@ -1381,6 +1372,7 @@ out:
 	if (new_fl)
 		locks_free_lock(new_fl);
 	locks_dispose_list(&dispose);
+	trace_flock_lock_inode(inode, request, error);
 	return error;
 }
 
@@ -2172,15 +2164,15 @@ out:
 EXPORT_SYMBOL(__break_lease);
 
 /**
- *	lease_get_mtime - get the last modified time of an inode
+ *	lease_get_mtime - update modified time of an inode with exclusive lease
  *	@inode: the inode
- *      @time:  pointer to a timespec which will contain the last modified time
+ *      @time:  pointer to a timespec which contains the last modified time
  *
  * This is to force NFS clients to flush their caches for files with
  * exclusive leases.  The justification is that if someone has an
  * exclusive lease, then they could be modifying it.
  */
-void lease_get_mtime(struct inode *inode, struct timespec *time)
+void lease_get_mtime(struct inode *inode, struct timespec64 *time)
 {
 	struct file_lock *flock = inode->i_flock;
 	if (flock && IS_LEASE(flock) && (flock->fl_type & F_WRLCK))
@@ -2200,8 +2192,6 @@ void lease_get_mtime(struct inode *inode, struct timespec *time)
 
 	if (has_lease)
 		*time = current_time(inode);
-	else
-		*time = inode->i_mtime;
 }
 
 EXPORT_SYMBOL(lease_get_mtime);
@@ -2336,8 +2326,7 @@ check_conflicting_open(const struct dentry *dentry, const long arg, int flags)
 	if (flags & FL_LAYOUT)
 		return 0;
 
-	if ((arg == F_RDLCK) &&
-	    (atomic_read(&d_real_inode(dentry)->i_writecount) > 0))
+	if ((arg == F_RDLCK) && (atomic_read(&inode->i_writecount) > 0))
 		return -EAGAIN;
 
 	if ((arg == F_WRLCK) && ((d_count(dentry) > 1) ||
@@ -2643,7 +2632,7 @@ EXPORT_SYMBOL(generic_setlease);
 int
 vfs_setlease(struct file *filp, long arg, struct file_lock **lease, void **priv)
 {
-	if (filp->f_op->setlease && is_remote_lock(filp))
+	if (filp->f_op->setlease)
 		return filp->f_op->setlease(filp, arg, lease, priv);
 	else
 		return generic_setlease(filp, arg, lease, priv);
@@ -2854,7 +2843,7 @@ SYSCALL_DEFINE2(flock, unsigned int, fd, unsigned int, cmd)
 	if (error)
 		goto out_free;
 
-	if (f.file->f_op->flock && is_remote_lock(f.file))
+	if (f.file->f_op->flock)
 		error = f.file->f_op->flock(f.file,
 					  (can_sleep) ? F_SETLKW : F_SETLK,
 					  lock);
@@ -2884,6 +2873,7 @@ int vfs_test_lock(struct file *filp, struct file_lock *fl)
 	if (filp->f_op && filp->f_op->lock)
 	if (filp->f_op->lock)
 	if (filp->f_op->lock && is_remote_lock(filp))
+	if (filp->f_op->lock)
 		return filp->f_op->lock(filp, F_GETLK, fl);
 	posix_test_lock(filp, fl);
 	return 0;
@@ -2906,6 +2896,13 @@ static pid_t locks_translate_pid(struct file_lock *fl, struct pid_namespace *ns)
 		return -1;
 	if (IS_REMOTELCK(fl))
 		return fl->fl_pid;
+	/*
+	 * If the flock owner process is dead and its pid has been already
+	 * freed, the translation below won't work, but we still want to show
+	 * flock owner pid number in init pidns.
+	 */
+	if (ns == &init_pid_ns)
+		return (pid_t)fl->fl_pid;
 
 	rcu_read_lock();
 	pid = find_pid_ns(fl->fl_pid, &init_pid_ns);
@@ -3041,6 +3038,7 @@ int vfs_lock_file(struct file *filp, unsigned int cmd, struct file_lock *fl, str
 	if (filp->f_op && filp->f_op->lock)
 	if (filp->f_op->lock)
 	if (filp->f_op->lock && is_remote_lock(filp))
+	if (filp->f_op->lock)
 		return filp->f_op->lock(filp, cmd, fl);
 	else
 		return posix_lock_file(filp, fl, conf);
@@ -3486,7 +3484,7 @@ locks_remove_flock(struct file *filp, struct file_lock_context *flctx)
 	if (list_empty(&flctx->flc_flock))
 		return;
 
-	if (filp->f_op->flock && is_remote_lock(filp))
+	if (filp->f_op->flock)
 		filp->f_op->flock(filp, F_SETLKW, &fl);
 	else
 		flock_lock_inode(inode, &fl);
@@ -3586,6 +3584,7 @@ int vfs_cancel_lock(struct file *filp, struct file_lock *fl)
 	if (filp->f_op && filp->f_op->lock)
 	if (filp->f_op->lock)
 	if (filp->f_op->lock && is_remote_lock(filp))
+	if (filp->f_op->lock)
 		return filp->f_op->lock(filp, F_CANCELLK, fl);
 	return 0;
 }
@@ -3614,12 +3613,10 @@ static void lock_get_status(struct seq_file *f, struct file_lock *fl,
 
 	fl_pid = locks_translate_pid(fl, proc_pidns);
 	/*
-	 * If there isn't a fl_pid don't display who is waiting on
-	 * the lock if we are called from locks_show, or if we are
-	 * called from __show_fd_info - skip lock entirely
+	 * If lock owner is dead (and pid is freed) or not visible in current
+	 * pidns, zero is shown as a pid value. Check lock info from
+	 * init_pid_ns to get saved lock pid value.
 	 */
-	if (fl_pid == 0)
-		return;
 
 	if (fl->fl_file != NULL)
 		inode = fl->fl_file->f_path.dentry->d_inode;
@@ -3924,22 +3921,10 @@ static int __init filelock_init(void)
 			sizeof(struct file_lock), 0, SLAB_PANIC,
 			init_once);
 
-static int locks_open(struct inode *inode, struct file *filp)
-{
-	return seq_open_private(filp, &locks_seq_operations,
-					sizeof(struct locks_iterator));
-}
-
-static const struct file_operations proc_locks_operations = {
-	.open		= locks_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= seq_release_private,
-};
-
 static int __init proc_locks_init(void)
 {
-	proc_create("locks", 0, NULL, &proc_locks_operations);
+	proc_create_seq_private("locks", 0, NULL, &locks_seq_operations,
+			sizeof(struct locks_iterator), NULL);
 	return 0;
 }
 fs_initcall(proc_locks_init);

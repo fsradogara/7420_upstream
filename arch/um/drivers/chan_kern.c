@@ -242,8 +242,6 @@ void free_irqs(void)
 
 static void close_one_chan(struct chan *chan, int delay_free_irq)
 {
-	unsigned long flags;
-
 	if (!chan->opened)
 		return;
 
@@ -263,6 +261,14 @@ static void close_one_chan(struct chan *chan, int delay_free_irq)
 			um_free_irq(chan->line->driver->write_irq, chan);
 		chan->enabled = 0;
 	}
+    /* we can safely call free now - it will be marked
+     *  as free and freed once the IRQ stopped processing
+     */
+	if (chan->input && chan->enabled)
+		um_free_irq(chan->line->driver->read_irq, chan);
+	if (chan->output && chan->enabled)
+		um_free_irq(chan->line->driver->write_irq, chan);
+	chan->enabled = 0;
 	if (chan->ops->close != NULL)
 		(*chan->ops->close)(chan->fd, chan->data);
 

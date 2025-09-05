@@ -140,15 +140,15 @@ struct dentry * qnx4_lookup(struct inode *dir, struct dentry *dentry, unsigned i
 	if (IS_ERR(foundinode)) {
 		unlock_kernel();
 		QNX4DEBUG(("qnx4: lookup->iget -> error %ld\n",
+	if (IS_ERR(foundinode))
 		QNX4DEBUG((KERN_ERR "qnx4: lookup->iget -> error %ld\n",
 			   PTR_ERR(foundinode)));
-		return ERR_CAST(foundinode);
-	}
 out:
 	unlock_kernel();
 	d_add(dentry, foundinode);
 
 	return NULL;
+	return d_splice_alias(foundinode, dentry);
 }
 
 #ifdef CONFIG_QNX4FS_RW

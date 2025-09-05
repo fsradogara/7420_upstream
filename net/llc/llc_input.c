@@ -206,7 +206,7 @@ int llc_rcv(struct sk_buff *skb, struct net_device *dev,
 	llc_type_handlers[dest - 1](sap, skb);
 out_put:
 	dest = llc_pdu_type(skb);
-	sap_handler = dest ? ACCESS_ONCE(llc_type_handlers[dest - 1]) : NULL;
+	sap_handler = dest ? READ_ONCE(llc_type_handlers[dest - 1]) : NULL;
 	if (unlikely(!sap_handler)) {
 		if (rcv)
 			rcv(skb, dev, pt, orig_dev);
@@ -234,7 +234,7 @@ handle_station:
 		goto drop;
 	llc_station_handler(skb);
 handle_station:
-	sta_handler = ACCESS_ONCE(llc_station_handler);
+	sta_handler = READ_ONCE(llc_station_handler);
 	if (!sta_handler)
 		goto drop;
 	sta_handler(skb);

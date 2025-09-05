@@ -378,18 +378,6 @@ static struct proc_dir_entry *proc_therm_ds1620;
 		   fan_state[netwinder_get_fan()]);
 	return 0;
 }
-
-static int ds1620_proc_therm_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ds1620_proc_therm_show, NULL);
-}
-
-static const struct file_operations ds1620_proc_therm_fops = {
-	.open		= ds1620_proc_therm_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 #endif
 
 static const struct file_operations ds1620_fops = {
@@ -443,6 +431,7 @@ static int __init ds1620_init(void)
 		proc_therm_ds1620->read_proc = proc_therm_ds1620_read;
 	else
 	if (!proc_create("therm", 0, NULL, &ds1620_proc_therm_fops))
+	if (!proc_create_single("therm", 0, NULL, ds1620_proc_therm_show))
 		printk(KERN_ERR "therm: unable to register /proc/therm\n");
 #endif
 

@@ -499,3 +499,5 @@ done:
     *	RTC_PIE_ON, RTC_PIE_OFF: These are also emulated by the generic code.
 
 If all else fails, check out the tools/testing/selftests/timers/rtctest.c test!
+Check out tools/testing/selftests/timers/rtctest.c for an example usage of the
+ioctl interface.

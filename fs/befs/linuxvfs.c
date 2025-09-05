@@ -245,12 +245,12 @@ befs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 	} else if (ret != BEFS_OK || offset == 0) {
 		befs_warning(sb, "<--- befs_lookup() Error");
 		befs_debug(sb, "<--- %s %pd not found", __func__, dentry);
-		d_add(dentry, NULL);
-		return ERR_PTR(-ENOENT);
-
+		inode = NULL;
 	} else if (ret != BEFS_OK || offset == 0) {
 		befs_error(sb, "<--- %s Error", __func__);
-		return ERR_PTR(-ENODATA);
+		inode = ERR_PTR(-ENODATA);
+	} else {
+		inode = befs_iget(dir->i_sb, (ino_t) offset);
 	}
 
 	inode = befs_iget(dir->i_sb, (ino_t) offset);
@@ -262,7 +262,7 @@ befs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 	befs_debug(sb, "<--- befs_lookup()");
 	befs_debug(sb, "<--- %s", __func__);
 
-	return NULL;
+	return d_splice_alias(inode, dentry);
 }
 
 static int
@@ -607,6 +607,15 @@ befs_init_inodecache(void)
 	}
 
 		pr_err("%s: Couldn't initialize inode slabcache\n", __func__);
+	befs_inode_cachep = kmem_cache_create_usercopy("befs_inode_cache",
+				sizeof(struct befs_inode_info), 0,
+				(SLAB_RECLAIM_ACCOUNT|SLAB_MEM_SPREAD|
+					SLAB_ACCOUNT),
+				offsetof(struct befs_inode_info,
+					i_data.symlink),
+				sizeof_field(struct befs_inode_info,
+					i_data.symlink),
+				init_once);
 	if (befs_inode_cachep == NULL)
 		return -ENOMEM;
 
@@ -1133,7 +1142,7 @@ befs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!sb_rdonly(sb)) {
 		befs_warning(sb,
 			     "No write support. Marking filesystem read-only");
-		sb->s_flags |= MS_RDONLY;
+		sb->s_flags |= SB_RDONLY;
 	}
 #endif				/* CONFIG_BEFS_RW */
 
@@ -1257,7 +1266,7 @@ static int
 befs_remount(struct super_block *sb, int *flags, char *data)
 {
 	sync_filesystem(sb);
-	if (!(*flags & MS_RDONLY))
+	if (!(*flags & SB_RDONLY))
 		return -EINVAL;
 	return 0;
 }

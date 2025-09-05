@@ -192,7 +192,7 @@ void acpi_processor_ppc_has_changed(struct acpi_processor *pr, int event_flag)
 {
 	int ret;
 
-	if (ignore_ppc) {
+	if (ignore_ppc || !pr->performance) {
 		/*
 		 * Only when it is notification event, the _OST object
 		 * will be evaluated. Otherwise it is skipped.
@@ -376,8 +376,9 @@ static int acpi_processor_get_performance_states(struct acpi_processor *pr)
 
 	pr->performance->state_count = pss->package.count;
 	pr->performance->states =
-	    kmalloc(sizeof(struct acpi_processor_px) * pss->package.count,
-		    GFP_KERNEL);
+	    kmalloc_array(pss->package.count,
+			  sizeof(struct acpi_processor_px),
+			  GFP_KERNEL);
 	if (!pr->performance->states) {
 		result = -ENOMEM;
 		goto end;
@@ -685,6 +686,7 @@ static void acpi_cpufreq_remove_file(struct acpi_processor *pr)
 #endif				/* CONFIG_X86_ACPI_CPUFREQ_PROC_INTF */
 
 static int acpi_processor_get_psd(struct acpi_processor	*pr)
+int acpi_processor_get_psd(acpi_handle handle, struct acpi_psd_package *pdomain)
 {
 	int result = 0;
 	acpi_status status = AE_OK;
@@ -692,9 +694,8 @@ static int acpi_processor_get_psd(struct acpi_processor	*pr)
 	struct acpi_buffer format = {sizeof("NNNNN"), "NNNNN"};
 	struct acpi_buffer state = {0, NULL};
 	union acpi_object  *psd = NULL;
-	struct acpi_psd_package *pdomain;
 
-	status = acpi_evaluate_object(pr->handle, "_PSD", NULL, &buffer);
+	status = acpi_evaluate_object(handle, "_PSD", NULL, &buffer);
 	if (ACPI_FAILURE(status)) {
 		return -ENODEV;
 	}
@@ -713,8 +714,6 @@ static int acpi_processor_get_psd(struct acpi_processor	*pr)
 		result = -EFAULT;
 		goto end;
 	}
-
-	pdomain = &(pr->performance->domain_info);
 
 	state.length = sizeof(struct acpi_psd_package);
 	state.pointer = pdomain;
@@ -753,6 +752,7 @@ end:
 	kfree(buffer.pointer);
 	return result;
 }
+EXPORT_SYMBOL(acpi_processor_get_psd);
 
 int acpi_processor_preregister_performance(
 		struct acpi_processor_performance *performance)
@@ -822,7 +822,8 @@ int acpi_processor_preregister_performance(
 
 		pr->performance = per_cpu_ptr(performance, i);
 		cpumask_set_cpu(i, pr->performance->shared_cpu_map);
-		if (acpi_processor_get_psd(pr)) {
+		pdomain = &(pr->performance->domain_info);
+		if (acpi_processor_get_psd(pr->handle, pdomain)) {
 			retval = -EINVAL;
 			continue;
 		}

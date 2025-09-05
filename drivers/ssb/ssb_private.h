@@ -2,6 +2,9 @@
 #ifndef LINUX_SSB_PRIVATE_H_
 #define LINUX_SSB_PRIVATE_H_
 
+#define PFX		"ssb: "
+#define pr_fmt(fmt)	PFX fmt
+
 #include <linux/ssb/ssb.h>
 #include <linux/types.h>
 #include <linux/bcm47xx_wdt.h>

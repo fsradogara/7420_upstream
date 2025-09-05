@@ -424,7 +424,7 @@ static blk_status_t virtio_queue_rq(struct blk_mq_hw_ctx *hctx,
 		/* Out of mem doesn't actually happen, since we fall back
 		 * to direct descriptors */
 		if (err == -ENOMEM || err == -ENOSPC)
-			return BLK_STS_RESOURCE;
+			return BLK_STS_DEV_RESOURCE;
 		return BLK_STS_IOERR;
 	}
 
@@ -446,7 +446,7 @@ static int virtblk_get_id(struct gendisk *disk, char *id_str)
 	struct request *req;
 	int err;
 
-	req = blk_get_request(q, REQ_OP_DRV_IN, GFP_KERNEL);
+	req = blk_get_request(q, REQ_OP_DRV_IN, 0);
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
@@ -545,16 +545,14 @@ static ssize_t virtblk_serial_show(struct device *dev,
 	return err;
 }
 
-static DEVICE_ATTR(serial, S_IRUGO, virtblk_serial_show, NULL);
+static DEVICE_ATTR(serial, 0444, virtblk_serial_show, NULL);
 
-static void virtblk_config_changed_work(struct work_struct *work)
+/* The queue's logical block size must be set before calling this */
+static void virtblk_update_capacity(struct virtio_blk *vblk, bool resize)
 {
-	struct virtio_blk *vblk =
-		container_of(work, struct virtio_blk, config_work);
 	struct virtio_device *vdev = vblk->vdev;
 	struct request_queue *q = vblk->disk->queue;
 	char cap_str_2[10], cap_str_10[10];
-	char *envp[] = { "RESIZE=1", NULL };
 	unsigned long long nblocks;
 	u64 capacity;
 
@@ -576,13 +574,24 @@ static void virtblk_config_changed_work(struct work_struct *work)
 			STRING_UNITS_10, cap_str_10, sizeof(cap_str_10));
 
 	dev_notice(&vdev->dev,
-		   "new size: %llu %d-byte logical blocks (%s/%s)\n",
+		   "[%s] %s%llu %d-byte logical blocks (%s/%s)\n",
+		   vblk->disk->disk_name,
+		   resize ? "new size: " : "",
 		   nblocks,
 		   queue_logical_block_size(q),
 		   cap_str_10,
 		   cap_str_2);
 
 	set_capacity(vblk->disk, capacity);
+}
+
+static void virtblk_config_changed_work(struct work_struct *work)
+{
+	struct virtio_blk *vblk =
+		container_of(work, struct virtio_blk, config_work);
+	char *envp[] = { "RESIZE=1", NULL };
+
+	virtblk_update_capacity(vblk, true);
 	revalidate_disk(vblk->disk);
 	kobject_uevent_env(&disk_to_dev(vblk->disk)->kobj, KOBJ_CHANGE, envp);
 }
@@ -770,10 +779,10 @@ virtblk_cache_type_show(struct device *dev, struct device_attribute *attr,
 }
 
 static const struct device_attribute dev_attr_cache_type_ro =
-	__ATTR(cache_type, S_IRUGO,
+	__ATTR(cache_type, 0444,
 	       virtblk_cache_type_show, NULL);
 static const struct device_attribute dev_attr_cache_type_rw =
-	__ATTR(cache_type, S_IRUGO|S_IWUSR,
+	__ATTR(cache_type, 0644,
 	       virtblk_cache_type_show, virtblk_cache_type_store);
 
 static int virtblk_init_request(struct blk_mq_tag_set *set, struct request *rq,
@@ -824,7 +833,6 @@ static int virtblk_probe(struct virtio_device *vdev)
 	struct request_queue *q;
 	int err, index;
 
-	u64 cap;
 	u32 v, blk_size, sg_elems, opt_io_size;
 	u16 min_io_size;
 	u8 physical_block_exp, alignment_offset;
@@ -1044,6 +1052,7 @@ out_free_vblk:
 	if (!err && opt_io_size)
 		blk_queue_io_opt(q, blk_size * opt_io_size);
 
+	virtblk_update_capacity(vblk, false);
 	virtio_device_ready(vdev);
 
 	device_add_disk(&vdev->dev, vblk->disk);

@@ -176,6 +176,7 @@
  *   nla_parse()			parse and validate stream of attrs
  *   nla_parse_nested()			parse nested attribuets
  *   nla_parse_nested_compat()		parse nested compat attributes
+ *   nla_parse_nested()			parse nested attributes
  *   nla_for_each_attr()		loop over all attributes
  *   nla_for_each_nested()		loop over the nested attributes
  */

@@ -141,7 +141,6 @@ static int __devinit i2c_parport_probe(struct platform_device *pdev)
 		return -EBUSY;
 /* SMBus alert support */
 static struct i2c_smbus_alert_setup alert_data = {
-	.alert_edge_triggered	= 1,
 };
 static struct i2c_client *ara;
 static struct lineop parport_ctrl_irq = {

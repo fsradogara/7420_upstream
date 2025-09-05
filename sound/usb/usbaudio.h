@@ -141,6 +141,8 @@ struct snd_usb_audio {
 	int num_suspended_intf;
 	int sample_rate_read_error;
 
+	int badd_profile;		/* UAC3 BADD profile */
+
 	struct list_head pcm_list;	/* list of pcm streams */
 	int pcm_devs;
 
@@ -159,6 +161,9 @@ struct snd_usb_audio {
 
 	int setup;			/* from the 'device_setup' module param */
 	bool autoclock;			/* from the 'autoclock' module param */
+	bool keep_iface;		/* keep interface/altset after closing
+					 * or parameter change
+					 */
 
 	struct usb_host_interface *ctrl_intf;	/* the audio control interface */
 };
@@ -222,6 +227,7 @@ enum quirk_type {
 struct snd_usb_audio_quirk {
 	const char *vendor_name;
 	const char *product_name;
+	const char *profile_name;	/* override the card->longname */
 	int16_t ifnum;
 	uint16_t type;
 	const void *data;
@@ -305,5 +311,7 @@ void snd_usbmidi_disconnect(struct list_head *p);
 
 int snd_usb_lock_shutdown(struct snd_usb_audio *chip);
 void snd_usb_unlock_shutdown(struct snd_usb_audio *chip);
+
+extern bool snd_usb_use_vmalloc;
 
 #endif /* __USBAUDIO_H */

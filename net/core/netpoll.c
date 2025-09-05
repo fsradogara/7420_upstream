@@ -229,6 +229,9 @@ static void poll_one_napi(struct napi_struct *napi)
 
 	return budget - work;
 		return;
+static void poll_one_napi(struct napi_struct *napi)
+{
+	int work;
 
 	/* If we set this bit but see that it has already been set,
 	 * that indicates that napi has been disabled and we need
@@ -294,15 +297,16 @@ void netpoll_poll(struct netpoll *np)
 
 	service_arp_queue(dev->npinfo);
 static void netpoll_poll_dev(struct net_device *dev)
+void netpoll_poll_dev(struct net_device *dev)
 {
-	const struct net_device_ops *ops;
 	struct netpoll_info *ni = rcu_dereference_bh(dev->npinfo);
+	const struct net_device_ops *ops;
 
 	/* Don't do any rx activity if the dev_lock mutex is held
 	 * the dev_open/close paths use this to block netpoll activity
 	 * while changing device state
 	 */
-	if (down_trylock(&ni->dev_lock))
+	if (!ni || down_trylock(&ni->dev_lock))
 		return;
 
 	if (!netif_running(dev)) {
@@ -311,13 +315,8 @@ static void netpoll_poll_dev(struct net_device *dev)
 	}
 
 	ops = dev->netdev_ops;
-	if (!ops->ndo_poll_controller) {
-		up(&ni->dev_lock);
-		return;
-	}
-
-	/* Process pending work on NIC */
-	ops->ndo_poll_controller(dev);
+	if (ops->ndo_poll_controller)
+		ops->ndo_poll_controller(dev);
 
 	poll_napi(dev);
 
@@ -325,6 +324,7 @@ static void netpoll_poll_dev(struct net_device *dev)
 
 	zap_completion_queue();
 }
+EXPORT_SYMBOL(netpoll_poll_dev);
 
 void netpoll_poll_disable(struct net_device *dev)
 {
@@ -451,7 +451,7 @@ void netpoll_send_skb_on_dev(struct netpoll *np, struct sk_buff *skb,
 	/* It is up to the caller to keep npinfo alive. */
 	struct netpoll_info *npinfo;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	lockdep_assert_irqs_disabled();
 
 	npinfo = rcu_dereference_bh(np->dev->npinfo);
 	if (!npinfo || !netif_running(dev) || !netif_device_present(dev)) {
@@ -1017,8 +1017,7 @@ int __netpoll_setup(struct netpoll *np, struct net_device *ndev)
 	strlcpy(np->dev_name, ndev->name, IFNAMSIZ);
 	INIT_WORK(&np->cleanup_work, netpoll_async_cleanup);
 
-	if ((ndev->priv_flags & IFF_DISABLE_NETPOLL) ||
-	    !ndev->netdev_ops->ndo_poll_controller) {
+	if (ndev->priv_flags & IFF_DISABLE_NETPOLL) {
 		np_err(np, "%s doesn't support polling, aborting\n",
 		       np->dev_name);
 		err = -ENOTSUPP;

@@ -479,6 +479,7 @@ int line_open(struct line *lines, struct tty_struct *tty)
 out_unlock:
 	spin_unlock(&line->count_lock);
 	return err;
+		err = um_request_irq(driver->write_irq, fd, IRQ_NONE,
 				     line_write_interrupt, IRQF_SHARED,
 				     driver->write_irq_name, data);
 	return err;

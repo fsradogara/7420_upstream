@@ -422,6 +422,8 @@ static int raw_bind(struct socket *sock, struct sockaddr *uaddr, int len)
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
+	if (addr->can_family != AF_CAN)
+		return -EINVAL;
 
 	lock_sock(sk);
 
@@ -489,7 +491,7 @@ static int raw_bind(struct socket *sock, struct sockaddr *uaddr, int len)
 }
 
 static int raw_getname(struct socket *sock, struct sockaddr *uaddr,
-		       int *len, int peer)
+		       int peer)
 {
 	struct sockaddr_can *addr = (struct sockaddr_can *)uaddr;
 	struct sock *sk = sock->sk;
@@ -502,9 +504,7 @@ static int raw_getname(struct socket *sock, struct sockaddr *uaddr,
 	addr->can_family  = AF_CAN;
 	addr->can_ifindex = ro->ifindex;
 
-	*len = sizeof(*addr);
-
-	return 0;
+	return sizeof(*addr);
 }
 
 static int raw_setsockopt(struct socket *sock, int level, int optname,

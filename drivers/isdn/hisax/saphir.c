@@ -186,8 +186,9 @@ Start_ISAC:
 }
 
 static void
-SaphirWatchDog(struct IsdnCardState *cs)
+SaphirWatchDog(struct timer_list *t)
 {
+	struct IsdnCardState *cs = from_timer(cs, t, hw.saphir.timer);
 	u_long flags;
 
 	spin_lock_irqsave(&cs->lock, flags);
@@ -346,6 +347,7 @@ int setup_saphir(struct IsdnCard *card)
 	cs->hw.saphir.timer.data = (long) cs;
 	init_timer(&cs->hw.saphir.timer);
 	cs->hw.saphir.timer.expires = jiffies + 4*HZ;
+	timer_setup(&cs->hw.saphir.timer, SaphirWatchDog, 0);
 	cs->hw.saphir.timer.expires = jiffies + 4 * HZ;
 	add_timer(&cs->hw.saphir.timer);
 	if (saphir_reset(cs)) {

@@ -1,7 +1,10 @@
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0 */
 /******************************************************************************
  *
  * Name: acpi.h - Master include file, Publics and external data.
  * Name: acpi.h - Master public include file used to interface to ACPICA
+ *
+ * Copyright (C) 2000 - 2018, Intel Corp.
  *
  *****************************************************************************/
 

@@ -1,7 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0
-#
-# linux/drivers/nand/Makefile
-#
 
 obj-$(CONFIG_MTD_NAND)			+= nand.o nand_ecc.o
 obj-$(CONFIG_MTD_NAND_IDS)		+= nand_ids.o
@@ -99,3 +96,9 @@ nand-objs += nand_macronix.o
 nand-objs += nand_micron.o
 nand-objs += nand_samsung.o
 nand-objs += nand_toshiba.o
+nandcore-objs := core.o bbt.o
+obj-$(CONFIG_MTD_NAND_CORE) += nandcore.o
+
+obj-y	+= onenand/
+obj-y	+= raw/
+obj-y	+= spi/

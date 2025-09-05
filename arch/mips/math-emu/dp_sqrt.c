@@ -30,7 +30,7 @@
 
 #include "ieee754dp.h"
 
-static const unsigned table[] = {
+static const unsigned int table[] = {
 	0, 1204, 3062, 5746, 9193, 13348, 18162, 23592,
 	29598, 36145, 43202, 50740, 58733, 67158, 75992,
 	85215, 83599, 71378, 60428, 50647, 41945, 34246,
@@ -46,7 +46,7 @@ union ieee754dp ieee754dp_sqrt(union ieee754dp x)
 {
 	struct _ieee754_csr oldcsr;
 	union ieee754dp y, z, t;
-	unsigned scalx, yh;
+	unsigned int scalx, yh;
 	COMPXDP;
 
 	EXPLODEXDP;
@@ -132,7 +132,8 @@ union ieee754dp ieee754dp_sqrt(union ieee754dp x)
 		scalx -= 256;
 	}
 
-	y = x = builddp(0, xe + DP_EBIAS, xm & ~DP_HIDDEN_BIT);
+	x = builddp(0, xe + DP_EBIAS, xm & ~DP_HIDDEN_BIT);
+	y = x;
 
 	/* magic initial approximation to almost 8 sig. bits */
 	yh = y.bits >> 32;
@@ -158,7 +159,8 @@ union ieee754dp ieee754dp_sqrt(union ieee754dp x)
 	t = ieee754dp_div(z, ieee754dp_add(t, x));
 	t.parts.bexp += 0x001;
 	/* t=y*y; z=t;	pt[n0]+=0x00100000; t+=z; z=(x-z)*y; */
-	z = t = ieee754dp_mul(y, y);
+	t = ieee754dp_mul(y, y);
+	z = t;
 	t.bexp += 0x001;
 	t = ieee754dp_add(t, z);
 	z = ieee754dp_mul(ieee754dp_sub(x, z), y);
@@ -195,7 +197,7 @@ union ieee754dp ieee754dp_sqrt(union ieee754dp x)
 		case IEEE754_RN:
 		case FPU_CSR_RU:
 			y.bits += 1;
-			/* drop through */
+			/* fall through */
 		case FPU_CSR_RN:
 			t.bits += 1;
 			break;

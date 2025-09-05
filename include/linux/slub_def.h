@@ -100,7 +100,7 @@ struct kmem_cache_node {
  * given order would contain.
  */
 struct kmem_cache_order_objects {
-	unsigned long x;
+	unsigned int x;
 };
 
 /*
@@ -122,13 +122,14 @@ struct kmem_cache {
 
 	struct kmem_cache_cpu __percpu *cpu_slab;
 	/* Used for retriving partial slabs etc */
-	unsigned long flags;
+	slab_flags_t flags;
 	unsigned long min_partial;
-	int size;		/* The size of an object including meta data */
-	int object_size;	/* The size of an object without meta data */
-	int offset;		/* Free pointer offset. */
+	unsigned int size;	/* The size of an object including meta data */
+	unsigned int object_size;/* The size of an object without meta data */
+	unsigned int offset;	/* Free pointer offset. */
 #ifdef CONFIG_SLUB_CPU_PARTIAL
-	int cpu_partial;	/* Number of per cpu partial objects to keep around */
+	/* Number of per cpu partial objects to keep around */
+	unsigned int cpu_partial;
 #endif
 	struct kmem_cache_order_objects oo;
 
@@ -147,6 +148,9 @@ struct kmem_cache {
 #endif
 	int reserved;		/* Reserved bytes at the end of slabs */
 	int red_left_pad;	/* Left redzone padding size */
+	unsigned int inuse;		/* Offset to metadata */
+	unsigned int align;		/* Alignment */
+	unsigned int red_left_pad;	/* Left redzone padding size */
 	const char *name;	/* Name (only for display!) */
 	struct list_head list;	/* List of slab caches */
 #ifdef CONFIG_SYSFS
@@ -155,7 +159,8 @@ struct kmem_cache {
 #endif
 #ifdef CONFIG_MEMCG
 	struct memcg_cache_params memcg_params;
-	int max_attr_size; /* for propagation, maximum size of a stored attr */
+	/* for propagation, maximum size of a stored attr */
+	unsigned int max_attr_size;
 #ifdef CONFIG_SYSFS
 	struct kset *memcg_kset;
 #endif
@@ -315,6 +320,7 @@ static __always_inline void *kmalloc_node(size_t size, gfp_t flags, int node)
 	return __kmalloc_node(size, flags, node);
 }
 #endif
+	unsigned int remote_node_defrag_ratio;
 #endif
 
 #ifdef CONFIG_SLAB_FREELIST_RANDOM
@@ -324,6 +330,9 @@ static __always_inline void *kmalloc_node(size_t size, gfp_t flags, int node)
 #ifdef CONFIG_KASAN
 	struct kasan_cache kasan_info;
 #endif
+
+	unsigned int useroffset;	/* Usercopy region offset */
+	unsigned int usersize;		/* Usercopy region size */
 
 	struct kmem_cache_node *node[MAX_NUMNODES];
 };
@@ -341,8 +350,12 @@ static __always_inline void *kmalloc_node(size_t size, gfp_t flags, int node)
 
 #ifdef CONFIG_SYSFS
 #define SLAB_SUPPORTS_SYSFS
+void sysfs_slab_unlink(struct kmem_cache *);
 void sysfs_slab_release(struct kmem_cache *);
 #else
+static inline void sysfs_slab_unlink(struct kmem_cache *s)
+{
+}
 static inline void sysfs_slab_release(struct kmem_cache *s)
 {
 }

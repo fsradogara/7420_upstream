@@ -38,12 +38,6 @@
 #include <asm/byteorder.h>
 #include <asm/io.h>
 
-#if defined(CONFIG_CRIS) || defined(CONFIG_FRV) || defined(CONFIG_MN10300)
-# define SUPPORT_VLB_SYNC 0
-#else
-# define SUPPORT_VLB_SYNC 1
-#endif
-
 /*
  * Used to indicate "no IRQ", should be a value that cannot be an IRQ
  * number.
@@ -58,6 +52,7 @@ typedef unsigned char	byte;	/* used everywhere */
  */
  * Probably not wise to fiddle with these
  */
+#define SUPPORT_VLB_SYNC 1
 #define IDE_DEFAULT_MAX_FAILURES	1
 #define ERROR_MAX	8	/* Max read/write errors per sector */
 #define ERROR_RESET	3	/* Reset controller every 4th retry */
@@ -1445,7 +1440,7 @@ __IDE_PROC_DEVSET(_name, _min, _max, NULL, NULL)
 typedef struct {
 	const char	*name;
 	umode_t		mode;
-	const struct file_operations *proc_fops;
+	int (*show)(struct seq_file *, void *);
 } ide_proc_entry_t;
 
 void proc_ide_create(void);
@@ -1480,8 +1475,8 @@ read_proc_t proc_ide_read_geometry;
 void ide_proc_register_driver(ide_drive_t *, struct ide_driver *);
 void ide_proc_unregister_driver(ide_drive_t *, struct ide_driver *);
 
-extern const struct file_operations ide_capacity_proc_fops;
-extern const struct file_operations ide_geometry_proc_fops;
+int ide_capacity_proc_show(struct seq_file *m, void *v);
+int ide_geometry_proc_show(struct seq_file *m, void *v);
 #else
 static inline void proc_ide_create(void) { ; }
 static inline void proc_ide_destroy(void) { ; }
@@ -1936,6 +1931,7 @@ extern void ide_timer_expiry(unsigned long);
 extern irqreturn_t ide_intr(int irq, void *dev_id);
 extern void do_ide_request(struct request_queue *);
 extern void ide_timer_expiry(unsigned long);
+extern void ide_timer_expiry(struct timer_list *t);
 extern irqreturn_t ide_intr(int irq, void *dev_id);
 extern void do_ide_request(struct request_queue *);
 extern void ide_requeue_and_plug(ide_drive_t *drive, struct request *rq);

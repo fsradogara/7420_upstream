@@ -171,18 +171,6 @@ dump_version(char *page, unsigned long nasid)
 	return 0;
 }
 
-static int proc_fit_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, proc_fit_show, PDE_DATA(inode));
-}
-
-static const struct file_operations proc_fit_fops = {
-	.open		= proc_fit_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 static int proc_version_show(struct seq_file *m, void *v)
 {
 	unsigned long nasid = (unsigned long)m->private;
@@ -255,18 +243,6 @@ read_fit_entry(char *page, char **start, off_t off, int count, int *eof,
 	return 0;
 }
 
-static int proc_version_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, proc_version_show, PDE_DATA(inode));
-}
-
-static const struct file_operations proc_version_fops = {
-	.open		= proc_version_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 /* module entry points */
 int __init prominfo_init(void);
 void __exit prominfo_exit(void);
@@ -330,10 +306,10 @@ int __init prominfo_init(void)
 		if (!dir)
 			continue;
 		nasid = cnodeid_to_nasid(cnodeid);
-		proc_create_data("fit", 0, dir,
-				 &proc_fit_fops, (void *)nasid);
-		proc_create_data("version", 0, dir,
-				 &proc_version_fops, (void *)nasid);
+		proc_create_single_data("fit", 0, dir, proc_fit_show, 
+				(void *)nasid);
+		proc_create_single_data("version", 0, dir, proc_version_show,
+				(void *)nasid);
 	}
 	return 0;
 }

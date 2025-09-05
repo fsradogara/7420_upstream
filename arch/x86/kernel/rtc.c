@@ -115,13 +115,13 @@ unsigned long mach_get_cmos_time(void)
 {
 	unsigned int status, year, mon, day, hour, min, sec, century = 0;
  */
-int mach_set_rtc_mmss(const struct timespec *now)
+int mach_set_rtc_mmss(const struct timespec64 *now)
 {
-	unsigned long nowtime = now->tv_sec;
+	unsigned long long nowtime = now->tv_sec;
 	struct rtc_time tm;
 	int retval = 0;
 
-	rtc_time_to_tm(nowtime, &tm);
+	rtc_time64_to_tm(nowtime, &tm);
 	if (!rtc_valid_tm(&tm)) {
 		retval = mc146818_set_time(&tm);
 		if (retval)
@@ -129,14 +129,14 @@ int mach_set_rtc_mmss(const struct timespec *now)
 			       __func__, retval);
 	} else {
 		printk(KERN_ERR
-		       "%s: Invalid RTC value: write of %lx to RTC failed\n",
+		       "%s: Invalid RTC value: write of %llx to RTC failed\n",
 			__func__, nowtime);
 		retval = -EINVAL;
 	}
 	return retval;
 }
 
-void mach_get_cmos_time(struct timespec *now)
+void mach_get_cmos_time(struct timespec64 *now)
 {
 	unsigned int status, year, mon, day, hour, min, sec, century = 0;
 	unsigned long flags;
@@ -211,7 +211,7 @@ void mach_get_cmos_time(struct timespec *now)
 	} else
 		year += CMOS_YEARS_OFFS;
 
-	now->tv_sec = mktime(year, mon, day, hour, min, sec);
+	now->tv_sec = mktime64(year, mon, day, hour, min, sec);
 	now->tv_nsec = 0;
 }
 
@@ -274,12 +274,13 @@ unsigned long long native_read_tsc(void)
 EXPORT_SYMBOL(native_read_tsc);
 
 int update_persistent_clock(struct timespec now)
+int update_persistent_clock64(struct timespec64 now)
 {
 	return x86_platform.set_wallclock(&now);
 }
 
 /* not static: needed by APM */
-void read_persistent_clock(struct timespec *ts)
+void read_persistent_clock64(struct timespec64 *ts)
 {
 	x86_platform.get_wallclock(ts);
 }

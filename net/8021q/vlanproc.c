@@ -158,8 +158,9 @@ int __net_init vlan_proc_init(struct net *net)
 	if (!vn->proc_vlan_dir)
 		goto err;
 
-	vn->proc_vlan_conf = proc_create(name_conf, S_IFREG|S_IRUSR|S_IWUSR,
-				     vn->proc_vlan_dir, &vlan_fops);
+	vn->proc_vlan_conf = proc_create_net(name_conf, S_IFREG | 0600,
+			vn->proc_vlan_dir, &vlan_seq_ops,
+			sizeof(struct seq_net_private));
 	if (!vn->proc_vlan_conf)
 		goto err;
 	return 0;
@@ -189,9 +190,8 @@ int vlan_proc_add_dev(struct net_device *vlandev)
 
 	if (!strcmp(vlandev->name, name_conf))
 		return -EINVAL;
-	vlan->dent =
-		proc_create_data(vlandev->name, S_IFREG|S_IRUSR|S_IWUSR,
-				 vn->proc_vlan_dir, &vlandev_fops, vlandev);
+	vlan->dent = proc_create_single_data(vlandev->name, S_IFREG | 0600,
+			vn->proc_vlan_dir, vlandev_seq_show, vlandev);
 	if (!vlan->dent)
 		return -ENOBUFS;
 	return 0;

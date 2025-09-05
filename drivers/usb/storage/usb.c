@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Driver for USB Mass Storage compliant devices
  *
@@ -28,23 +29,6 @@
  *
  * Also, for certain devices, the interrupt endpoint is used to convey
  * status of a command.
- *
- * Please see http://www.one-eyed-alien.net/~mdharm/linux-usb for more
- * information about this driver.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #ifdef CONFIG_USB_STORAGE_DEBUG
@@ -323,8 +307,8 @@ int usb_stor_reset_resume(struct usb_interface *iface)
 	usb_stor_report_bus_reset(us);
 
 	/*
-	 * FIXME: Notify the subdrivers that they need to reinitialize
-	 * the device
+	 * If any of the subdrivers implemented a reinitialization scheme,
+	 * this is where the callback would be invoked.
 	 */
 	return 0;
 }
@@ -368,8 +352,8 @@ int usb_stor_post_reset(struct usb_interface *iface)
 	usb_stor_report_bus_reset(us);
 
 	/*
-	 * FIXME: Notify the subdrivers that they need to reinitialize
-	 * the device
+	 * If any of the subdrivers implemented a reinitialization scheme,
+	 * this is where the callback would be invoked.
 	 */
 
 	mutex_unlock(&us->dev_mutex);
@@ -475,7 +459,7 @@ static int usb_stor_control_thread(void * __us)
 
 		/* When we are called with no command pending, we're done */
 		srb = us->srb;
-		if (us->srb == NULL) {
+		if (srb == NULL) {
 			scsi_unlock(host);
 			mutex_unlock(&us->dev_mutex);
 			US_DEBUGP("-- exiting\n");
@@ -485,7 +469,7 @@ static int usb_stor_control_thread(void * __us)
 
 		/* has the command timed out *already* ? */
 		if (test_bit(US_FLIDX_TIMED_OUT, &us->dflags)) {
-			us->srb->result = DID_ABORT << 16;
+			srb->result = DID_ABORT << 16;
 			goto SkipForAbort;
 		}
 
@@ -501,9 +485,9 @@ static int usb_stor_control_thread(void * __us)
 		 * reject the command if the direction indicator
 		 * is UNKNOWN
 		 */
-		if (us->srb->sc_data_direction == DMA_BIDIRECTIONAL) {
+		if (srb->sc_data_direction == DMA_BIDIRECTIONAL) {
 			usb_stor_dbg(us, "UNKNOWN data direction\n");
-			us->srb->result = DID_ERROR << 16;
+			srb->result = DID_ERROR << 16;
 		}
 
 		/*
@@ -515,11 +499,12 @@ static int usb_stor_control_thread(void * __us)
 			US_DEBUGP("Bad target number (%d:%d)\n",
 				  us->srb->device->id, us->srb->device->lun);
 		else if (us->srb->device->id &&
+		else if (srb->device->id &&
 				!(us->fflags & US_FL_SCM_MULT_TARG)) {
 			usb_stor_dbg(us, "Bad target number (%d:%llu)\n",
-				     us->srb->device->id,
-				     us->srb->device->lun);
-			us->srb->result = DID_BAD_TARGET << 16;
+				     srb->device->id,
+				     srb->device->lun);
+			srb->result = DID_BAD_TARGET << 16;
 		}
 
 		else if (us->srb->device->lun > us->max_lun) {
@@ -529,17 +514,18 @@ static int usb_stor_control_thread(void * __us)
 		}
 
 		/* Handle those devices which need us to fake 
+		else if (srb->device->lun > us->max_lun) {
 			usb_stor_dbg(us, "Bad LUN (%d:%llu)\n",
-				     us->srb->device->id,
-				     us->srb->device->lun);
-			us->srb->result = DID_BAD_TARGET << 16;
+				     srb->device->id,
+				     srb->device->lun);
+			srb->result = DID_BAD_TARGET << 16;
 		}
 
 		/*
 		 * Handle those devices which need us to fake
 		 * their inquiry data
 		 */
-		else if ((us->srb->cmnd[0] == INQUIRY) &&
+		else if ((srb->cmnd[0] == INQUIRY) &&
 			    (us->fflags & US_FL_FIX_INQUIRY)) {
 			unsigned char data_ptr[36] = {
 			    0x00, 0x80, 0x02, 0x02,
@@ -548,7 +534,7 @@ static int usb_stor_control_thread(void * __us)
 			US_DEBUGP("Faking INQUIRY command\n");
 			usb_stor_dbg(us, "Faking INQUIRY command\n");
 			fill_inquiry_response(us, data_ptr, 36);
-			us->srb->result = SAM_STAT_GOOD;
+			srb->result = SAM_STAT_GOOD;
 		}
 
 		/* we've got a command, let's do it! */
@@ -557,6 +543,8 @@ static int usb_stor_control_thread(void * __us)
 			us->proto_handler(us->srb, us);
 			US_DEBUG(usb_stor_show_command(us, us->srb));
 			us->proto_handler(us->srb, us);
+			US_DEBUG(usb_stor_show_command(us, srb));
+			us->proto_handler(srb, us);
 			usb_mark_last_busy(us->pusb_dev);
 		}
 
@@ -576,7 +564,7 @@ SkipForAbort:
 			us->srb->scsi_done(us->srb);
 		} else {
 		/* was the command aborted? */
-		if (us->srb->result == DID_ABORT << 16) {
+		if (srb->result == DID_ABORT << 16) {
 SkipForAbort:
 			usb_stor_dbg(us, "scsi command aborted\n");
 			srb = NULL;	/* Don't call srb->scsi_done() */

@@ -906,9 +906,9 @@ static int read_name(struct inode *ino, char *name)
 	set_nlink(ino, st.nlink);
 	i_uid_write(ino, st.uid);
 	i_gid_write(ino, st.gid);
-	ino->i_atime = st.atime;
-	ino->i_mtime = st.mtime;
-	ino->i_ctime = st.ctime;
+	ino->i_atime = timespec_to_timespec64(st.atime);
+	ino->i_mtime = timespec_to_timespec64(st.mtime);
+	ino->i_ctime = timespec_to_timespec64(st.ctime);
 	ino->i_size = st.size;
 	ino->i_blocks = st.blocks;
 	return 0;
@@ -981,10 +981,8 @@ static struct dentry *hostfs_lookup(struct inode *ino, struct dentry *dentry,
 	int err;
 
 	inode = hostfs_iget(ino->i_sb);
-	if (IS_ERR(inode)) {
-		err = PTR_ERR(inode);
+	if (IS_ERR(inode))
 		goto out;
-	}
 
 	err = init_inode(inode, dentry);
 	if (err)
@@ -1014,8 +1012,16 @@ static struct dentry *hostfs_lookup(struct inode *ino, struct dentry *dentry,
 
  out_put:
 	iput(inode);
+	if (name) {
+		err = read_name(inode, name);
+		__putname(name);
+	}
+	if (err) {
+		iput(inode);
+		inode = (err == -ENOENT) ? NULL : ERR_PTR(err);
+	}
  out:
-	return ERR_PTR(err);
+	return d_splice_alias(inode, dentry);
 }
 
 static char *inode_dentry_name(struct inode *ino, struct dentry *dentry)
@@ -1150,7 +1156,7 @@ static int hostfs_rmdir(struct inode *ino, struct dentry *dentry)
 int hostfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
 	if ((file = dentry_name(dentry)) == NULL)
 		return -ENOMEM;
-	err = do_rmdir(file);
+	err = hostfs_do_rmdir(file);
 	__putname(file);
 	return err;
 }
@@ -1333,15 +1339,15 @@ static int hostfs_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 	if (attr->ia_valid & ATTR_ATIME) {
 		attrs.ia_valid |= HOSTFS_ATTR_ATIME;
-		attrs.ia_atime = attr->ia_atime;
+		attrs.ia_atime = timespec64_to_timespec(attr->ia_atime);
 	}
 	if (attr->ia_valid & ATTR_MTIME) {
 		attrs.ia_valid |= HOSTFS_ATTR_MTIME;
-		attrs.ia_mtime = attr->ia_mtime;
+		attrs.ia_mtime = timespec64_to_timespec(attr->ia_mtime);
 	}
 	if (attr->ia_valid & ATTR_CTIME) {
 		attrs.ia_valid |= HOSTFS_ATTR_CTIME;
-		attrs.ia_ctime = attr->ia_ctime;
+		attrs.ia_ctime = timespec64_to_timespec(attr->ia_ctime);
 	}
 	if (attr->ia_valid & ATTR_ATIME_SET) {
 		attrs.ia_valid |= HOSTFS_ATTR_ATIME_SET;

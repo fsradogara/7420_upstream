@@ -129,14 +129,14 @@ static struct neighbour *dn_dst_neigh_lookup(const struct dst_entry *dst,
 					     struct sk_buff *skb,
 					     const void *daddr);
 static int dn_route_input(struct sk_buff *);
-static void dn_run_flush(unsigned long dummy);
+static void dn_run_flush(struct timer_list *unused);
 
 static struct dn_rt_hash_bucket *dn_rt_hash_table;
 static unsigned dn_rt_hash_mask;
 static unsigned int dn_rt_hash_mask;
 
 static struct timer_list dn_route_timer;
-static DEFINE_TIMER(dn_rt_flush_timer, dn_run_flush, 0, 0);
+static DEFINE_TIMER(dn_rt_flush_timer, dn_run_flush);
 int decnet_dst_gc_interval = 2;
 
 static struct dst_ops dn_dst_ops = {
@@ -216,6 +216,7 @@ static inline void dnrt_drop(struct dn_route *rt)
 }
 
 static void dn_dst_check_expire(unsigned long dummy)
+static void dn_dst_check_expire(struct timer_list *unused)
 {
 	int i;
 	struct dn_route *rt, **rtp;
@@ -247,11 +248,11 @@ static void dn_dst_check_expire(unsigned long dummy)
 						lockdep_is_held(&dn_rt_hash_table[i].lock))) != NULL) {
 			if (atomic_read(&rt->dst.__refcnt) > 1 ||
 			    (now - rt->dst.lastuse) < expire) {
-				rtp = &rt->dst.dn_next;
+				rtp = &rt->dn_next;
 				continue;
 			}
-			*rtp = rt->dst.dn_next;
-			rt->dst.dn_next = NULL;
+			*rtp = rt->dn_next;
+			rt->dn_next = NULL;
 			dst_dev_put(&rt->dst);
 			dst_release(&rt->dst);
 		}
@@ -291,11 +292,11 @@ static int dn_dst_gc(struct dst_ops *ops)
 						lockdep_is_held(&dn_rt_hash_table[i].lock))) != NULL) {
 			if (atomic_read(&rt->dst.__refcnt) > 1 ||
 			    (now - rt->dst.lastuse) < expire) {
-				rtp = &rt->dst.dn_next;
+				rtp = &rt->dn_next;
 				continue;
 			}
-			*rtp = rt->dst.dn_next;
-			rt->dst.dn_next = NULL;
+			*rtp = rt->dn_next;
+			rt->dn_next = NULL;
 			dst_dev_put(&rt->dst);
 			dst_release(&rt->dst);
 			break;
@@ -424,12 +425,12 @@ static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_rou
 						lockdep_is_held(&dn_rt_hash_table[hash].lock))) != NULL) {
 		if (compare_keys(&rth->fld, &rt->fld)) {
 			/* Put it first */
-			*rthp = rth->dst.dn_next;
-			rcu_assign_pointer(rth->dst.dn_next,
+			*rthp = rth->dn_next;
+			rcu_assign_pointer(rth->dn_next,
 					   dn_rt_hash_table[hash].chain);
 			rcu_assign_pointer(dn_rt_hash_table[hash].chain, rth);
 
-			dst_use(&rth->dst, now);
+			dst_hold_and_use(&rth->dst, now);
 			spin_unlock_bh(&dn_rt_hash_table[hash].lock);
 
 			dst_release_immediate(&rt->dst);
@@ -444,12 +445,13 @@ static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_rou
 
 	dst_use(&rt->u.dst, now);
 		rthp = &rth->dst.dn_next;
+		rthp = &rth->dn_next;
 	}
 
-	rcu_assign_pointer(rt->dst.dn_next, dn_rt_hash_table[hash].chain);
+	rcu_assign_pointer(rt->dn_next, dn_rt_hash_table[hash].chain);
 	rcu_assign_pointer(dn_rt_hash_table[hash].chain, rt);
 
-	dst_use(&rt->dst, now);
+	dst_hold_and_use(&rt->dst, now);
 	spin_unlock_bh(&dn_rt_hash_table[hash].lock);
 	*rp = rt;
 	return 0;
@@ -457,6 +459,7 @@ static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_rou
 
 void dn_run_flush(unsigned long dummy)
 static void dn_run_flush(unsigned long dummy)
+static void dn_run_flush(struct timer_list *unused)
 {
 	int i;
 	struct dn_route *rt, *next;
@@ -477,8 +480,8 @@ static void dn_run_flush(unsigned long dummy)
 			goto nothing_to_declare;
 
 		for(; rt; rt = next) {
-			next = rcu_dereference_raw(rt->dst.dn_next);
-			RCU_INIT_POINTER(rt->dst.dn_next, NULL);
+			next = rcu_dereference_raw(rt->dn_next);
+			RCU_INIT_POINTER(rt->dn_next, NULL);
 			dst_dev_put(&rt->dst);
 			dst_release(&rt->dst);
 		}
@@ -512,7 +515,7 @@ void dn_rt_cache_flush(int delay)
 
 	if (delay <= 0) {
 		spin_unlock_bh(&dn_rt_flush_lock);
-		dn_run_flush(0);
+		dn_run_flush(NULL);
 		return;
 	}
 
@@ -1522,6 +1525,7 @@ make_route:
 	if (rt == NULL)
 		goto e_nobufs;
 
+	rt->dn_next = NULL;
 	memset(&rt->fld, 0, sizeof(rt->fld));
 	rt->fld.saddr        = oldflp->saddr;
 	rt->fld.daddr        = oldflp->daddr;
@@ -1607,13 +1611,13 @@ static int __dn_route_output_key(struct dst_entry **pprt, const struct flowidn *
 				rcu_read_unlock_bh();
 				*pprt = &rt->u.dst;
 		for (rt = rcu_dereference_bh(dn_rt_hash_table[hash].chain); rt;
-			rt = rcu_dereference_bh(rt->dst.dn_next)) {
+			rt = rcu_dereference_bh(rt->dn_next)) {
 			if ((flp->daddr == rt->fld.daddr) &&
 			    (flp->saddr == rt->fld.saddr) &&
 			    (flp->flowidn_mark == rt->fld.flowidn_mark) &&
 			    dn_is_output_route(rt) &&
 			    (rt->fld.flowidn_oif == flp->flowidn_oif)) {
-				dst_use(&rt->dst, jiffies);
+				dst_hold_and_use(&rt->dst, jiffies);
 				rcu_read_unlock_bh();
 				*pprt = &rt->dst;
 				return 0;
@@ -1856,6 +1860,7 @@ make_route:
 	if (rt == NULL)
 		goto e_nobufs;
 
+	rt->dn_next = NULL;
 	memset(&rt->fld, 0, sizeof(rt->fld));
 	rt->rt_saddr      = fld.saddr;
 	rt->rt_daddr      = fld.daddr;
@@ -1993,12 +1998,13 @@ static int dn_route_input(struct sk_buff *skb)
 			rcu_read_unlock();
 			skb->dst = (struct dst_entry *)rt;
 	    rt = rcu_dereference(rt->dst.dn_next)) {
+	    rt = rcu_dereference(rt->dn_next)) {
 		if ((rt->fld.saddr == cb->src) &&
 		    (rt->fld.daddr == cb->dst) &&
 		    (rt->fld.flowidn_oif == 0) &&
 		    (rt->fld.flowidn_mark == skb->mark) &&
 		    (rt->fld.flowidn_iif == cb->iif)) {
-			dst_use(&rt->dst, jiffies);
+			dst_hold_and_use(&rt->dst, jiffies);
 			rcu_read_unlock();
 			skb_dst_set(skb, (struct dst_entry *)rt);
 			return 0;
@@ -2334,7 +2340,7 @@ int dn_cache_dump(struct sk_buff *skb, struct netlink_callback *cb)
 			dst_release(xchg(&skb->dst, NULL));
 		for(rt = rcu_dereference_bh(dn_rt_hash_table[h].chain), idx = 0;
 			rt;
-			rt = rcu_dereference_bh(rt->dst.dn_next), idx++) {
+			rt = rcu_dereference_bh(rt->dn_next), idx++) {
 			if (idx < s_idx)
 				continue;
 			skb_dst_set(skb, dst_clone(&rt->dst));
@@ -2385,6 +2391,7 @@ static struct dn_route *dn_rt_cache_get_next(struct seq_file *seq, struct dn_rou
 	rt = rt->u.dst.dn_next;
 	while(!rt) {
 	rt = rcu_dereference_bh(rt->dst.dn_next);
+	rt = rcu_dereference_bh(rt->dn_next);
 	while (!rt) {
 		rcu_read_unlock_bh();
 		if (--s->bucket < 0)
@@ -2448,21 +2455,6 @@ static const struct seq_operations dn_rt_cache_seq_ops = {
 	.stop	= dn_rt_cache_seq_stop,
 	.show	= dn_rt_cache_seq_show,
 };
-
-static int dn_rt_cache_seq_open(struct inode *inode, struct file *file)
-{
-	return seq_open_private(file, &dn_rt_cache_seq_ops,
-			sizeof(struct dn_rt_cache_iter_state));
-}
-
-static const struct file_operations dn_rt_cache_seq_fops = {
-	.owner	 = THIS_MODULE,
-	.open	 = dn_rt_cache_seq_open,
-	.read	 = seq_read,
-	.llseek	 = seq_lseek,
-	.release = seq_release_private,
-};
-
 #endif /* CONFIG_PROC_FS */
 
 void __init dn_route_init(void)
@@ -2473,7 +2465,7 @@ void __init dn_route_init(void)
 		kmem_cache_create("dn_dst_cache", sizeof(struct dn_route), 0,
 				  SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 	dst_entries_init(&dn_dst_ops);
-	setup_timer(&dn_route_timer, dn_dst_check_expire, 0);
+	timer_setup(&dn_route_timer, dn_dst_check_expire, 0);
 	dn_route_timer.expires = jiffies + decnet_dst_gc_interval * HZ;
 	add_timer(&dn_route_timer);
 
@@ -2525,23 +2517,25 @@ void __init dn_route_init(void)
 		      dn_cache_dump);
 	proc_create("decnet_cache", S_IRUGO, init_net.proc_net,
 		    &dn_rt_cache_seq_fops);
+	proc_create_seq_private("decnet_cache", 0444, init_net.proc_net,
+			&dn_rt_cache_seq_ops,
+			sizeof(struct dn_rt_cache_iter_state), NULL);
 
 #ifdef CONFIG_DECNET_ROUTER
-	rtnl_register(PF_DECnet, RTM_GETROUTE, dn_cache_getroute,
-		      dn_fib_dump, 0);
+	rtnl_register_module(THIS_MODULE, PF_DECnet, RTM_GETROUTE,
+			     dn_cache_getroute, dn_fib_dump, 0);
 #else
-	rtnl_register(PF_DECnet, RTM_GETROUTE, dn_cache_getroute,
-		      dn_cache_dump, 0);
+	rtnl_register_module(THIS_MODULE, PF_DECnet, RTM_GETROUTE,
+			     dn_cache_getroute, dn_cache_dump, 0);
 #endif
 }
 
 void __exit dn_route_cleanup(void)
 {
 	del_timer(&dn_route_timer);
-	dn_run_flush(0);
+	dn_run_flush(NULL);
 
 	proc_net_remove(&init_net, "decnet_cache");
 	remove_proc_entry("decnet_cache", init_net.proc_net);
 	dst_entries_destroy(&dn_dst_ops);
 }
-

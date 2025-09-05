@@ -14,6 +14,7 @@
  *
  */
 
+#include <linux/iversion.h>
 #include "affs.h"
 
 static int affs_readdir(struct file *, void *, filldir_t);
@@ -128,7 +129,7 @@ affs_readdir(struct file *file, struct dir_context *ctx)
 	if (ino && filp->f_version == inode->i_version) {
 		pr_debug("AFFS: readdir() left off=%d\n", ino);
 	ino = (u32)(long)file->private_data;
-	if (ino && file->f_version == inode->i_version) {
+	if (ino && inode_eq_iversion(inode, file->f_version)) {
 		pr_debug("readdir() left off=%d\n", ino);
 		goto inside;
 	}
@@ -204,7 +205,7 @@ readdir_out:
 	pr_debug("AFFS: readdir()=%d\n", stored);
 	return res;
 done:
-	file->f_version = inode->i_version;
+	file->f_version = inode_query_iversion(inode);
 	file->private_data = (void *)(long)ino;
 	affs_brelse(fh_bh);
 

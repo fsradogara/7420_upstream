@@ -317,6 +317,11 @@ static inline int ktime_equal(const ktime_t cmp1, const ktime_t cmp2)
 	return cmp1.tv64 == cmp2.tv64;
 }
 #define ktime_to_ns(kt)			(kt)
+/* Convert ktime_t to nanoseconds */
+static inline s64 ktime_to_ns(const ktime_t kt)
+{
+	return kt;
+}
 
 static inline s64 ktime_to_us(const ktime_t kt)
 {
@@ -512,5 +517,6 @@ static inline ktime_t ms_to_ktime(u64 ms)
 }
 
 # include <linux/timekeeping.h>
+# include <linux/timekeeping32.h>
 
 #endif

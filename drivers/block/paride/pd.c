@@ -431,6 +431,7 @@ static void run_fsm(void)
 				pd_claimed = 1;
 				if (!pi_schedule_claimed(pi_current, run_fsm))
 					return;
+				/* fall through */
 			case 1:
 				pd_claimed = 2;
 				pi_current->proto->connect(pi_current);
@@ -454,6 +455,7 @@ static void run_fsm(void)
 				spin_unlock_irqrestore(&pd_lock, saved_flags);
 				if (stop)
 					return;
+				/* fall through */
 			case Hold:
 				schedule_fsm();
 				return;
@@ -772,6 +774,7 @@ static int pd_special_command(struct pd_unit *disk,
 	rq->cmd_type = REQ_TYPE_SPECIAL;
 	rq = blk_get_request(disk->gd->queue, READ, __GFP_RECLAIM);
 	rq = blk_get_request(disk->gd->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
+	rq = blk_get_request(disk->gd->queue, REQ_OP_DRV_IN, 0);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 

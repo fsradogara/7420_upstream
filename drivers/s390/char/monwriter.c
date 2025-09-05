@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/s390/char/monwriter.c
  *
@@ -69,6 +70,7 @@ static int monwrite_diag(struct monwrite_hdr *myhdr, char *buffer, int fcn)
 
 	strcpy(id.prod_nr, "LNXAPPL");
 	strncpy(id.prod_nr, "LNXAPPL", 7);
+	memcpy(id.prod_nr, "LNXAPPL", 7);
 	id.prod_fn = myhdr->applid;
 	id.record_nr = myhdr->record_num;
 	id.version_nr = myhdr->version;

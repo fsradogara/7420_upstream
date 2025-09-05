@@ -61,14 +61,15 @@ config SCSI_NETLINK
 
 config SCSI_MQ_DEFAULT
 	bool "SCSI: use blk-mq I/O path by default"
+	default y
 	depends on SCSI
 	---help---
-	  This option enables the new blk-mq based I/O path for SCSI
-	  devices by default.  With the option the scsi_mod.use_blk_mq
-	  module/boot option defaults to Y, without it to N, but it can
-	  still be overridden either way.
+	  This option enables the blk-mq based I/O path for SCSI devices by
+	  default.  With this option the scsi_mod.use_blk_mq module/boot
+	  option defaults to Y, without it to N, but it can still be
+	  overridden either way.
 
-	  If unsure say N.
+	  If unsure say Y.
 
 config SCSI_PROC_FS
 	bool "legacy /proc/scsi/ support"
@@ -147,7 +148,8 @@ config CHR_DEV_OSST
 
 config BLK_DEV_SR
 	tristate "SCSI CDROM support"
-	depends on SCSI
+	depends on SCSI && BLK_DEV
+	select CDROM
 	---help---
 	  If you want to use a SCSI or FireWire CD-ROM under Linux,
 	  say Y and read the SCSI-HOWTO and the CDROM-HOWTO at
@@ -1058,7 +1060,7 @@ config SCSI_IBMVSCSIS
 	depends on PPC_PSERIES && TARGET_CORE && SCSI && PCI
 	help
 	  This is the IBM POWER Virtual SCSI Target Server
-	  This driver uses the SRP protocol for communication betwen servers
+	  This driver uses the SRP protocol for communication between servers
 	  guest and/or the host that run on the same server.
 	  More information on VSCSI protocol can be found at www.power.org
 
@@ -1341,6 +1343,7 @@ config SCSI_IPR
 	depends on PCI && SCSI && ATA
 	select FW_LOADER
 	select IRQ_POLL
+	select SGL_ALLOC
 	---help---
 	  This driver supports the IBM Power Linux family RAID adapters.
 	  This includes IBM pSeries 5712, 5703, 5709, and 570A, as well
@@ -1375,21 +1378,9 @@ config SCSI_ZALON
 	  used on the add-in Bluefish, Barracuda & Shrike SCSI cards.
 	  Say Y here if you have one of these machines or cards.
 
-config SCSI_NCR_Q720
-	tristate "NCR Quad 720 MCA SCSI support"
-	depends on MCA && SCSI
-	select SCSI_SPI_ATTRS
-	help
-	  This is a driver for the MicroChannel Quad 720 card produced by
-	  NCR and commonly used in 345x/35xx/4100 class machines.  It always
-	  tries to negotiate sync and uses tag command queueing.
-
-	  Unless you have an NCR manufactured machine, the chances are that
-	  you do not have this SCSI card, so say N.
-
 config SCSI_NCR53C8XX_DEFAULT_TAGS
 	int "default tagged command queue depth"
-	depends on SCSI_ZALON || SCSI_NCR_Q720
+	depends on SCSI_ZALON
 	default "8"
 	---help---
 	  "Tagged command queuing" is a feature of SCSI-2 which improves
@@ -1415,7 +1406,7 @@ config SCSI_NCR53C8XX_DEFAULT_TAGS
 
 config SCSI_NCR53C8XX_MAX_TAGS
 	int "maximum number of queued commands"
-	depends on SCSI_ZALON || SCSI_NCR_Q720
+	depends on SCSI_ZALON
 	default "32"
 	---help---
 	  This option allows you to specify the maximum number of commands
@@ -1432,7 +1423,7 @@ config SCSI_NCR53C8XX_MAX_TAGS
 
 config SCSI_NCR53C8XX_SYNC
 	int "synchronous transfers frequency in MHz"
-	depends on SCSI_ZALON || SCSI_NCR_Q720
+	depends on SCSI_ZALON
 	default "20"
 	---help---
 	  The SCSI Parallel Interface-2 Standard defines 5 classes of transfer
@@ -1466,7 +1457,7 @@ config SCSI_NCR53C8XX_SYNC
 
 config SCSI_NCR53C8XX_NO_DISCONNECT
 	bool "not allow targets to disconnect"
-	depends on (SCSI_ZALON || SCSI_NCR_Q720) && SCSI_NCR53C8XX_DEFAULT_TAGS=0
+	depends on SCSI_ZALON && SCSI_NCR53C8XX_DEFAULT_TAGS=0
 	help
 	  This option is only provided for safety if you suspect some SCSI
 	  device of yours to not support properly the target-disconnect
@@ -1556,24 +1547,6 @@ config SCSI_SIM710
 	  This driver is for NCR53c710 based SCSI host adapters.
 
 	  It currently supports Compaq EISA cards and NCR MCA cards
-
-config SCSI_SYM53C416
-	tristate "Symbios 53c416 SCSI support"
-	depends on ISA && SCSI
-	---help---
-	  This is support for the sym53c416 SCSI host adapter, the SCSI
-	  adapter that comes with some HP scanners. This driver requires that
-	  the sym53c416 is configured first using some sort of PnP
-	  configuration program (e.g. isapnp) or by a PnP aware BIOS. If you
-	  are using isapnp then you need to compile this driver as a module
-	  and then load it using insmod after isapnp has run. The parameters
-	  of the configured card(s) should be passed to the driver. The format
-	  is:
-
-	  insmod sym53c416 sym53c416=<base>,<irq> [sym53c416_1=<base>,<irq>]
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called sym53c416.
 
 config SCSI_DC395x
 	tristate "Tekram DC395(U/UW/F) and DC315(U) SCSI support (EXPERIMENTAL)"
@@ -1776,6 +1749,20 @@ config SCSI_ZORRO7XX
 	      accelerator card for the Amiga 1200,
 	    - the SCSI controller on the GVP Turbo 040/060 accelerator.
 
+config SCSI_ZORRO_ESP
+	tristate "Zorro ESP SCSI support"
+	depends on ZORRO && SCSI
+	select SCSI_SPI_ATTRS
+	help
+	  Support for various NCR53C9x (ESP) based SCSI controllers on Zorro
+	  expansion boards for the Amiga.
+	  This includes:
+	    - the Phase5 Blizzard 1230 II and IV SCSI controllers,
+	    - the Phase5 Blizzard 2060 SCSI controller,
+	    - the Phase5 Blizzard Cyberstorm and Cyberstorm II SCSI
+	      controllers,
+	    - the Fastlane Zorro III SCSI controller.
+
 config ATARI_SCSI
 	tristate "Atari native SCSI support"
 	depends on ATARI && SCSI
@@ -1927,6 +1914,7 @@ config SCSI_SRP
 config SCSI_PMCRAID
 	tristate "PMC SIERRA Linux MaxRAID adapter support"
 	depends on PCI && SCSI && NET
+	select SGL_ALLOC
 	---help---
 	  This driver supports the PMC SIERRA MaxRAID adapters.
 

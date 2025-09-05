@@ -297,7 +297,7 @@ static int powermate_alloc_buffers(struct usb_device *udev, struct powermate_dev
 	if (!pm->configcr)
 		return -1;
 	pm->data = usb_alloc_coherent(udev, POWERMATE_PAYLOAD_SIZE_MAX,
-				      GFP_ATOMIC, &pm->data_dma);
+				      GFP_KERNEL, &pm->data_dma);
 	if (!pm->data)
 		return -1;
 

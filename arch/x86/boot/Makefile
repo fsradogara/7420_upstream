@@ -210,6 +210,10 @@ image_cmdline = default linux $(FDARGS) $(if $(FDINITRD),initrd=initrd.img,)
 $(obj)/mtools.conf: $(src)/mtools.conf.in
 	sed -e 's|@OBJ@|$(obj)|g' < $< > $@
 
+quiet_cmd_genimage = GENIMAGE $3
+cmd_genimage = sh $(srctree)/$(src)/genimage.sh $2 $3 $(obj)/bzImage \
+			$(obj)/mtools.conf '$(image_cmdline)' $(FDINITRD)
+
 # This requires write access to /dev/fd0
 zdisk: $(BOOTIMAGE) $(obj)/mtools.conf
 bzdisk: $(obj)/bzImage $(obj)/mtools.conf
@@ -285,6 +289,20 @@ zlilo: $(BOOTIMAGE)
 	cat $(BOOTIMAGE) > $(INSTALL_PATH)/vmlinuz
 	isohybrid $(obj)/image.iso 2>/dev/null || true
 	rm -rf $(obj)/isoimage
+	$(call cmd,genimage,bzdisk,/dev/fd0)
+
+# These require being root or having syslinux 2.02 or higher installed
+fdimage fdimage144: $(obj)/bzImage $(obj)/mtools.conf
+	$(call cmd,genimage,fdimage144,$(obj)/fdimage)
+	@$(kecho) 'Kernel: $(obj)/fdimage is ready'
+
+fdimage288: $(obj)/bzImage $(obj)/mtools.conf
+	$(call cmd,genimage,fdimage288,$(obj)/fdimage)
+	@$(kecho) 'Kernel: $(obj)/fdimage is ready'
+
+isoimage: $(obj)/bzImage
+	$(call cmd,genimage,isoimage,$(obj)/image.iso)
+	@$(kecho) 'Kernel: $(obj)/image.iso is ready'
 
 bzlilo: $(obj)/bzImage
 	if [ -f $(INSTALL_PATH)/vmlinuz ]; then mv $(INSTALL_PATH)/vmlinuz $(INSTALL_PATH)/vmlinuz.old; fi

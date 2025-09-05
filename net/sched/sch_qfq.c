@@ -401,7 +401,8 @@ static int qfq_change_agg(struct Qdisc *sch, struct qfq_class *cl, u32 weight,
 }
 
 static int qfq_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
-			    struct nlattr **tca, unsigned long *arg)
+			    struct nlattr **tca, unsigned long *arg,
+			    struct netlink_ext_ack *extack)
 {
 	struct qfq_sched *q = qdisc_priv(sch);
 	struct qfq_class *cl = (struct qfq_class *)*arg;
@@ -478,8 +479,8 @@ static int qfq_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
 	cl->common.classid = classid;
 	cl->deficit = lmax;
 
-	cl->qdisc = qdisc_create_dflt(sch->dev_queue,
-				      &pfifo_qdisc_ops, classid);
+	cl->qdisc = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops,
+				      classid, NULL);
 	if (cl->qdisc == NULL)
 		cl->qdisc = &noop_qdisc;
 
@@ -563,7 +564,8 @@ static unsigned long qfq_search_class(struct Qdisc *sch, u32 classid)
 	return (unsigned long)qfq_find_class(sch, classid);
 }
 
-static struct tcf_block *qfq_tcf_block(struct Qdisc *sch, unsigned long cl)
+static struct tcf_block *qfq_tcf_block(struct Qdisc *sch, unsigned long cl,
+				       struct netlink_ext_ack *extack)
 {
 	struct qfq_sched *q = qdisc_priv(sch);
 
@@ -592,13 +594,14 @@ static void qfq_unbind_tcf(struct Qdisc *sch, unsigned long arg)
 }
 
 static int qfq_graft_class(struct Qdisc *sch, unsigned long arg,
-			   struct Qdisc *new, struct Qdisc **old)
+			   struct Qdisc *new, struct Qdisc **old,
+			   struct netlink_ext_ack *extack)
 {
 	struct qfq_class *cl = (struct qfq_class *)arg;
 
 	if (new == NULL) {
-		new = qdisc_create_dflt(sch->dev_queue,
-					&pfifo_qdisc_ops, cl->common.classid);
+		new = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops,
+					cl->common.classid, NULL);
 		if (new == NULL)
 			new = &noop_qdisc;
 	}
@@ -708,6 +711,7 @@ static struct qfq_class *qfq_classify(struct sk_buff *skb, struct Qdisc *sch,
 		case TC_ACT_STOLEN:
 		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
+			/* fall through */
 		case TC_ACT_SHOT:
 			return NULL;
 		}
@@ -1411,14 +1415,15 @@ static void qfq_qlen_notify(struct Qdisc *sch, unsigned long arg)
 	qfq_deactivate_class(q, cl);
 }
 
-static int qfq_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
+static int qfq_init_qdisc(struct Qdisc *sch, struct nlattr *opt,
+			  struct netlink_ext_ack *extack)
 {
 	struct qfq_sched *q = qdisc_priv(sch);
 	struct qfq_group *grp;
 	int i, j, err;
 	u32 max_cl_shift, maxbudg_shift, max_classes;
 
-	err = tcf_block_get(&q->block, &q->filter_list);
+	err = tcf_block_get(&q->block, &q->filter_list, sch, extack);
 	if (err)
 		return err;
 

@@ -12,6 +12,8 @@ obj-y 			:= time.o irq.o clock.o serial.o io.o id.o psc.o \
 obj-$(CONFIG_MACH_DAVINCI_EVM)  += board-evm.o
 obj-y 			:= time.o clock.o serial.o psc.o \
 			   usb.o common.o sram.o aemif.o
+obj-y 					:= time.o serial.o usb.o \
+					   common.o sram.o
 
 obj-$(CONFIG_DAVINCI_MUX)		+= mux.o
 

@@ -21,7 +21,6 @@
 #include <linux/types.h>
 #include <linux/jhash.h>
 #include <linux/bitops.h>
-#include <linux/kmemcheck.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/jhash.h>
@@ -104,7 +103,6 @@ struct inet_request_sock {
 #define ireq_state		req.__req_common.skc_state
 #define ireq_family		req.__req_common.skc_family
 
-	kmemcheck_bitfield_begin(flags);
 	u16			snd_wscale : 4,
 				rcv_wscale : 4,
 				tstamp_ok  : 1,
@@ -114,8 +112,8 @@ struct inet_request_sock {
 				acked	   : 1;
 	struct ip_options	*opt;
 				acked	   : 1,
-				no_srccheck: 1;
-	kmemcheck_bitfield_end(flags);
+				no_srccheck: 1,
+				smc_ok	   : 1;
 	u32                     ir_mark;
 	union {
 		struct ip_options_rcu __rcu	*ireq_opt;
@@ -154,12 +152,6 @@ static inline int inet_request_bound_dev_if(const struct sock *sk,
 	return sk->sk_bound_dev_if;
 }
 
-static inline struct ip_options_rcu *ireq_opt_deref(const struct inet_request_sock *ireq)
-{
-	return rcu_dereference_check(ireq->ireq_opt,
-				     refcount_read(&ireq->req.rsk_refcnt) > 0);
-}
-
 struct inet_cork {
 	unsigned int		flags;
 	__be32			addr;
@@ -171,6 +163,8 @@ struct inet_cork {
 	__u8			ttl;
 	__s16			tos;
 	char			priority;
+	__u16			gso_size;
+	u64			transmit_time;
 };
 
 struct inet_cork_full {
@@ -363,6 +357,31 @@ static inline unsigned int inet_ehashfn(struct net *net,
 					const __be32 faddr, const __be16 fport)
 int inet_sk_rebuild_header(struct sock *sk);
 
+/**
+ * inet_sk_state_load - read sk->sk_state for lockless contexts
+ * @sk: socket pointer
+ *
+ * Paired with inet_sk_state_store(). Used in places we don't hold socket lock:
+ * tcp_diag_get_info(), tcp_get_info(), tcp_poll(), get_tcp4_sock() ...
+ */
+static inline int inet_sk_state_load(const struct sock *sk)
+{
+	/* state change might impact lockless readers. */
+	return smp_load_acquire(&sk->sk_state);
+}
+
+/**
+ * inet_sk_state_store - update sk->sk_state
+ * @sk: socket pointer
+ * @newstate: new state
+ *
+ * Paired with inet_sk_state_load(). Should be used in contexts where
+ * state change might impact lockless readers.
+ */
+void inet_sk_state_store(struct sock *sk, int newstate);
+
+void inet_sk_set_state(struct sock *sk, int state);
+
 static inline unsigned int __inet_ehashfn(const __be32 laddr,
 					  const __u16 lport,
 					  const __be32 faddr,
@@ -431,6 +450,14 @@ static inline void inet_dec_convert_csum(struct sock *sk)
 static inline bool inet_get_convert_csum(struct sock *sk)
 {
 	return !!inet_sk(sk)->convert_csum;
+}
+
+
+static inline bool inet_can_nonlocal_bind(struct net *net,
+					  struct inet_sock *inet)
+{
+	return net->ipv4.sysctl_ip_nonlocal_bind ||
+		inet->freebind || inet->transparent;
 }
 
 #endif	/* _INET_SOCK_H */

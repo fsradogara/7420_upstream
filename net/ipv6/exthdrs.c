@@ -132,7 +132,20 @@ static int ip6_tlvopt_unknown(struct sk_buff *skb, int optoff)
 	case 0: /* ignore */
 		return 1;
 static bool ip6_tlvopt_unknown(struct sk_buff *skb, int optoff)
+static bool ip6_tlvopt_unknown(struct sk_buff *skb, int optoff,
+			       bool disallow_unknowns)
 {
+	if (disallow_unknowns) {
+		/* If unknown TLVs are disallowed by configuration
+		 * then always silently drop packet. Note this also
+		 * means no ICMP parameter problem is sent which
+		 * could be a good property to mitigate a reflection DOS
+		 * attack.
+		 */
+
+		goto drop;
+	}
+
 	switch ((skb_network_header(skb)[optoff] & 0xC0) >> 6) {
 	case 0: /* ignore */
 		return true;
@@ -146,6 +159,7 @@ static bool ip6_tlvopt_unknown(struct sk_buff *skb, int optoff)
 		 */
 		if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr))
 			break;
+		/* fall through */
 	case 2: /* send ICMP PARM PROB regardless and drop packet */
 		icmpv6_param_prob(skb, ICMPV6_UNK_OPTION, optoff);
 		return 0;
@@ -156,6 +170,7 @@ static bool ip6_tlvopt_unknown(struct sk_buff *skb, int optoff)
 		return false;
 	}
 
+drop:
 	kfree_skb(skb);
 	return false;
 }
@@ -169,12 +184,22 @@ static int ip6_parse_tlv(struct tlvtype_proc *procs, struct sk_buff *skb)
 	int off = skb_network_header_len(skb);
 	int len = (skb_transport_header(skb)[1] + 1) << 3;
 static bool ip6_parse_tlv(const struct tlvtype_proc *procs, struct sk_buff *skb)
+static bool ip6_parse_tlv(const struct tlvtype_proc *procs,
+			  struct sk_buff *skb,
+			  int max_count)
 {
-	const struct tlvtype_proc *curr;
+	int len = (skb_transport_header(skb)[1] + 1) << 3;
 	const unsigned char *nh = skb_network_header(skb);
 	int off = skb_network_header_len(skb);
-	int len = (skb_transport_header(skb)[1] + 1) << 3;
+	const struct tlvtype_proc *curr;
+	bool disallow_unknowns = false;
+	int tlv_count = 0;
 	int padlen = 0;
+
+	if (unlikely(max_count < 0)) {
+		disallow_unknowns = true;
+		max_count = -max_count;
+	}
 
 	if (skb_transport_offset(skb) + len > skb_headlen(skb))
 		goto bad;
@@ -224,6 +249,11 @@ static bool ip6_parse_tlv(const struct tlvtype_proc *procs, struct sk_buff *skb)
 			if (optlen > len)
 				goto bad;
 			for (curr=procs; curr->type >= 0; curr++) {
+
+			tlv_count++;
+			if (tlv_count > max_count)
+				goto bad;
+
 			for (curr = procs; curr->type >= 0; curr++) {
 				if (curr->type == nh[off]) {
 					/* type specific length/alignment
@@ -242,6 +272,10 @@ static bool ip6_parse_tlv(const struct tlvtype_proc *procs, struct sk_buff *skb)
 			}
 					return false;
 			}
+			if (curr->type < 0 &&
+			    !ip6_tlvopt_unknown(skb, off, disallow_unknowns))
+				return false;
+
 			padlen = 0;
 			break;
 		}
@@ -273,7 +307,6 @@ static bool ipv6_dest_hao(struct sk_buff *skb, int optoff)
 	struct ipv6_destopt_hao *hao;
 	struct inet6_skb_parm *opt = IP6CB(skb);
 	struct ipv6hdr *ipv6h = ipv6_hdr(skb);
-	struct in6_addr tmp_addr;
 	int ret;
 
 	if (opt->dsthao) {
@@ -326,6 +359,7 @@ static bool ipv6_dest_hao(struct sk_buff *skb, int optoff)
 	tmp_addr = ipv6h->saddr;
 	ipv6h->saddr = hao->addr;
 	hao->addr = tmp_addr;
+	swap(ipv6h->saddr, hao->addr);
 
 	if (skb->tstamp == 0)
 		__net_timestamp(skb);
@@ -360,6 +394,7 @@ static const struct tlvtype_proc tlvprocdestopt_lst[] = {
 
 static int ipv6_destopt_rcv(struct sk_buff *skb)
 {
+	struct inet6_dev *idev = __in6_dev_get(skb->dev);
 	struct inet6_skb_parm *opt = IP6CB(skb);
 #if defined(CONFIG_IPV6_MIP6) || defined(CONFIG_IPV6_MIP6_MODULE)
 	__u16 dstbuf;
@@ -369,6 +404,8 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 	__u16 dstbuf;
 #endif
 	struct dst_entry *dst = skb_dst(skb);
+	struct net *net = dev_net(skb->dev);
+	int extlen;
 
 	if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
 	    !pskb_may_pull(skb, (skb_transport_offset(skb) +
@@ -377,10 +414,16 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 		IP6_INC_STATS_BH(dev_net(dst->dev), ip6_dst_idev(dst),
 				 IPSTATS_MIB_INHDRERRORS);
 		__IP6_INC_STATS(dev_net(dst->dev), ip6_dst_idev(dst),
+		__IP6_INC_STATS(dev_net(dst->dev), idev,
 				IPSTATS_MIB_INHDRERRORS);
+fail_and_free:
 		kfree_skb(skb);
 		return -1;
 	}
+
+	extlen = (skb_transport_header(skb)[1] + 1) << 3;
+	if (extlen > net->ipv6.sysctl.max_dst_opts_len)
+		goto fail_and_free;
 
 	opt->lastopt = opt->dst1 = skb_network_header_len(skb);
 #if defined(CONFIG_IPV6_MIP6) || defined(CONFIG_IPV6_MIP6_MODULE)
@@ -397,8 +440,9 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 	dstbuf = opt->dst1;
 #endif
 
-	if (ip6_parse_tlv(tlvprocdestopt_lst, skb)) {
-		skb->transport_header += (skb_transport_header(skb)[1] + 1) << 3;
+	if (ip6_parse_tlv(tlvprocdestopt_lst, skb,
+			  init_net.ipv6.sysctl.max_dst_opts_cnt)) {
+		skb->transport_header += extlen;
 		opt = IP6CB(skb);
 #if IS_ENABLED(CONFIG_IPV6_MIP6)
 		opt->nhoff = dstbuf;
@@ -414,6 +458,7 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 			 ip6_dst_idev(dst), IPSTATS_MIB_INHDRERRORS);
 	__IP6_INC_STATS(dev_net(dst->dev),
 			ip6_dst_idev(dst), IPSTATS_MIB_INHDRERRORS);
+	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 	return -1;
 }
 
@@ -509,8 +554,7 @@ looped_back:
 	}
 
 	if (hdr->segments_left >= (hdr->hdrlen >> 1)) {
-		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
 				  ((&hdr->segments_left) -
 				   skb_network_header(skb)));
@@ -549,8 +593,7 @@ looped_back:
 
 	if (skb_dst(skb)->dev->flags & IFF_LOOPBACK) {
 		if (ipv6_hdr(skb)->hop_limit <= 1) {
-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_INHDRERRORS);
+			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 			icmpv6_send(skb, ICMPV6_TIME_EXCEED,
 				    ICMPV6_EXC_HOPLIMIT, 0);
 			kfree_skb(skb);
@@ -574,10 +617,10 @@ looped_back:
 /* called with rcu_read_lock() */
 static int ipv6_rthdr_rcv(struct sk_buff *skb)
 {
+	struct inet6_dev *idev = __in6_dev_get(skb->dev);
 	struct inet6_skb_parm *opt = IP6CB(skb);
 	struct in6_addr *addr = NULL;
 	struct in6_addr daddr;
-	struct inet6_dev *idev;
 	int n, i;
 	struct ipv6_rt_hdr *hdr;
 	struct rt0_hdr *rthdr;
@@ -604,6 +647,7 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 				 IPSTATS_MIB_INHDRERRORS);
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		kfree_skb(skb);
 		return -1;
 	}
@@ -617,6 +661,7 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 				 IPSTATS_MIB_INADDRERRORS);
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 				IPSTATS_MIB_INADDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
 		kfree_skb(skb);
 		return -1;
 	}
@@ -639,6 +684,7 @@ looped_back:
 				IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
 						 IPSTATS_MIB_INADDRERRORS);
 				__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+				__IP6_INC_STATS(net, idev,
 						IPSTATS_MIB_INADDRERRORS);
 				kfree_skb(skb);
 				return -1;
@@ -670,6 +716,7 @@ looped_back:
 					 IPSTATS_MIB_INHDRERRORS);
 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 					IPSTATS_MIB_INHDRERRORS);
+			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 			kfree_skb(skb);
 			return -1;
 		}
@@ -692,6 +739,7 @@ looped_back:
 				 IPSTATS_MIB_INHDRERRORS);
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
 				  ((&hdr->segments_left) -
 				   skb_network_header(skb)));
@@ -736,14 +784,14 @@ looped_back:
 					 IPSTATS_MIB_INADDRERRORS);
 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 					IPSTATS_MIB_INADDRERRORS);
+			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
 			kfree_skb(skb);
 			return -1;
 		}
 		if (!ipv6_chk_home_addr(dev_net(skb->dst->dev), addr)) {
 			IP6_INC_STATS_BH(ip6_dst_idev(skb->dst),
 		if (!ipv6_chk_home_addr(dev_net(skb_dst(skb)->dev), addr)) {
-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_INADDRERRORS);
+			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
 			kfree_skb(skb);
 			return -1;
 		}
@@ -759,6 +807,7 @@ looped_back:
 				 IPSTATS_MIB_INADDRERRORS);
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 				IPSTATS_MIB_INADDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
 		kfree_skb(skb);
 		return -1;
 	}
@@ -790,8 +839,7 @@ looped_back:
 				    0, skb->dev);
 	if (skb_dst(skb)->dev->flags&IFF_LOOPBACK) {
 		if (ipv6_hdr(skb)->hop_limit <= 1) {
-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_INHDRERRORS);
+			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 			icmpv6_send(skb, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT,
 				    0);
 			kfree_skb(skb);
@@ -809,6 +857,7 @@ unknown_rh:
 	IP6_INC_STATS_BH(ip6_dst_idev(skb->dst), IPSTATS_MIB_INHDRERRORS);
 	IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)), IPSTATS_MIB_INHDRERRORS);
 	__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)), IPSTATS_MIB_INHDRERRORS);
+	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 	icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
 			  (&hdr->type) - skb_network_header(skb));
 	return -1;
@@ -937,14 +986,14 @@ static int ipv6_hop_jumbo(struct sk_buff *skb, int optoff)
 static bool ipv6_hop_jumbo(struct sk_buff *skb, int optoff)
 {
 	const unsigned char *nh = skb_network_header(skb);
+	struct inet6_dev *idev = __in6_dev_get_safely(skb->dev);
 	struct net *net = ipv6_skb_net(skb);
 	u32 pkt_len;
 
 	if (nh[optoff + 1] != 4 || (optoff & 3) != 2) {
 		net_dbg_ratelimited("ipv6_hop_jumbo: wrong jumbo opt length/alignment %d\n",
 				    nh[optoff+1]);
-		__IP6_INC_STATS(net, ipv6_skb_idev(skb),
-				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		goto drop;
 	}
 
@@ -966,19 +1015,18 @@ static bool ipv6_hop_jumbo(struct sk_buff *skb, int optoff)
 				 IPSTATS_MIB_INHDRERRORS);
 		__IP6_INC_STATS(net, ipv6_skb_idev(skb),
 				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, optoff+2);
 		return false;
 	}
 	if (ipv6_hdr(skb)->payload_len) {
-		__IP6_INC_STATS(net, ipv6_skb_idev(skb),
-				IPSTATS_MIB_INHDRERRORS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, optoff);
 		return false;
 	}
 
 	if (pkt_len > skb->len - sizeof(struct ipv6hdr)) {
-		__IP6_INC_STATS(net, ipv6_skb_idev(skb),
-				IPSTATS_MIB_INTRUNCATEDPKTS);
+		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INTRUNCATEDPKTS);
 		goto drop;
 	}
 
@@ -1042,6 +1090,8 @@ static const struct tlvtype_proc tlvprochopopt_lst[] = {
 int ipv6_parse_hopopts(struct sk_buff *skb)
 {
 	struct inet6_skb_parm *opt = IP6CB(skb);
+	struct net *net = dev_net(skb->dev);
+	int extlen;
 
 	/*
 	 * skb_network_header(skb) is equal to skb->data, and
@@ -1052,14 +1102,20 @@ int ipv6_parse_hopopts(struct sk_buff *skb)
 	if (!pskb_may_pull(skb, sizeof(struct ipv6hdr) + 8) ||
 	    !pskb_may_pull(skb, (sizeof(struct ipv6hdr) +
 				 ((skb_transport_header(skb)[1] + 1) << 3)))) {
+fail_and_free:
 		kfree_skb(skb);
 		return -1;
 	}
 
 	opt->hop = sizeof(struct ipv6hdr);
+	extlen = (skb_transport_header(skb)[1] + 1) << 3;
+	if (extlen > net->ipv6.sysctl.max_hbh_opts_len)
+		goto fail_and_free;
+
 	opt->flags |= IP6SKB_HOPBYHOP;
-	if (ip6_parse_tlv(tlvprochopopt_lst, skb)) {
-		skb->transport_header += (skb_transport_header(skb)[1] + 1) << 3;
+	if (ip6_parse_tlv(tlvprochopopt_lst, skb,
+			  init_net.ipv6.sysctl.max_hbh_opts_cnt)) {
+		skb->transport_header += extlen;
 		opt = IP6CB(skb);
 		opt->nhoff = sizeof(struct ipv6hdr);
 		return 1;
@@ -1122,6 +1178,15 @@ static void ipv6_push_rthdr4(struct sk_buff *skb, u8 *proto,
 
 	sr_phdr->segments[0] = **addr_p;
 	*addr_p = &sr_ihdr->segments[sr_ihdr->segments_left];
+
+	if (sr_ihdr->hdrlen > hops * 2) {
+		int tlvs_offset, tlvs_length;
+
+		tlvs_offset = (1 + hops * 2) << 3;
+		tlvs_length = (sr_ihdr->hdrlen - hops * 2) << 3;
+		memcpy((char *)sr_phdr + tlvs_offset,
+		       (char *)sr_ihdr + tlvs_offset, tlvs_length);
+	}
 
 #ifdef CONFIG_IPV6_SEG6_HMAC
 	if (sr_has_hmac(sr_phdr)) {
@@ -1233,11 +1298,11 @@ ipv6_dup_options(struct sock *sk, struct ipv6_txoptions *opt)
 }
 EXPORT_SYMBOL_GPL(ipv6_dup_options);
 
-static int ipv6_renew_option(void *ohdr,
-			     struct ipv6_opt_hdr __user *newopt, int newoptlen,
-			     int inherit,
-			     struct ipv6_opt_hdr **hdr,
-			     char **p)
+static void ipv6_renew_option(int renewtype,
+			      struct ipv6_opt_hdr **dest,
+			      struct ipv6_opt_hdr *old,
+			      struct ipv6_opt_hdr *new,
+			      int newtype, char **p)
 {
 	if (inherit) {
 		if (ohdr) {
@@ -1258,6 +1323,15 @@ static int ipv6_renew_option(void *ohdr,
 		}
 	}
 	return 0;
+	struct ipv6_opt_hdr *src;
+
+	src = (renewtype == newtype ? new : old);
+	if (!src)
+		return;
+
+	memcpy(*p, src, ipv6_optlen(src));
+	*dest = (struct ipv6_opt_hdr *)*p;
+	*p += CMSG_ALIGN(ipv6_optlen(*dest));
 }
 
 /**
@@ -1283,13 +1357,11 @@ static int ipv6_renew_option(void *ohdr,
  */
 struct ipv6_txoptions *
 ipv6_renew_options(struct sock *sk, struct ipv6_txoptions *opt,
-		   int newtype,
-		   struct ipv6_opt_hdr __user *newopt, int newoptlen)
+		   int newtype, struct ipv6_opt_hdr *newopt)
 {
 	int tot_len = 0;
 	char *p;
 	struct ipv6_txoptions *opt2;
-	int err;
 
 	if (opt) {
 		if (newtype != IPV6_HOPOPTS && opt->hopopt)
@@ -1302,8 +1374,8 @@ ipv6_renew_options(struct sock *sk, struct ipv6_txoptions *opt,
 			tot_len += CMSG_ALIGN(ipv6_optlen(opt->dst1opt));
 	}
 
-	if (newopt && newoptlen)
-		tot_len += CMSG_ALIGN(newoptlen);
+	if (newopt)
+		tot_len += CMSG_ALIGN(ipv6_optlen(newopt));
 
 	if (!tot_len)
 		return NULL;
@@ -1320,29 +1392,19 @@ ipv6_renew_options(struct sock *sk, struct ipv6_txoptions *opt,
 	opt2->tot_len = tot_len;
 	p = (char *)(opt2 + 1);
 
-	err = ipv6_renew_option(opt ? opt->hopopt : NULL, newopt, newoptlen,
-				newtype != IPV6_HOPOPTS,
-				&opt2->hopopt, &p);
-	if (err)
-		goto out;
-
-	err = ipv6_renew_option(opt ? opt->dst0opt : NULL, newopt, newoptlen,
-				newtype != IPV6_RTHDRDSTOPTS,
-				&opt2->dst0opt, &p);
-	if (err)
-		goto out;
-
-	err = ipv6_renew_option(opt ? opt->srcrt : NULL, newopt, newoptlen,
-				newtype != IPV6_RTHDR,
-				(struct ipv6_opt_hdr **)&opt2->srcrt, &p);
-	if (err)
-		goto out;
-
-	err = ipv6_renew_option(opt ? opt->dst1opt : NULL, newopt, newoptlen,
-				newtype != IPV6_DSTOPTS,
-				&opt2->dst1opt, &p);
-	if (err)
-		goto out;
+	ipv6_renew_option(IPV6_HOPOPTS, &opt2->hopopt,
+			  (opt ? opt->hopopt : NULL),
+			  newopt, newtype, &p);
+	ipv6_renew_option(IPV6_RTHDRDSTOPTS, &opt2->dst0opt,
+			  (opt ? opt->dst0opt : NULL),
+			  newopt, newtype, &p);
+	ipv6_renew_option(IPV6_RTHDR,
+			  (struct ipv6_opt_hdr **)&opt2->srcrt,
+			  (opt ? (struct ipv6_opt_hdr *)opt->srcrt : NULL),
+			  newopt, newtype, &p);
+	ipv6_renew_option(IPV6_DSTOPTS, &opt2->dst1opt,
+			  (opt ? opt->dst1opt : NULL),
+			  newopt, newtype, &p);
 
 	opt2->opt_nflen = (opt2->hopopt ? ipv6_optlen(opt2->hopopt) : 0) +
 			  (opt2->dst0opt ? ipv6_optlen(opt2->dst0opt) : 0) +
@@ -1350,37 +1412,6 @@ ipv6_renew_options(struct sock *sk, struct ipv6_txoptions *opt,
 	opt2->opt_flen = (opt2->dst1opt ? ipv6_optlen(opt2->dst1opt) : 0);
 
 	return opt2;
-out:
-	sock_kfree_s(sk, opt2, opt2->tot_len);
-	return ERR_PTR(err);
-}
-
-/**
- * ipv6_renew_options_kern - replace a specific ext hdr with a new one.
- *
- * @sk: sock from which to allocate memory
- * @opt: original options
- * @newtype: option type to replace in @opt
- * @newopt: new option of type @newtype to replace (kernel-mem)
- * @newoptlen: length of @newopt
- *
- * See ipv6_renew_options().  The difference is that @newopt is
- * kernel memory, rather than user memory.
- */
-struct ipv6_txoptions *
-ipv6_renew_options_kern(struct sock *sk, struct ipv6_txoptions *opt,
-			int newtype, struct ipv6_opt_hdr *newopt,
-			int newoptlen)
-{
-	struct ipv6_txoptions *ret_val;
-	const mm_segment_t old_fs = get_fs();
-
-	set_fs(KERNEL_DS);
-	ret_val = ipv6_renew_options(sk, opt, newtype,
-				     (struct ipv6_opt_hdr __user *)newopt,
-				     newoptlen);
-	set_fs(old_fs);
-	return ret_val;
 }
 
 struct ipv6_txoptions *ipv6_fixup_options(struct ipv6_txoptions *opt_space,

@@ -451,8 +451,9 @@ int ia64_itr_entry(u64 target_mask, u64 va, u64 pte, u64 log_size)
 	if (target_mask & 0x1) {
 		p = &__per_cpu_idtrs[cpu][0][0];
 	if (!ia64_idtrs[cpu]) {
-		ia64_idtrs[cpu] = kmalloc(2 * IA64_TR_ALLOC_MAX *
-				sizeof (struct ia64_tr_entry), GFP_KERNEL);
+		ia64_idtrs[cpu] = kmalloc_array(2 * IA64_TR_ALLOC_MAX,
+						sizeof(struct ia64_tr_entry),
+						GFP_KERNEL);
 		if (!ia64_idtrs[cpu])
 			return -ENOMEM;
 	}

@@ -29,7 +29,7 @@ struct svc_xprt_ops {
 	void		(*xpo_release_rqst)(struct svc_rqst *);
 	void		(*xpo_detach)(struct svc_xprt *);
 	void		(*xpo_free)(struct svc_xprt *);
-	int		(*xpo_secure_port)(struct svc_rqst *);
+	void		(*xpo_secure_port)(struct svc_rqst *rqstp);
 	void		(*xpo_kill_temp_xprt)(struct svc_xprt *);
 };
 
@@ -109,6 +109,7 @@ int	svc_port_is_privileged(struct sockaddr *sin);
 int	svc_print_xprts(char *buf, int maxlen);
 struct	svc_xprt *svc_find_xprt(struct svc_serv *, char *, int, int);
 int	svc_xprt_names(struct svc_serv *serv, char *buf, int buflen);
+	char			xpt_remotebuf[INET6_ADDRSTRLEN + 10];
 	struct rpc_wait_queue	xpt_bc_pending;	/* backchannel wait queue */
 	struct list_head	xpt_users;	/* callbacks on free */
 
@@ -180,6 +181,8 @@ static inline void svc_xprt_set_remote(struct svc_xprt *xprt,
 {
 	memcpy(&xprt->xpt_remote, sa, salen);
 	xprt->xpt_remotelen = salen;
+	snprintf(xprt->xpt_remotebuf, sizeof(xprt->xpt_remotebuf) - 1,
+		 "%pISpc", sa);
 }
 static inline unsigned short svc_addr_port(struct sockaddr *sa)
 {
@@ -196,6 +199,7 @@ static inline unsigned short svc_addr_port(struct sockaddr *sa)
 }
 
 static inline size_t svc_addr_len(struct sockaddr *sa)
+
 static inline unsigned short svc_addr_port(const struct sockaddr *sa)
 {
 	const struct sockaddr_in *sin = (const struct sockaddr_in *)sa;

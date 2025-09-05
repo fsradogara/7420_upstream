@@ -66,3 +66,4 @@ config BLKDEV_RESERVE_ADDRESS
 	  BLKDEV start address.
 
 endmenu
+# dummy file, do not delete

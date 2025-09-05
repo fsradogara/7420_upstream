@@ -60,7 +60,7 @@ EXPORT_SYMBOL(flush_data_cache_page);
 #ifdef CONFIG_DMA_NONCOHERENT
 EXPORT_SYMBOL(flush_icache_all);
 
-#if defined(CONFIG_DMA_NONCOHERENT) || defined(CONFIG_DMA_MAYBE_COHERENT)
+#ifdef CONFIG_DMA_NONCOHERENT
 
 /* DMA cache operations. */
 void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
@@ -93,7 +93,7 @@ SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
 
 void __flush_dcache_page(struct page *page)
 {
-	struct address_space *mapping = page_mapping(page);
+	struct address_space *mapping = page_mapping_file(page);
 	unsigned long addr;
 
 	if (mapping && !mapping_mapped(mapping)) {

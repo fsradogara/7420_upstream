@@ -98,7 +98,7 @@ static struct dentry *mount_mtd_aux(struct file_system_type *fs_type, int flags,
 	pr_debug("MTDSB: New superblock for device %d (\"%s\")\n",
 	      mtd->index, mtd->name);
 
-	ret = fill_super(sb, data, flags & MS_SILENT ? 1 : 0);
+	ret = fill_super(sb, data, flags & SB_SILENT ? 1 : 0);
 	if (ret < 0) {
 		deactivate_locked_super(sb);
 		return ERR_PTR(ret);
@@ -120,6 +120,7 @@ out_error:
 out_put:
 	put_mtd_device(mtd);
 	return ret;
+	sb->s_flags |= SB_ACTIVE;
 	return dget(sb->s_root);
 
 	/* new mountpoint for an already mounted superblock */
@@ -278,7 +279,7 @@ struct dentry *mount_mtd(struct file_system_type *fs_type, int flags,
 not_an_MTD_device:
 #endif /* CONFIG_BLOCK */
 
-	if (!(flags & MS_SILENT))
+	if (!(flags & SB_SILENT))
 		printk(KERN_NOTICE
 		       "MTD: Attempt to mount non-MTD device \"%s\"\n",
 		       dev_name);

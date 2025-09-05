@@ -35,7 +35,7 @@
 
 #define SLOW_INTERVAL (HZ/2)
 
-static void dn_slow_timer(unsigned long arg);
+static void dn_slow_timer(struct timer_list *t);
 
 void dn_start_slow_timer(struct sock *sk)
 {
@@ -45,6 +45,7 @@ void dn_start_slow_timer(struct sock *sk)
 
 	add_timer(&sk->sk_timer);
 	setup_timer(&sk->sk_timer, dn_slow_timer, (unsigned long)sk);
+	timer_setup(&sk->sk_timer, dn_slow_timer, 0);
 	sk_reset_timer(sk, &sk->sk_timer, jiffies + SLOW_INTERVAL);
 }
 
@@ -54,9 +55,9 @@ void dn_stop_slow_timer(struct sock *sk)
 	sk_stop_timer(sk, &sk->sk_timer);
 }
 
-static void dn_slow_timer(unsigned long arg)
+static void dn_slow_timer(struct timer_list *t)
 {
-	struct sock *sk = (struct sock *)arg;
+	struct sock *sk = from_timer(sk, t, sk_timer);
 	struct dn_scp *scp = DN_SK(sk);
 
 	sock_hold(sk);

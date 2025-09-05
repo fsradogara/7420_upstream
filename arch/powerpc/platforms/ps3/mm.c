@@ -605,8 +605,7 @@ static int dma_sb_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 	int result;
 	struct dma_chunk *c;
 
-	c = kzalloc(sizeof(struct dma_chunk), GFP_ATOMIC);
-
+	c = kzalloc(sizeof(*c), GFP_ATOMIC);
 	if (!c) {
 		result = -ENOMEM;
 		goto fail_alloc;
@@ -651,8 +650,7 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 
 	DBG(KERN_ERR "%s: phy=%#lx, lpar%#lx, len=%#lx\n", __func__,
 	    phys_addr, ps3_mm_phys_to_lpar(phys_addr), len);
-	c = kzalloc(sizeof(struct dma_chunk), GFP_ATOMIC);
-
+	c = kzalloc(sizeof(*c), GFP_ATOMIC);
 	if (!c) {
 		result = -ENOMEM;
 		goto fail_alloc;
@@ -694,6 +692,8 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 				ps3_result(result));
 			pr_warning("%s:%d: lv1_put_iopte failed: %s\n",
 				   __func__, __LINE__, ps3_result(result));
+			pr_warn("%s:%d: lv1_put_iopte failed: %s\n",
+				__func__, __LINE__, ps3_result(result));
 			goto fail_map;
 		}
 		DBG("%s: pg=%d bus=%#lx, lpar=%#lx, ioid=%#x\n", __func__,

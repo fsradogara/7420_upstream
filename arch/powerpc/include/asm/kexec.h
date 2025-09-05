@@ -142,6 +142,8 @@ static inline int kexec_sr_activated(int cpu)
 {
 	return cpu_isset(cpu,cpus_in_sr);
 }
+extern void crash_ipi_callback(struct pt_regs *);
+extern int crash_wake_offline;
 
 struct kimage;
 struct pt_regs;
@@ -169,7 +171,7 @@ static inline bool kdump_in_progress(void)
 }
 
 #ifdef CONFIG_KEXEC_FILE
-extern struct kexec_file_ops kexec_elf64_ops;
+extern const struct kexec_file_ops kexec_elf64_ops;
 
 #ifdef CONFIG_IMA_KEXEC
 #define ARCH_HAS_KIMAGE_ARCH
@@ -212,6 +214,12 @@ static inline int crash_shutdown_unregister(crash_shutdown_t handler)
 static inline bool kdump_in_progress(void)
 {
 	return false;
+}
+
+static inline void crash_ipi_callback(struct pt_regs *regs) { }
+
+static inline void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *))
+{
 }
 
 #endif /* CONFIG_KEXEC_CORE */

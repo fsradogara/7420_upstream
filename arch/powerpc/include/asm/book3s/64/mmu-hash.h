@@ -12,7 +12,6 @@
  * 2 of the License, or (at your option) any later version.
  */
 
-#include <asm/asm-compat.h>
 #include <asm/page.h>
 
 /*
@@ -35,6 +34,7 @@
 extern char initial_stab[];
 #endif /* ! __ASSEMBLY */
 #include <asm/bug.h>
+#include <asm/asm-const.h>
 
 /*
  * This is necessary to get the definition of PGTABLE_RANGE which we
@@ -117,6 +117,8 @@ extern char initial_stab[];
 #define HPTE_R_C		ASM_CONST(0x0000000000000080)
 #define HPTE_R_R		ASM_CONST(0x0000000000000100)
 #define HPTE_R_KEY_HI		ASM_CONST(0x3000000000000000)
+#define HPTE_R_KEY_BIT0		ASM_CONST(0x2000000000000000)
+#define HPTE_R_KEY_BIT1		ASM_CONST(0x1000000000000000)
 #define HPTE_R_RPN_SHIFT	12
 #define HPTE_R_RPN		ASM_CONST(0x0ffffffffffff000)
 #define HPTE_R_RPN_3_0		ASM_CONST(0x01fffffffffff000)
@@ -131,6 +133,9 @@ extern char initial_stab[];
 #define HPTE_R_C		ASM_CONST(0x0000000000000080)
 #define HPTE_R_R		ASM_CONST(0x0000000000000100)
 #define HPTE_R_KEY_LO		ASM_CONST(0x0000000000000e00)
+#define HPTE_R_KEY_BIT2		ASM_CONST(0x0000000000000800)
+#define HPTE_R_KEY_BIT3		ASM_CONST(0x0000000000000400)
+#define HPTE_R_KEY_BIT4		ASM_CONST(0x0000000000000200)
 #define HPTE_R_KEY		(HPTE_R_KEY_LO | HPTE_R_KEY_HI)
 
 #define HPTE_V_1TB_SEG		ASM_CONST(0x4000000000000000)
@@ -456,6 +461,16 @@ static inline unsigned long hpte_new_to_old_r(unsigned long r)
 	return r & ~HPTE_R_3_0_SSIZE_MASK;
 }
 
+static inline unsigned long hpte_get_old_v(struct hash_pte *hptep)
+{
+	unsigned long hpte_v;
+
+	hpte_v = be64_to_cpu(hptep->v);
+	if (cpu_has_feature(CPU_FTR_ARCH_300))
+		hpte_v = hpte_new_to_old_v(hpte_v, be64_to_cpu(hptep->r));
+	return hpte_v;
+}
+
 /*
  * This function sets the AVPN and L fields of the HPTE  appropriately
  * using the base page size and actual page size.
@@ -661,6 +676,9 @@ extern void hpte_init_native(void);
 
 extern void slb_initialize(void);
 extern void slb_flush_and_rebolt(void);
+void slb_flush_all_realmode(void);
+void __slb_restore_bolted_realmode(void);
+void slb_restore_bolted_realmode(void);
 
 extern void slb_vmalloc_update(void);
 extern void slb_set_size(u16 size);
@@ -871,7 +889,7 @@ extern void slb_set_size(u16 size);
 typedef unsigned long mm_context_id_t;
 /* 4 bits per slice and we have one slice per 1TB */
 #define SLICE_ARRAY_SIZE	(H_PGTABLE_RANGE >> 41)
-#define TASK_SLICE_ARRAY_SZ(x)	((x)->context.addr_limit >> 41)
+#define TASK_SLICE_ARRAY_SZ(x)	((x)->context.slb_addr_limit >> 41)
 
 #ifndef __ASSEMBLY__
 
