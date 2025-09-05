@@ -1179,8 +1179,6 @@ static irqreturn_t pciehp_isr(int irq, void *dev_id)
 	u16 detected, intr_loc;
 	struct slot *p_slot;
 	struct pci_dev *pdev = ctrl_dev(ctrl);
-	struct pci_bus *subordinate = pdev->subordinate;
-	struct pci_dev *dev;
 	struct slot *slot = ctrl->slot;
 	u16 status, events;
 	u8 present;
@@ -1285,6 +1283,9 @@ static irqreturn_t pciehp_isr(int irq, void *dev_id)
 				return IRQ_HANDLED;
 			}
 		}
+	if (pdev->ignore_hotplug) {
+		ctrl_dbg(ctrl, "ignoring hotplug event %#06x\n", events);
+		return IRQ_HANDLED;
 	}
 
 	/* Check Attention Button Pressed */
@@ -1673,7 +1674,7 @@ int pcie_init_notification(struct controller *ctrl)
 	return 0;
 }
 
-static void pcie_shutdown_notification(struct controller *ctrl)
+void pcie_shutdown_notification(struct controller *ctrl)
 {
 	pcie_disable_notification(ctrl);
 	pciehp_free_irq(ctrl);
@@ -1727,7 +1728,7 @@ static void pcie_cleanup_slot(struct controller *ctrl)
 	flush_scheduled_work();
 	flush_workqueue(pciehp_wq);
 	struct slot *slot = ctrl->slot;
-	cancel_delayed_work(&slot->work);
+
 	destroy_workqueue(slot->wq);
 	kfree(slot);
 }
@@ -1924,7 +1925,6 @@ void pcie_release_ctrl(struct controller *ctrl)
 		destroy_workqueue(pciehp_wq);
 void pciehp_release_ctrl(struct controller *ctrl)
 {
-	pcie_shutdown_notification(ctrl);
 	pcie_cleanup_slot(ctrl);
 	kfree(ctrl);
 }
