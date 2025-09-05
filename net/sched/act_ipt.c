@@ -48,6 +48,7 @@ static int ipt_init_target(struct xt_entry_target *t, char *table, unsigned int 
 {
 	struct xt_tgchk_param par;
 	struct xt_target *target;
+	struct ipt_entry e = {};
 	int ret = 0;
 
 	target = xt_request_find_target(AF_INET, t->u.user.name,
@@ -101,8 +102,9 @@ static int tcf_ipt_release(struct tcf_ipt *ipt, int bind)
 		return PTR_ERR(target);
 
 	t->u.kernel.target = target;
+	memset(&par, 0, sizeof(par));
 	par.table     = table;
-	par.entryinfo = NULL;
+	par.entryinfo = &e;
 	par.target    = target;
 	par.targinfo  = t->data;
 	par.hook_mask = hook;

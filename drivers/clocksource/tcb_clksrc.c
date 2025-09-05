@@ -198,6 +198,8 @@ static int tc_set_periodic(struct clock_event_device *d)
 	clk_enable(tcd->clk);
 	tc_clk_enable(d);
 
+	tc_clk_enable(d);
+
 	/* count up to RC, then irq and restart */
 	__raw_writel(timer_clock | ATMEL_TC_WAVE | ATMEL_TC_WAVESEL_UP_AUTO,
 		     regs + ATMEL_TC_REG(2, CMR));
@@ -289,6 +291,8 @@ static void __init setup_clkevents(struct atmel_tc *tc, int clk32k_divisor_idx)
 
 	clockevents_register_device(&clkevt.clkevt);
 static int __init setup_clkevents(struct atmel_tc *tc, int clk32k_divisor_idx)
+static int __init setup_clkevents(struct atmel_tc *tc, int divisor_idx)
+{
 static int __init setup_clkevents(struct atmel_tc *tc, int divisor_idx)
 {
 	unsigned divisor = atmel_tc_divisors[divisor_idx];

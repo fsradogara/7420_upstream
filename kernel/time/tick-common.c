@@ -197,6 +197,8 @@ void tick_setup_periodic(struct clock_event_device *dev, int broadcast)
 			seq = read_seqbegin(&jiffies_lock);
 			seq = read_seqcount_begin(&jiffies_seq);
 			next = tick_next_period;
+			seq = read_seqcount_begin(&jiffies_seq);
+			next = tick_next_period;
 		} while (read_seqcount_retry(&jiffies_seq, seq));
 
 		clockevents_switch_state(dev, CLOCK_EVT_STATE_ONESHOT);

@@ -1173,6 +1173,9 @@ qdisc_create(struct net_device *dev, struct netdev_queue *dev_queue,
 
 		return sch;
 	}
+	/* ops->init() failed, we call ->destroy() like qdisc_create_dflt() */
+	if (ops->destroy)
+		ops->destroy(sch);
 err_out3:
 	qdisc_put_stab(sch->stab);
 	dev_put(dev);

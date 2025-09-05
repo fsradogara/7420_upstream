@@ -4438,6 +4438,9 @@ int tcp_connect(struct sock *sk)
 	tcp_transmit_skb(sk, buff, 1, GFP_KERNEL);
 	int err;
 
+	if (inet_csk(sk)->icsk_af_ops->rebuild_header(sk))
+		return -EHOSTUNREACH; /* Routing failure or similar. */
+
 	tcp_connect_init(sk);
 
 	if (unlikely(tp->repair)) {

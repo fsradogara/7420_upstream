@@ -987,6 +987,10 @@ void lru_add_drain(void)
 	local_unlock_cpu(swapvec_lock);
 }
 
+	lru_add_drain_cpu(local_lock_cpu(swapvec_lock));
+	local_unlock_cpu(swapvec_lock);
+}
+
 
 #ifdef CONFIG_PREEMPT_RT_BASE
 static inline void remote_lru_add_drain(int cpu, struct cpumask *has_work)

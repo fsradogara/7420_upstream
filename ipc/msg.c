@@ -1371,6 +1371,16 @@ long do_msgrcv(int msqid, void __user *buf, size_t bufsz, long msgtyp, int msgfl
 
 		msg = (struct msg_msg *)msr_d.r_msg;
 		if (msg != ERR_PTR(-EAGAIN))
+			goto out_unlock1;
+
+		 /*
+		  * … or see -EAGAIN, acquire the lock to check the message
+		  * again.
+		  */
+		ipc_lock_object(&msq->q_perm);
+
+		msg = (struct msg_msg *)msr_d.r_msg;
+		if (msg != ERR_PTR(-EAGAIN))
 			goto out_unlock0;
 
 		list_del(&msr_d.r_list);

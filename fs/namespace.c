@@ -316,6 +316,7 @@ static struct mount *alloc_vfsmnt(const char *name)
 	return mnt;
 
 		INIT_HLIST_NODE(&mnt->mnt_mp_list);
+		INIT_LIST_HEAD(&mnt->mnt_umounting);
 #ifdef CONFIG_FSNOTIFY
 		INIT_HLIST_HEAD(&mnt->mnt_fsnotify_marks);
 #endif

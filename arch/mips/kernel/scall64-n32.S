@@ -384,6 +384,7 @@ EXPORT(sysn32_call_table)
 	PTR	sys_io_destroy
 	PTR	sys_io_getevents
 	PTR	sys_io_submit
+	PTR	__sys_sysmips
 	PTR	compat_sys_io_setup			/* 6200 */
 	PTR	sys_io_destroy
 	PTR	compat_sys_io_getevents

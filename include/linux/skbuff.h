@@ -1757,6 +1757,12 @@ static inline void skb_queue_head_init_raw(struct sk_buff_head *list)
 	__skb_queue_head_init(list);
 }
 
+static inline void skb_queue_head_init_raw(struct sk_buff_head *list)
+{
+	raw_spin_lock_init(&list->raw_lock);
+	__skb_queue_head_init(list);
+}
+
 static inline void skb_queue_head_init_class(struct sk_buff_head *list,
 		struct lock_class_key *class)
 {

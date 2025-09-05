@@ -1020,6 +1020,8 @@ int rdma_init_qp_attr(struct rdma_cm_id *id, struct ib_qp_attr *qp_attr,
 		ret = -ENOSYS;
 		break;
 	}
+		qp_attr->port_num = id_priv->id.port_num;
+		*qp_attr_mask |= IB_QP_PORT;
 	} else
 		ret = -ENOSYS;
 

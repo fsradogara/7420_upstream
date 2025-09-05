@@ -354,6 +354,12 @@ static inline void raw_write_seqcount_end(seqcount_t *s)
 	preempt_enable_rt();
 }
 
+static inline void raw_write_seqcount_end(seqcount_t *s)
+{
+	__raw_write_seqcount_end(s);
+	preempt_enable_rt();
+}
+
 /**
  * raw_write_seqcount_barrier - do a seq write barrier
  * @s: pointer to seqcount_t

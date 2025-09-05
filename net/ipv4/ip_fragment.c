@@ -1091,8 +1091,6 @@ static int ipv4_frags_init_net(struct net *net)
 	net->ipv4.frags.low_thresh = 192 * 1024;
 static int __net_init ipv4_frags_init_net(struct net *net)
 {
-	int res;
-
 	/* Fragment cache limits.
 	 *
 	 * The fragment memory accounting code, (tries to) account for

@@ -3210,6 +3210,7 @@ static struct ippp_ccp_reset_state *isdn_ppp_ccp_reset_alloc_state(struct ippp_s
 	} else {
 		rs = kzalloc(sizeof(struct ippp_ccp_reset_state), GFP_KERNEL);
 		if(!rs)
+		rs = kzalloc(sizeof(struct ippp_ccp_reset_state), GFP_ATOMIC);
 		if (!rs)
 			return NULL;
 		rs->state = CCPResetIdle;

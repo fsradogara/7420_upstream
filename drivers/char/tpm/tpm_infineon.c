@@ -209,8 +209,9 @@ static int wait(struct tpm_chip *chip, int wait_for_bit)
 		if (wait_for_bit == STAT_RDA)
 			dev_err(chip->dev, "Timeout in wait(STAT_RDA)\n");
 			dev_err(chip->pdev, "Timeout in wait(STAT_XFE)\n");
+			dev_err(&chip->dev, "Timeout in wait(STAT_XFE)\n");
 		if (wait_for_bit == STAT_RDA)
-			dev_err(chip->pdev, "Timeout in wait(STAT_RDA)\n");
+			dev_err(&chip->dev, "Timeout in wait(STAT_RDA)\n");
 		return -EIO;
 	}
 	return 0;
@@ -235,6 +236,7 @@ static void tpm_wtx(struct tpm_chip *chip)
 	number_of_wtx++;
 	dev_info(chip->dev, "Granting WTX (%02d / %02d)\n",
 	dev_info(chip->pdev, "Granting WTX (%02d / %02d)\n",
+	dev_info(&chip->dev, "Granting WTX (%02d / %02d)\n",
 		 number_of_wtx, TPM_MAX_WTX_PACKAGES);
 	wait_and_send(chip, TPM_VL_VER);
 	wait_and_send(chip, TPM_CTRL_WTX);
@@ -247,6 +249,7 @@ static void tpm_wtx_abort(struct tpm_chip *chip)
 {
 	dev_info(chip->dev, "Aborting WTX\n");
 	dev_info(chip->pdev, "Aborting WTX\n");
+	dev_info(&chip->dev, "Aborting WTX\n");
 	wait_and_send(chip, TPM_VL_VER);
 	wait_and_send(chip, TPM_CTRL_WTX_ABORT);
 	wait_and_send(chip, 0x00);
@@ -274,6 +277,7 @@ recv_begin:
 	if (buf[0] != TPM_VL_VER) {
 		dev_err(chip->dev,
 		dev_err(chip->pdev,
+		dev_err(&chip->dev,
 			"Wrong transport protocol implementation!\n");
 		return -EIO;
 	}
@@ -290,6 +294,7 @@ recv_begin:
 		if ((size == 0x6D00) && (buf[1] == 0x80)) {
 			dev_err(chip->dev, "Error handling on vendor layer!\n");
 			dev_err(chip->pdev, "Error handling on vendor layer!\n");
+			dev_err(&chip->dev, "Error handling on vendor layer!\n");
 			return -EIO;
 		}
 
@@ -303,6 +308,7 @@ recv_begin:
 	if (buf[1] == TPM_CTRL_WTX) {
 		dev_info(chip->dev, "WTX-package received\n");
 		dev_info(chip->pdev, "WTX-package received\n");
+		dev_info(&chip->dev, "WTX-package received\n");
 		if (number_of_wtx < TPM_MAX_WTX_PACKAGES) {
 			tpm_wtx(chip);
 			goto recv_begin;
@@ -315,6 +321,7 @@ recv_begin:
 	if (buf[1] == TPM_CTRL_WTX_ABORT_ACK) {
 		dev_info(chip->dev, "WTX-abort acknowledged\n");
 		dev_info(chip->pdev, "WTX-abort acknowledged\n");
+		dev_info(&chip->dev, "WTX-abort acknowledged\n");
 		return size;
 	}
 
@@ -323,8 +330,9 @@ recv_begin:
 		if (buf[4] == TPM_INF_NAK)
 			dev_err(chip->dev,
 		dev_err(chip->pdev, "ERROR-package received:\n");
+		dev_err(&chip->dev, "ERROR-package received:\n");
 		if (buf[4] == TPM_INF_NAK)
-			dev_err(chip->pdev,
+			dev_err(&chip->dev,
 				"-> Negative acknowledgement"
 				" - retransmit command!\n");
 		return -EIO;
@@ -345,6 +353,7 @@ static int tpm_inf_send(struct tpm_chip *chip, u8 * buf, size_t count)
 	if (ret) {
 		dev_err(chip->dev, "Timeout while clearing FIFO\n");
 		dev_err(chip->pdev, "Timeout while clearing FIFO\n");
+		dev_err(&chip->dev, "Timeout while clearing FIFO\n");
 		return -EIO;
 	}
 

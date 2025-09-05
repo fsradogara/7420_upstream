@@ -948,7 +948,7 @@ out_unregister:
 
 out_unregister:
 	kobject_put(&priv->kobj);
-	kfree(drv->p);
+	/* drv->p is freed in driver_release()  */
 	drv->p = NULL;
 out_put_bus:
 	bus_put(bus);

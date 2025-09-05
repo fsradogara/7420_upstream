@@ -15,6 +15,8 @@
 #include <linux/linkage.h>
 #include <linux/plist.h>
 #include <linux/spinlock_types.h>
+#include <linux/spinlock_types_raw.h>
+#include <linux/rbtree.h>
 
 #include <linux/spinlock_types_raw.h>
 #include <linux/rbtree.h>
