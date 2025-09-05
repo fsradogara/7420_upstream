@@ -2143,6 +2143,7 @@ int ubi_thread(void *u)
 	}
 
 	dbg_wl("background thread \"%s\" is killed", ubi->bgt_name);
+	ubi->thread_enabled = 0;
 	return 0;
 }
 
@@ -2157,9 +2158,6 @@ static void cancel_pending(struct ubi_device *ubi)
  */
 static void shutdown_work(struct ubi_device *ubi)
 {
-#ifdef CONFIG_MTD_UBI_FASTMAP
-	flush_work(&ubi->fm_work);
-#endif
 	while (!list_empty(&ubi->works)) {
 		struct ubi_work *wrk;
 

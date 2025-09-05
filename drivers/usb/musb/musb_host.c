@@ -3489,8 +3489,11 @@ static int musb_bus_suspend(struct usb_hcd *hcd)
 		WARNING("trying to suspend as %s is_active=%i\n",
 			otg_state_string(musb), musb->is_active);
 	u8		devctl;
+	int		ret;
 
-	musb_port_suspend(musb, true);
+	ret = musb_port_suspend(musb, true);
+	if (ret)
+		return ret;
 
 	if (!is_host_active(musb))
 		return 0;

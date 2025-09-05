@@ -499,6 +499,7 @@ out:
 	free_thread_info(ti);
 	tsk->task_frag.page = NULL;
 	tsk->wake_q.next = NULL;
+	tsk->wake_q_sleeper.next = NULL;
 
 	account_kernel_stack(ti, 1);
 

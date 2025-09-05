@@ -1169,6 +1169,8 @@ static unsigned char __devinit eprom_try_esi(struct atm_dev *dev,
     unsigned short cmd,int offset,int swap)
 static unsigned char eprom_try_esi(struct atm_dev *dev, unsigned short cmd,
 				   int offset, int swap)
+static int eprom_try_esi(struct atm_dev *dev, unsigned short cmd, int offset,
+			 int swap)
 {
 	unsigned char buf[ZEPROM_SIZE];
 	struct zatm_dev *zatm_dev;
