@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * File...........: linux/drivers/s390/block/dasd_ioctl.c
  * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
@@ -32,7 +33,7 @@
 #include <asm/ccwdev.h>
 #include <asm/schid.h>
 #include <asm/cmb.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /* This is ugly... */
 #define PRINTK_HEADER "dasd_ioctl:"
@@ -239,9 +240,7 @@ static int
 dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 {
 	struct dasd_device *base;
-	int enable_pav = 1;
-	int rc, retries;
-	int start, stop;
+	int rc;
 
 	base = block->base;
 	if (base->discipline->format_device == NULL)
@@ -308,11 +307,28 @@ dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 			/* success */
 			break;
 	} while (retries);
+	rc = base->discipline->format_device(base, fdata, 1);
+	if (rc == -EAGAIN)
+		rc = base->discipline->format_device(base, fdata, 0);
 
-	if (!retries)
-		return -EIO;
-	else
-		return 0;
+	return rc;
+}
+
+static int dasd_check_format(struct dasd_block *block,
+			     struct format_check_t *cdata)
+{
+	struct dasd_device *base;
+	int rc;
+
+	base = block->base;
+	if (!base->discipline->check_device_format)
+		return -ENOTTY;
+
+	rc = base->discipline->check_device_format(base, cdata, 1);
+	if (rc == -EAGAIN)
+		rc = base->discipline->check_device_format(base, cdata, 0);
+
+	return rc;
 }
 
 /*
@@ -355,14 +371,54 @@ dasd_ioctl_format(struct block_device *bdev, void __user *argp)
 		return -EFAULT;
 	}
 	if (bdev != bdev->bd_contains) {
-		pr_warning("%s: The specified DASD is a partition and cannot "
-			   "be formatted\n",
-			   dev_name(&base->cdev->dev));
+		pr_warn("%s: The specified DASD is a partition and cannot be formatted\n",
+			dev_name(&base->cdev->dev));
 		dasd_put_device(base);
 		return -EINVAL;
 	}
 	rc = dasd_format(base->block, &fdata);
 	dasd_put_device(base);
+
+	return rc;
+}
+
+/*
+ * Check device format
+ */
+static int dasd_ioctl_check_format(struct block_device *bdev, void __user *argp)
+{
+	struct format_check_t cdata;
+	struct dasd_device *base;
+	int rc = 0;
+
+	if (!argp)
+		return -EINVAL;
+
+	base = dasd_device_from_gendisk(bdev->bd_disk);
+	if (!base)
+		return -ENODEV;
+	if (bdev != bdev->bd_contains) {
+		pr_warn("%s: The specified DASD is a partition and cannot be checked\n",
+			dev_name(&base->cdev->dev));
+		rc = -EINVAL;
+		goto out_err;
+	}
+
+	if (copy_from_user(&cdata, argp, sizeof(cdata))) {
+		rc = -EFAULT;
+		goto out_err;
+	}
+
+	rc = dasd_check_format(base->block, &cdata);
+	if (rc)
+		goto out_err;
+
+	if (copy_to_user(argp, &cdata, sizeof(cdata)))
+		rc = -EFAULT;
+
+out_err:
+	dasd_put_device(base);
+
 	return rc;
 }
 
@@ -705,6 +761,9 @@ dasd_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case BIODASDFMT:
 		rc = dasd_ioctl_format(bdev, argp);
+		break;
+	case BIODASDCHECKFMT:
+		rc = dasd_ioctl_check_format(bdev, argp);
 		break;
 	case BIODASDINFO:
 		rc = dasd_ioctl_information(block, cmd, argp);

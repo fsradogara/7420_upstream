@@ -149,6 +149,8 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 				      const struct pci_device_id *ent)
 static int esb2rom_init_one(struct pci_dev *pdev,
 			    const struct pci_device_id *ent)
+static int __init esb2rom_init_one(struct pci_dev *pdev,
+				   const struct pci_device_id *ent)
 {
 	static char *rom_probe_types[] = { "cfi_probe", "jedec_probe", NULL };
 	struct esb2rom_window *window = &esb2rom_window;
@@ -400,6 +402,7 @@ static void esb2rom_remove_one(struct pci_dev *pdev)
 
 static struct pci_device_id esb2rom_pci_tbl[] __devinitdata = {
 static struct pci_device_id esb2rom_pci_tbl[] = {
+static const struct pci_device_id esb2rom_pci_tbl[] = {
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801BA_0,
 	  PCI_ANY_ID, PCI_ANY_ID, },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801CA_0,
@@ -429,7 +432,7 @@ static struct pci_driver esb2rom_driver = {
 static int __init init_esb2rom(void)
 {
 	struct pci_dev *pdev;
-	struct pci_device_id *id;
+	const struct pci_device_id *id;
 	int retVal;
 
 	pdev = NULL;

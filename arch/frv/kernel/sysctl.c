@@ -13,7 +13,7 @@
 #include <linux/sysctl.h>
 #include <linux/proc_fs.h>
 #include <linux/init.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static const char frv_cache_wback[] = "wback";
 static const char frv_cache_wthru[] = "wthru";

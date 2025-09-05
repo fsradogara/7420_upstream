@@ -39,6 +39,10 @@
 
 /* Special MR definition for MPC8349 */
 #define FSL_DMA_MR_EOTIE	0x00000080
+#define FSL_DMA_MR_SAHTS_MASK	0x0000C000
+#define FSL_DMA_MR_DAHTS_MASK	0x00030000
+#define FSL_DMA_MR_BWC_MASK	0x0f000000
+
 /*
  * Bandwidth/pause control determines how many bytes a given
  * channel is allowed to transfer before the DMA engine pauses

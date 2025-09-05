@@ -44,6 +44,9 @@
 #include <linux/memblock.h>
 #include <linux/hugetlb.h>
 #include <linux/slab.h>
+#include <linux/of_fdt.h>
+#include <linux/libfdt.h>
+#include <linux/memremap.h>
 
 #include <asm/pgalloc.h>
 #include <asm/page.h>
@@ -53,7 +56,7 @@
 #include <asm/mmu_context.h>
 #include <asm/pgtable.h>
 #include <asm/mmu.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/smp.h>
 #include <asm/machdep.h>
 #include <asm/tlb.h>
@@ -71,7 +74,7 @@
 #include "mmu_decl.h"
 
 #ifdef CONFIG_PPC_STD_MMU_64
-#if PGTABLE_RANGE > USER_VSID_RANGE
+#if H_PGTABLE_RANGE > USER_VSID_RANGE
 #warning Limited user VSID range means pagetable space is wasted
 #endif
 
@@ -291,64 +294,29 @@ int __meminit vmemmap_populate(struct page *start_page,
  * On Book3E CPUs, the vmemmap is currently mapped in the top half of
  * the vmalloc space using normal page tables, though the size of
  * pages encoded in the PTEs can be different
+/*
+ * vmemmap virtual address space management does not have a traditonal page
+ * table to track which virtual struct pages are backed by physical mapping.
+ * The virtual to physical mappings are tracked in a simple linked list
+ * format. 'vmemmap_list' maintains the entire vmemmap physical mapping at
+ * all times where as the 'next' list maintains the available
+ * vmemmap_backing structures which have been deleted from the
+ * 'vmemmap_global' list during system runtime (memory hotplug remove
+ * operation). The freed 'vmemmap_backing' structures are reused later when
+ * new requests come in without allocating fresh memory. This pointer also
+ * tracks the allocated 'vmemmap_backing' structures as we allocate one
+ * full page memory at a time when we dont have any.
  */
-
-#ifdef CONFIG_PPC_BOOK3E
-static void __meminit vmemmap_create_mapping(unsigned long start,
-					     unsigned long page_size,
-					     unsigned long phys)
-{
-	/* Create a PTE encoding without page size */
-	unsigned long i, flags = _PAGE_PRESENT | _PAGE_ACCESSED |
-		_PAGE_KERNEL_RW;
-
-	/* PTEs only contain page size encodings up to 32M */
-	BUG_ON(mmu_psize_defs[mmu_vmemmap_psize].enc > 0xf);
-
-	/* Encode the size in the PTE */
-	flags |= mmu_psize_defs[mmu_vmemmap_psize].enc << 8;
-
-	/* For each PTE for that area, map things. Note that we don't
-	 * increment phys because all PTEs are of the large size and
-	 * thus must have the low bits clear
-	 */
-	for (i = 0; i < page_size; i += PAGE_SIZE)
-		BUG_ON(map_kernel_page(start + i, phys, flags));
-}
-
-#ifdef CONFIG_MEMORY_HOTPLUG
-static void vmemmap_remove_mapping(unsigned long start,
-				   unsigned long page_size)
-{
-}
-#endif
-#else /* CONFIG_PPC_BOOK3E */
-static void __meminit vmemmap_create_mapping(unsigned long start,
-					     unsigned long page_size,
-					     unsigned long phys)
-{
-	int  mapped = htab_bolt_mapping(start, start + page_size, phys,
-					pgprot_val(PAGE_KERNEL),
-					mmu_vmemmap_psize,
-					mmu_kernel_ssize);
-	BUG_ON(mapped < 0);
-}
-
-#ifdef CONFIG_MEMORY_HOTPLUG
-static void vmemmap_remove_mapping(unsigned long start,
-				   unsigned long page_size)
-{
-	int mapped = htab_remove_mapping(start, start + page_size,
-					 mmu_vmemmap_psize,
-					 mmu_kernel_ssize);
-	BUG_ON(mapped < 0);
-}
-#endif
-
-#endif /* CONFIG_PPC_BOOK3E */
-
 struct vmemmap_backing *vmemmap_list;
 static struct vmemmap_backing *next;
+
+/*
+ * The same pointer 'next' tracks individual chunks inside the allocated
+ * full page during the boot time and again tracks the freeed nodes during
+ * runtime. It is racy but it does not happen as they are separated by the
+ * boot process. Will create problem if some how we have memory hotplug
+ * operation during boot !!
+ */
 static int num_left;
 static int num_freed;
 
@@ -410,12 +378,17 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node)
 	pr_debug("vmemmap_populate %lx..%lx, node %d\n", start, end, node);
 
 	for (; start < end; start += page_size) {
+		struct vmem_altmap *altmap;
 		void *p;
+		int rc;
 
 		if (vmemmap_populated(start, page_size))
 			continue;
 
-		p = vmemmap_alloc_block(page_size, node);
+		/* altmap lookups only work at section boundaries */
+		altmap = to_vmem_altmap(SECTION_ALIGN_DOWN(start));
+
+		p =  __vmemmap_alloc_block_buf(page_size, node, altmap);
 		if (!p)
 			return -ENOMEM;
 
@@ -431,7 +404,13 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node)
 		pr_debug("      * %016lx..%016lx allocated at %p\n",
 			 start, start + page_size, p);
 
-		vmemmap_create_mapping(start, page_size, __pa(p));
+		rc = vmemmap_create_mapping(start, page_size, __pa(p));
+		if (rc < 0) {
+			pr_warning(
+				"vmemmap_populate: Unable to create vmemmap mapping: %d\n",
+				rc);
+			return -EFAULT;
+		}
 	}
 
 	return 0;
@@ -474,13 +453,17 @@ static unsigned long vmemmap_list_free(unsigned long start)
 void __ref vmemmap_free(unsigned long start, unsigned long end)
 {
 	unsigned long page_size = 1 << mmu_psize_defs[mmu_vmemmap_psize].shift;
+	unsigned long page_order = get_order(page_size);
 
 	start = _ALIGN_DOWN(start, page_size);
 
 	pr_debug("vmemmap_free %lx...%lx\n", start, end);
 
 	for (; start < end; start += page_size) {
-		unsigned long addr;
+		unsigned long nr_pages, addr;
+		struct vmem_altmap *altmap;
+		struct page *section_base;
+		struct page *page;
 
 		/*
 		 * the section has already be marked as invalid, so
@@ -491,29 +474,33 @@ void __ref vmemmap_free(unsigned long start, unsigned long end)
 			continue;
 
 		addr = vmemmap_list_free(start);
-		if (addr) {
-			struct page *page = pfn_to_page(addr >> PAGE_SHIFT);
+		if (!addr)
+			continue;
 
-			if (PageReserved(page)) {
-				/* allocated from bootmem */
-				if (page_size < PAGE_SIZE) {
-					/*
-					 * this shouldn't happen, but if it is
-					 * the case, leave the memory there
-					 */
-					WARN_ON_ONCE(1);
-				} else {
-					unsigned int nr_pages =
-						1 << get_order(page_size);
-					while (nr_pages--)
-						free_reserved_page(page++);
-				}
-			} else
-				free_pages((unsigned long)(__va(addr)),
-							get_order(page_size));
+		page = pfn_to_page(addr >> PAGE_SHIFT);
+		section_base = pfn_to_page(vmemmap_section_start(start));
+		nr_pages = 1 << page_order;
 
-			vmemmap_remove_mapping(start, page_size);
+		altmap = to_vmem_altmap((unsigned long) section_base);
+		if (altmap) {
+			vmem_altmap_free(altmap, nr_pages);
+		} else if (PageReserved(page)) {
+			/* allocated from bootmem */
+			if (page_size < PAGE_SIZE) {
+				/*
+				 * this shouldn't happen, but if it is
+				 * the case, leave the memory there
+				 */
+				WARN_ON_ONCE(1);
+			} else {
+				while (nr_pages--)
+					free_reserved_page(page++);
+			}
+		} else {
+			free_pages((unsigned long)(__va(addr)), page_order);
 		}
+
+		vmemmap_remove_mapping(start, page_size);
 	}
 }
 #endif
@@ -562,7 +549,7 @@ struct page *realmode_pfn_to_page(unsigned long pfn)
 }
 EXPORT_SYMBOL_GPL(realmode_pfn_to_page);
 
-#elif defined(CONFIG_FLATMEM)
+#else
 
 struct page *realmode_pfn_to_page(unsigned long pfn)
 {
@@ -571,4 +558,83 @@ struct page *realmode_pfn_to_page(unsigned long pfn)
 }
 EXPORT_SYMBOL_GPL(realmode_pfn_to_page);
 
-#endif /* CONFIG_SPARSEMEM_VMEMMAP/CONFIG_FLATMEM */
+#endif /* CONFIG_SPARSEMEM_VMEMMAP */
+
+#ifdef CONFIG_PPC_STD_MMU_64
+static bool disable_radix;
+static int __init parse_disable_radix(char *p)
+{
+	disable_radix = true;
+	return 0;
+}
+early_param("disable_radix", parse_disable_radix);
+
+/*
+ * If we're running under a hypervisor, we need to check the contents of
+ * /chosen/ibm,architecture-vec-5 to see if the hypervisor is willing to do
+ * radix.  If not, we clear the radix feature bit so we fall back to hash.
+ */
+static void __init early_check_vec5(void)
+{
+	unsigned long root, chosen;
+	int size;
+	const u8 *vec5;
+	u8 mmu_supported;
+
+	root = of_get_flat_dt_root();
+	chosen = of_get_flat_dt_subnode_by_name(root, "chosen");
+	if (chosen == -FDT_ERR_NOTFOUND) {
+		cur_cpu_spec->mmu_features &= ~MMU_FTR_TYPE_RADIX;
+		return;
+	}
+	vec5 = of_get_flat_dt_prop(chosen, "ibm,architecture-vec-5", &size);
+	if (!vec5) {
+		cur_cpu_spec->mmu_features &= ~MMU_FTR_TYPE_RADIX;
+		return;
+	}
+	if (size <= OV5_INDX(OV5_MMU_SUPPORT)) {
+		cur_cpu_spec->mmu_features &= ~MMU_FTR_TYPE_RADIX;
+		return;
+	}
+
+	/* Check for supported configuration */
+	mmu_supported = vec5[OV5_INDX(OV5_MMU_SUPPORT)] &
+			OV5_FEAT(OV5_MMU_SUPPORT);
+	if (mmu_supported == OV5_FEAT(OV5_MMU_RADIX)) {
+		/* Hypervisor only supports radix - check enabled && GTSE */
+		if (!early_radix_enabled()) {
+			pr_warn("WARNING: Ignoring cmdline option disable_radix\n");
+		}
+		if (!(vec5[OV5_INDX(OV5_RADIX_GTSE)] &
+						OV5_FEAT(OV5_RADIX_GTSE))) {
+			pr_warn("WARNING: Hypervisor doesn't support RADIX with GTSE\n");
+		}
+		/* Do radix anyway - the hypervisor said we had to */
+		cur_cpu_spec->mmu_features |= MMU_FTR_TYPE_RADIX;
+	} else if (mmu_supported == OV5_FEAT(OV5_MMU_HASH)) {
+		/* Hypervisor only supports hash - disable radix */
+		cur_cpu_spec->mmu_features &= ~MMU_FTR_TYPE_RADIX;
+	}
+}
+
+void __init mmu_early_init_devtree(void)
+{
+	/* Disable radix mode based on kernel command line. */
+	if (disable_radix)
+		cur_cpu_spec->mmu_features &= ~MMU_FTR_TYPE_RADIX;
+
+	/*
+	 * Check /chosen/ibm,architecture-vec-5 if running as a guest.
+	 * When running bare-metal, we can use radix if we like
+	 * even though the ibm,architecture-vec-5 property created by
+	 * skiboot doesn't have the necessary bits set.
+	 */
+	if (!(mfmsr() & MSR_HV))
+		early_check_vec5();
+
+	if (early_radix_enabled())
+		radix__early_init_devtree();
+	else
+		hash__early_init_devtree();
+}
+#endif /* CONFIG_PPC_STD_MMU_64 */

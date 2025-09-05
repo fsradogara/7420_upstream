@@ -135,9 +135,7 @@ static const struct file_operations i810_buffer_fops = {
 static int i810_map_buffer(struct drm_buf * buf, struct drm_file *file_priv)
 	.unlocked_ioctl = drm_ioctl,
 	.mmap = i810_mmap_buffers,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 	.llseek = noop_llseek,
 };
 
@@ -1288,6 +1286,14 @@ int i810_driver_load(struct drm_device *dev, unsigned long flags)
 	dev->types[7] = _DRM_STAT_PRIMARY;
 	dev->types[8] = _DRM_STAT_SECONDARY;
 	dev->types[9] = _DRM_STAT_DMA;
+	dev->agp = drm_agp_init(dev);
+	if (dev->agp) {
+		dev->agp->agp_mtrr = arch_phys_wc_add(
+			dev->agp->agp_info.aper_base,
+			dev->agp->agp_info.aper_size *
+			1024 * 1024);
+	}
+
 	/* Our userspace depends upon the agp mapping support. */
 	if (!dev->agp)
 		return -EINVAL;

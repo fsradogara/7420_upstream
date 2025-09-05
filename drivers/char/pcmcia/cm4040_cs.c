@@ -29,7 +29,7 @@
 #include <linux/smp_lock.h>
 #include <linux/mutex.h>
 #include <linux/wait.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 
 #include <pcmcia/cs_types.h>
@@ -375,7 +375,7 @@ static ssize_t cm4040_write(struct file *filp, const char __user *buf,
 	}
 
 	if ((count < 5) || (count > READ_WRITE_BUFFER_SIZE)) {
-		DEBUGP(2, dev, "<- cm4040_write buffersize=%Zd < 5\n", count);
+		DEBUGP(2, dev, "<- cm4040_write buffersize=%zd < 5\n", count);
 		return -EIO;
 	}
 
@@ -418,7 +418,7 @@ static ssize_t cm4040_write(struct file *filp, const char __user *buf,
 
 	rc = write_sync_reg(SCR_HOST_TO_READER_START, dev);
 	if (rc <= 0) {
-		DEBUGP(5, dev, "write_sync_reg c=%.2Zx\n", rc);
+		DEBUGP(5, dev, "write_sync_reg c=%.2zx\n", rc);
 		DEBUGP(2, dev, "<- cm4040_write (failed)\n");
 		if (rc == -ERESTARTSYS)
 			return rc;
@@ -431,7 +431,7 @@ static ssize_t cm4040_write(struct file *filp, const char __user *buf,
 	for (i = 0; i < bytes_to_write; i++) {
 		rc = wait_for_bulk_out_ready(dev);
 		if (rc <= 0) {
-			DEBUGP(5, dev, "wait_for_bulk_out_ready rc=%.2Zx\n",
+			DEBUGP(5, dev, "wait_for_bulk_out_ready rc=%.2zx\n",
 			       rc);
 			DEBUGP(2, dev, "<- cm4040_write (failed)\n");
 			if (rc == -ERESTARTSYS)
@@ -447,7 +447,7 @@ static ssize_t cm4040_write(struct file *filp, const char __user *buf,
 	rc = write_sync_reg(SCR_HOST_TO_READER_DONE, dev);
 
 	if (rc <= 0) {
-		DEBUGP(5, dev, "write_sync_reg c=%.2Zx\n", rc);
+		DEBUGP(5, dev, "write_sync_reg c=%.2zx\n", rc);
 		DEBUGP(2, dev, "<- cm4040_write (failed)\n");
 		if (rc == -ERESTARTSYS)
 			return rc;

@@ -304,6 +304,7 @@ struct snd_pcm_ops pxa2xx_pcm_ops = {
 	.hw_free	= pxa2xx_pcm_hw_free,
 	.prepare	= pxa2xx_pcm_prepare,
 static struct snd_pcm_ops pxa2xx_pcm_ops = {
+static const struct snd_pcm_ops pxa2xx_pcm_ops = {
 	.open		= __pxa2xx_pcm_open,
 	.close		= __pxa2xx_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,
@@ -402,6 +403,8 @@ struct snd_soc_platform pxa2xx_soc_platform = {
 EXPORT_SYMBOL_GPL(pxa2xx_soc_platform);
 static struct snd_soc_platform_driver pxa2xx_soc_platform = {
 	.ops 	= &pxa2xx_pcm_ops,
+static const struct snd_soc_platform_driver pxa2xx_soc_platform = {
+	.ops		= &pxa2xx_pcm_ops,
 	.pcm_new	= pxa2xx_soc_pcm_new,
 	.pcm_free	= pxa2xx_pcm_free_dma_buffers,
 };
@@ -433,3 +436,4 @@ module_platform_driver(pxa_pcm_driver);
 MODULE_AUTHOR("Nicolas Pitre");
 MODULE_DESCRIPTION("Intel PXA2xx PCM DMA module");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:pxa-pcm-audio");

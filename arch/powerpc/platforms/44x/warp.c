@@ -51,6 +51,7 @@ static int __init warp_probe(void)
 
 	return of_flat_dt_is_compatible(root, "pika,warp");
 	if (!of_flat_dt_is_compatible(root, "pika,warp"))
+	if (!of_machine_is_compatible("pika,warp"))
 		return 0;
 
 	/* For __dma_alloc_coherent */
@@ -270,7 +271,7 @@ static void pika_setup_critical_temp(struct device_node *np,
 	irq = irq_of_parse_and_map(np, 0);
 	of_node_put(np);
 	irq = irq_of_parse_and_map(np, 0);
-	if (irq  == NO_IRQ) {
+	if (!irq) {
 		printk(KERN_ERR __FILE__ ": Unable to get ad7414 irq\n");
 		return;
 	}

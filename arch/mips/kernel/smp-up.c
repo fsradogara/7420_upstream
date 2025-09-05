@@ -64,7 +64,9 @@ void __init up_prepare_cpus(unsigned int max_cpus)
 }
 
 static void up_boot_secondary(int cpu, struct task_struct *idle)
+static int up_boot_secondary(int cpu, struct task_struct *idle)
 {
+	return 0;
 }
 
 static void __init up_smp_setup(void)
@@ -87,7 +89,7 @@ static void up_cpu_die(unsigned int cpu)
 }
 #endif
 
-struct plat_smp_ops up_smp_ops = {
+const struct plat_smp_ops up_smp_ops = {
 	.send_ipi_single	= up_send_ipi_single,
 	.send_ipi_mask		= up_send_ipi_mask,
 	.init_secondary		= up_init_secondary,

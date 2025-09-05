@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  include/asm-s390/cache.h
  *
@@ -19,6 +20,6 @@
 #define __read_mostly __attribute__((__section__(".data.read_mostly")))
 #define NET_SKB_PAD	   32
 
-#define __read_mostly __attribute__((__section__(".data..read_mostly")))
+#define __read_mostly __section(.data..read_mostly)
 
 #endif

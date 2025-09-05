@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  arch/s390/kernel/signal.c
  *
@@ -13,6 +14,7 @@
  */
 
 #include <linux/sched.h>
+#include <linux/sched/task_stack.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
 #include <linux/kernel.h>
@@ -38,7 +40,7 @@ typedef struct
 #include <linux/syscalls.h>
 #include <linux/compat.h>
 #include <asm/ucontext.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/lowcore.h>
 #include <asm/switch_to.h>
 #include "entry.h"
@@ -574,12 +576,13 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 
 	regs->gprs[2] = map_signal(sig);
 		restorer = (unsigned long) ka->sa.sa_restorer | PSW_ADDR_AMODE;
+		restorer = (unsigned long) ka->sa.sa_restorer;
 	} else {
 		/* Signal frame without vector registers are short ! */
 		__u16 __user *svc = (void __user *) frame + frame_size - 2;
 		if (__put_user(S390_SYSCALL_OPCODE | __NR_sigreturn, svc))
 			return -EFAULT;
-		restorer = (unsigned long) svc | PSW_ADDR_AMODE;
+		restorer = (unsigned long) svc;
 	}
 
 	/* Set up registers for signal handler */
@@ -589,7 +592,7 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 	regs->psw.mask = PSW_MASK_EA | PSW_MASK_BA |
 		(PSW_USER_BITS & PSW_MASK_ASC) |
 		(regs->psw.mask & ~PSW_MASK_ASC);
-	regs->psw.addr = (unsigned long) ka->sa.sa_handler | PSW_ADDR_AMODE;
+	regs->psw.addr = (unsigned long) ka->sa.sa_handler;
 
 	regs->gprs[2] = sig;
 	regs->gprs[3] = (unsigned long) &frame->sc;
@@ -680,7 +683,7 @@ handle_signal(unsigned long sig, struct k_sigaction *ka,
 		/* set extra registers only for synchronous signals */
 		regs->gprs[4] = regs->int_code & 127;
 		regs->gprs[5] = regs->int_parm_long;
-		regs->gprs[6] = task_thread_info(current)->last_break;
+		regs->gprs[6] = current->thread.last_break;
 	}
 	return 0;
 }
@@ -715,13 +718,12 @@ static int setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	/* Set up to return from userspace.  If provided, use a stub
 	   already in userspace.  */
 	if (ksig->ka.sa.sa_flags & SA_RESTORER) {
-		restorer = (unsigned long)
-			ksig->ka.sa.sa_restorer | PSW_ADDR_AMODE;
+		restorer = (unsigned long) ksig->ka.sa.sa_restorer;
 	} else {
 		__u16 __user *svc = &frame->svc_insn;
 		if (__put_user(S390_SYSCALL_OPCODE | __NR_rt_sigreturn, svc))
 			return -EFAULT;
-		restorer = (unsigned long) svc | PSW_ADDR_AMODE;
+		restorer = (unsigned long) svc;
 	}
 
 	/* Create siginfo on the signal stack */
@@ -747,12 +749,12 @@ static int setup_rt_frame(struct ksignal *ksig, sigset_t *set,
 	regs->psw.mask = PSW_MASK_EA | PSW_MASK_BA |
 		(PSW_USER_BITS & PSW_MASK_ASC) |
 		(regs->psw.mask & ~PSW_MASK_ASC);
-	regs->psw.addr = (unsigned long) ksig->ka.sa.sa_handler | PSW_ADDR_AMODE;
+	regs->psw.addr = (unsigned long) ksig->ka.sa.sa_handler;
 
 	regs->gprs[2] = ksig->sig;
 	regs->gprs[3] = (unsigned long) &frame->info;
 	regs->gprs[4] = (unsigned long) &frame->uc;
-	regs->gprs[5] = task_thread_info(current)->last_break;
+	regs->gprs[5] = current->thread.last_break;
 	return 0;
 }
 
@@ -890,13 +892,13 @@ void do_signal(struct pt_regs *regs)
 	 * the debugger may change all our registers, including the system
 	 * call information.
 	 */
-	current_thread_info()->system_call =
+	current->thread.system_call =
 		test_pt_regs_flag(regs, PIF_SYSCALL) ? regs->int_code : 0;
 
 	if (get_signal(&ksig)) {
 		/* Whee!  Actually deliver the signal.  */
-		if (current_thread_info()->system_call) {
-			regs->int_code = current_thread_info()->system_call;
+		if (current->thread.system_call) {
+			regs->int_code = current->thread.system_call;
 			/* Check for system call restarting. */
 			switch (regs->gprs[2]) {
 			case -ERESTART_RESTARTBLOCK:
@@ -929,8 +931,8 @@ void do_signal(struct pt_regs *regs)
 
 	/* No handlers present - check for system call restart */
 	clear_pt_regs_flag(regs, PIF_SYSCALL);
-	if (current_thread_info()->system_call) {
-		regs->int_code = current_thread_info()->system_call;
+	if (current->thread.system_call) {
+		regs->int_code = current->thread.system_call;
 		switch (regs->gprs[2]) {
 		case -ERESTART_RESTARTBLOCK:
 			/* Restart with sys_restart_syscall */

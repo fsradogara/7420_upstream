@@ -20,20 +20,8 @@ static bool generic_pkt_to_tuple(const struct sk_buff *skb,
 static bool nf_generic_should_process(u8 proto)
 {
 	switch (proto) {
-#ifdef CONFIG_NF_CT_PROTO_SCTP_MODULE
-	case IPPROTO_SCTP:
-		return false;
-#endif
-#ifdef CONFIG_NF_CT_PROTO_DCCP_MODULE
-	case IPPROTO_DCCP:
-		return false;
-#endif
 #ifdef CONFIG_NF_CT_PROTO_GRE_MODULE
 	case IPPROTO_GRE:
-		return false;
-#endif
-#ifdef CONFIG_NF_CT_PROTO_UDPLITE_MODULE
-	case IPPROTO_UDPLITE:
 		return false;
 #endif
 	default:
@@ -97,7 +85,6 @@ static int generic_packet(struct nf_conn *ct,
 			  unsigned int dataoff,
 			  enum ip_conntrack_info ctinfo,
 			  u_int8_t pf,
-			  unsigned int hooknum,
 			  unsigned int *timeout)
 {
 	nf_ct_refresh_acct(ct, ctinfo, skb, *timeout);
@@ -228,40 +215,14 @@ static int generic_kmemdup_sysctl_table(struct nf_proto_net *pn,
 	return 0;
 }
 
-static int generic_kmemdup_compat_sysctl_table(struct nf_proto_net *pn,
-					       struct nf_generic_net *gn)
-{
-#ifdef CONFIG_SYSCTL
-#ifdef CONFIG_NF_CONNTRACK_PROC_COMPAT
-	pn->ctl_compat_table = kmemdup(generic_compat_sysctl_table,
-				       sizeof(generic_compat_sysctl_table),
-				       GFP_KERNEL);
-	if (!pn->ctl_compat_table)
-		return -ENOMEM;
-
-	pn->ctl_compat_table[0].data = &gn->timeout;
-#endif
-#endif
-	return 0;
-}
-
 static int generic_init_net(struct net *net, u_int16_t proto)
 {
-	int ret;
 	struct nf_generic_net *gn = generic_pernet(net);
 	struct nf_proto_net *pn = &gn->pn;
 
 	gn->timeout = nf_ct_generic_timeout;
 
-	ret = generic_kmemdup_compat_sysctl_table(pn, gn);
-	if (ret < 0)
-		return ret;
-
-	ret = generic_kmemdup_sysctl_table(pn, gn);
-	if (ret < 0)
-		nf_ct_kfree_compat_sysctl_table(pn);
-
-	return ret;
+	return generic_kmemdup_sysctl_table(pn, gn);
 }
 
 static struct nf_proto_net *generic_get_net_proto(struct net *net)
@@ -273,7 +234,6 @@ struct nf_conntrack_l4proto nf_conntrack_l4proto_generic __read_mostly =
 {
 	.l3proto		= PF_UNSPEC,
 	.l4proto		= 255,
-	.name			= "unknown",
 	.pkt_to_tuple		= generic_pkt_to_tuple,
 	.invert_tuple		= generic_invert_tuple,
 	.print_tuple		= generic_print_tuple,

@@ -15,7 +15,7 @@
 #include <asm/e820.h>
 #include "pci.h"
 #include <linux/rcupdate.h>
-#include <asm/e820.h>
+#include <asm/e820/api.h>
 #include <asm/pci_x86.h>
 
 /* Assume systems with more busses have correct MCFG */

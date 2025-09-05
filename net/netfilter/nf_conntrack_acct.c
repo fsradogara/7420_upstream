@@ -113,6 +113,7 @@ int nf_conntrack_acct_init(void)
 #endif
 
 	return 0;
+static const struct nf_ct_ext_type acct_extend = {
 	.len	= sizeof(struct nf_conn_acct),
 	.align	= __alignof__(struct nf_conn_acct),
 	.id	= NF_CT_EXT_ACCT,

@@ -35,7 +35,7 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <net/iucv/iucv.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/ebcdic.h>
 #include <asm/extmem.h>
 
@@ -295,6 +295,7 @@ static void mon_iucv_message_pending(struct iucv_path *path,
 		P_WARNING("IUCV message pending, message limit (%i) reached\n",
 			  MON_MSGLIM);
 		pr_warning("The read queue for monitor data is full\n");
+		pr_warn("The read queue for monitor data is full\n");
 		monpriv->msg_array[monpriv->write_index]->msglim_reached = 1;
 	}
 	monpriv->write_index = (monpriv->write_index + 1) % MON_MSGLIM;
@@ -391,8 +392,8 @@ static int mon_close(struct inode *inode, struct file *filp)
 	if (monpriv->path) {
 		rc = iucv_path_sever(monpriv->path, user_data_sever);
 		if (rc)
-			pr_warning("Disconnecting the z/VM *MONITOR system "
-				   "service failed with rc=%i\n", rc);
+			pr_warn("Disconnecting the z/VM *MONITOR system service failed with rc=%i\n",
+				rc);
 		iucv_path_free(monpriv->path);
 	}
 
@@ -518,8 +519,8 @@ static int monreader_freeze(struct device *dev)
 	if (monpriv->path) {
 		rc = iucv_path_sever(monpriv->path, user_data_sever);
 		if (rc)
-			pr_warning("Disconnecting the z/VM *MONITOR system "
-				   "service failed with rc=%i\n", rc);
+			pr_warn("Disconnecting the z/VM *MONITOR system service failed with rc=%i\n",
+				rc);
 		iucv_path_free(monpriv->path);
 	}
 	atomic_set(&monpriv->iucv_severed, 0);

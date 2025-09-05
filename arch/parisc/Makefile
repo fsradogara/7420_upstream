@@ -29,6 +29,7 @@ ifeq ($(MACHINE),parisc*)
 NATIVE		:= 1
 endif
 LIBGCC		= $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)
+export LIBGCC
 
 ifdef CONFIG_64BIT
 UTS_MACHINE	:= parisc64
@@ -43,9 +44,13 @@ endif
 ifeq ($(NATIVE),1)
 CROSS_COMPILE	:= hppa$(WIDTH)-linux-
 CC_ARCHES	= hppa64
+LD_BFD		:= elf64-hppa-linux
 else # 32-bit
 CC_ARCHES	= hppa hppa2.0 hppa1.1
+LD_BFD		:= elf32-hppa-linux
 endif
+
+export LD_BFD
 
 ifneq ($(SUBARCH),$(UTS_MACHINE))
 	ifeq ($(CROSS_COMPILE),)
@@ -118,6 +123,8 @@ libs-y	+= arch/parisc/lib/ $(LIBGCC)
 
 drivers-$(CONFIG_OPROFILE)		+= arch/parisc/oprofile/
 
+boot	:= arch/parisc/boot
+
 PALO := $(shell if (which palo 2>&1); then : ; \
 	elif [ -x /sbin/palo ]; then echo /sbin/palo; \
 	fi)
@@ -155,11 +162,19 @@ INSTALL_TARGETS = zinstall install
 
 PHONY += bzImage $(BOOT_TARGETS) $(INSTALL_TARGETS)
 
-bzImage zImage: vmlinuz
+zImage: vmlinuz
 Image: vmlinux
 
+bzImage: vmlinux
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+
+ifdef CONFIG_PARISC_SELF_EXTRACT
+vmlinuz: bzImage
+	$(OBJCOPY) $(boot)/bzImage $@
+else
 vmlinuz: vmlinux
 	@gzip -cf -9 $< > $@
+endif
 
 install:
 	$(CONFIG_SHELL) $(src)/arch/parisc/install.sh \

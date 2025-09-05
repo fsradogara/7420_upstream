@@ -169,7 +169,7 @@ static int snd_vxpocket_new(struct snd_card *card, int ibl,
 	}
 	chip->ibl.size = ibl;
 
-	vxp = (struct snd_vxpocket *)chip;
+	vxp = to_vxpocket(chip);
 
 	vxp->p_dev = link;
 	link->priv = chip;
@@ -216,7 +216,7 @@ static int snd_vxpocket_assign_resources(struct vx_core *chip, int port, int irq
 {
 	int err;
 	struct snd_card *card = chip->card;
-	struct snd_vxpocket *vxp = (struct snd_vxpocket *)chip;
+	struct snd_vxpocket *vxp = to_vxpocket(chip);
 
 	snd_printdd(KERN_DEBUG "vxpocket assign resources: port = 0x%x, irq = %d\n", port, irq);
 	vxp->port = port;

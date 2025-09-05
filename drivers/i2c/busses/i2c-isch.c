@@ -342,8 +342,8 @@ static int smbus_sch_probe(struct platform_device *dev)
 	if (retval) {
 		dev_err(&dev->dev, "Couldn't register adapter!\n");
 		release_region(sch_smba, SMBIOSIZE);
+	if (retval)
 		sch_smba = 0;
-	}
 
 	return retval;
 }

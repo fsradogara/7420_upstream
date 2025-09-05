@@ -3,6 +3,7 @@
 
 #include <linux/errno.h>
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * NUMA memory policies for Linux.
  * Copyright 2003,2004 Andi Kleen SuSE Labs
@@ -58,6 +59,7 @@ enum {
 
 
 #include <linux/mmzone.h>
+#include <linux/dax.h>
 #include <linux/slab.h>
 #include <linux/rbtree.h>
 #include <linux/spinlock.h>
@@ -189,7 +191,7 @@ struct sp_node {
 
 struct shared_policy {
 	struct rb_root root;
-	spinlock_t lock;
+	rwlock_t lock;
 };
 
 int vma_dup_policy(struct vm_area_struct *src, struct vm_area_struct *dst);
@@ -214,11 +216,10 @@ bool vma_policy_mof(struct vm_area_struct *vma);
 
 extern void numa_default_policy(void);
 extern void numa_policy_init(void);
-extern void mpol_rebind_task(struct task_struct *tsk, const nodemask_t *new,
-				enum mpol_rebind_step step);
+extern void mpol_rebind_task(struct task_struct *tsk, const nodemask_t *new);
 extern void mpol_rebind_mm(struct mm_struct *mm, nodemask_t *new);
 
-extern struct zonelist *huge_zonelist(struct vm_area_struct *vma,
+extern int huge_node(struct vm_area_struct *vma,
 				unsigned long addr, gfp_t gfp_flags,
 				struct mempolicy **mpol, nodemask_t **nodemask);
 extern unsigned slab_node(struct mempolicy *policy);
@@ -262,14 +263,21 @@ extern int mpol_parse_str(char *str, struct mempolicy **mpol);
 extern void mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol);
 
 /* Check if a vma is migratable */
-static inline int vma_migratable(struct vm_area_struct *vma)
+static inline bool vma_migratable(struct vm_area_struct *vma)
 {
 	if (vma->vm_flags & (VM_IO | VM_PFNMAP))
-		return 0;
+		return false;
+
+	/*
+	 * DAX device mappings require predictable access latency, so avoid
+	 * incurring periodic faults.
+	 */
+	if (vma_is_dax(vma))
+		return false;
 
 #ifndef CONFIG_ARCH_ENABLE_HUGEPAGE_MIGRATION
 	if (vma->vm_flags & VM_HUGETLB)
-		return 0;
+		return false;
 #endif
 
 	/*
@@ -280,11 +288,12 @@ static inline int vma_migratable(struct vm_area_struct *vma)
 	if (vma->vm_file &&
 		gfp_zone(mapping_gfp_mask(vma->vm_file->f_mapping))
 								< policy_zone)
-			return 0;
-	return 1;
+			return false;
+	return true;
 }
 
 extern int mpol_misplaced(struct page *, struct vm_area_struct *, unsigned long);
+extern void mpol_put_task_policy(struct task_struct *);
 
 #else
 
@@ -369,6 +378,7 @@ static inline void mpol_rebind_task(struct task_struct *tsk,
 					const nodemask_t *new)
 				const nodemask_t *new,
 				enum mpol_rebind_step step)
+				const nodemask_t *new)
 {
 }
 
@@ -381,12 +391,13 @@ static inline void mpol_fix_fork_child_flag(struct task_struct *p)
 }
 
 static inline struct zonelist *huge_zonelist(struct vm_area_struct *vma,
+static inline int huge_node(struct vm_area_struct *vma,
 				unsigned long addr, gfp_t gfp_flags,
 				struct mempolicy **mpol, nodemask_t **nodemask)
 {
 	*mpol = NULL;
 	*nodemask = NULL;
-	return node_zonelist(0, gfp_flags);
+	return 0;
 }
 
 static inline int do_migrate_pages(struct mm_struct *mm,
@@ -436,5 +447,8 @@ static inline int mpol_misplaced(struct page *page, struct vm_area_struct *vma,
 	return -1; /* no node preference */
 }
 
+static inline void mpol_put_task_policy(struct task_struct *task)
+{
+}
 #endif /* CONFIG_NUMA */
 #endif

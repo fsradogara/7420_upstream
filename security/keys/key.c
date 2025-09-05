@@ -74,11 +74,11 @@ struct key_user *key_user_lookup(uid_t uid)
 struct key_user *key_user_lookup(kuid_t uid)
 {
 	struct key_user *candidate = NULL, *user;
-	struct rb_node *parent = NULL;
-	struct rb_node **p;
+	struct rb_node *parent, **p;
 
  try_again:
 try_again:
+	parent = NULL;
 	p = &key_user_tree.rb_node;
 	spin_lock(&key_user_lock);
 
@@ -117,7 +117,7 @@ try_again:
 
 	/* if we get here, then the user record still hadn't appeared on the
 	 * second pass - so we use the candidate record */
-	atomic_set(&candidate->usage, 1);
+	refcount_set(&candidate->usage, 1);
 	atomic_set(&candidate->nkeys, 0);
 	atomic_set(&candidate->nikeys, 0);
 	candidate->uid = uid;
@@ -146,7 +146,7 @@ try_again:
 /*
  * dispose of a user structure
 found:
-	atomic_inc(&user->usage);
+	refcount_inc(&user->usage);
 	spin_unlock(&key_user_lock);
 	kfree(candidate);
 out:
@@ -158,7 +158,7 @@ out:
  */
 void key_user_put(struct key_user *user)
 {
-	if (atomic_dec_and_lock(&user->usage, &key_user_lock)) {
+	if (refcount_dec_and_lock(&user->usage, &key_user_lock)) {
 		rb_erase(&user->node, &key_user_tree);
 		spin_unlock(&key_user_lock);
 
@@ -260,10 +260,14 @@ struct key *key_alloc(struct key_type *type, const char *desc,
  * @cred: The credentials specifying UID namespace.
  * @perm: The permissions mask of the new key.
  * @flags: Flags specifying quota properties.
+ * @restrict_link: Optional link restriction for new keyrings.
  *
  * Allocate a key of the specified type with the attributes given.  The key is
  * returned in an uninstantiated state and the caller needs to instantiate the
  * key before returning.
+ *
+ * The restrict_link structure (if not NULL) will be freed when the
+ * keyring is destroyed, so it must be dynamically allocated.
  *
  * The user's key count quota is updated to reflect the creation of the key and
  * the user's key data quota has the default for the key type reserved.  The
@@ -282,7 +286,8 @@ struct key *key_alloc(struct key_type *type, const char *desc,
  */
 struct key *key_alloc(struct key_type *type, const char *desc,
 		      kuid_t uid, kgid_t gid, const struct cred *cred,
-		      key_perm_t perm, unsigned long flags)
+		      key_perm_t perm, unsigned long flags,
+		      struct key_restriction *restrict_link)
 {
 	struct key_user *user = NULL;
 	struct key *key;
@@ -358,7 +363,7 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 	if (!key->index_key.description)
 		goto no_memory_3;
 
-	atomic_set(&key->usage, 1);
+	refcount_set(&key->usage, 1);
 	init_rwsem(&key->sem);
 	lockdep_set_class(&key->sem, &type->lock_class);
 	key->index_key.type = type;
@@ -377,11 +382,14 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 		key->flags |= 1 << KEY_FLAG_IN_QUOTA;
 
 	memset(&key->type_data, 0, sizeof(key->type_data));
+	key->restrict_link = restrict_link;
 
 	if (!(flags & KEY_ALLOC_NOT_IN_QUOTA))
 		key->flags |= 1 << KEY_FLAG_IN_QUOTA;
-	if (flags & KEY_ALLOC_TRUSTED)
-		key->flags |= 1 << KEY_FLAG_TRUSTED;
+	if (flags & KEY_ALLOC_BUILT_IN)
+		key->flags |= 1 << KEY_FLAG_BUILTIN;
+	if (flags & KEY_ALLOC_UID_KEYRING)
+		key->flags |= 1 << KEY_FLAG_UID_KEYRING;
 
 #ifdef KEY_DEBUGGING
 	key->magic = KEY_DEBUG_MAGIC;
@@ -509,6 +517,18 @@ static int __key_instantiate_and_link(struct key *key,
 EXPORT_SYMBOL(key_payload_reserve);
 
 /*
+ * Change the key state to being instantiated.
+ */
+static void mark_key_instantiated(struct key *key, int reject_error)
+{
+	/* Commit the payload before setting the state; barrier versus
+	 * key_read_state().
+	 */
+	smp_store_release(&key->state,
+			  (reject_error < 0) ? reject_error : KEY_IS_POSITIVE);
+}
+
+/*
  * Instantiate a key and link it into the target keyring atomically.  Must be
  * called with the target keyring's semaphore writelocked.  The target key's
  * semaphore need not be locked as instantiation is serialised by
@@ -531,7 +551,7 @@ static int __key_instantiate_and_link(struct key *key,
 	mutex_lock(&key_construction_mutex);
 
 	/* can't instantiate twice */
-	if (!test_bit(KEY_FLAG_INSTANTIATED, &key->flags)) {
+	if (key->state == KEY_IS_UNINSTANTIATED) {
 		/* instantiate the key */
 		ret = key->type->instantiate(key, data, datalen);
 		ret = key->type->instantiate(key, prep);
@@ -539,7 +559,7 @@ static int __key_instantiate_and_link(struct key *key,
 		if (ret == 0) {
 			/* mark the key as being instantiated */
 			atomic_inc(&key->user->nikeys);
-			set_bit(KEY_FLAG_INSTANTIATED, &key->flags);
+			mark_key_instantiated(key, 0);
 
 			if (test_and_clear_bit(KEY_FLAG_USER_CONSTRUCT, &key->flags))
 				awaken = 1;
@@ -551,7 +571,12 @@ static int __key_instantiate_and_link(struct key *key,
 			/* disable the authorisation key */
 			if (instkey)
 				key_revoke(instkey);
+			if (keyring) {
+				if (test_bit(KEY_FLAG_KEEP, &keyring->flags))
+					set_bit(KEY_FLAG_KEEP, &key->flags);
+
 				__key_link(key, _edit);
+			}
 
 			/* disable the authorisation key */
 			if (authkey)
@@ -649,10 +674,20 @@ int key_negate_and_link(struct key *key,
 		ret = __key_link_begin(keyring, &key->index_key, &edit);
 		if (ret < 0)
 			goto error;
+
+		if (keyring->restrict_link && keyring->restrict_link->check) {
+			struct key_restriction *keyres = keyring->restrict_link;
+
+			ret = keyres->check(keyring, key->type, &prep.payload,
+					    keyres->key);
+			if (ret < 0)
+				goto error_link_end;
+		}
 	}
 
 	ret = __key_instantiate_and_link(key, &prep, keyring, authkey, &edit);
 
+error_link_end:
 	if (keyring)
 		__key_link_end(keyring, &key->index_key, edit);
 
@@ -703,18 +738,20 @@ int key_reject_and_link(struct key *key,
 
 	if (keyring)
 		down_write(&keyring->sem);
+	if (keyring) {
+		if (keyring->restrict_link)
+			return -EPERM;
+
 		link_ret = __key_link_begin(keyring, &key->index_key, &edit);
+	}
 
 	mutex_lock(&key_construction_mutex);
 
 	/* can't instantiate twice */
-	if (!test_bit(KEY_FLAG_INSTANTIATED, &key->flags)) {
+	if (key->state == KEY_IS_UNINSTANTIATED) {
 		/* mark the key as being negatively instantiated */
 		atomic_inc(&key->user->nikeys);
-		key->reject_error = -error;
-		smp_wmb();
-		set_bit(KEY_FLAG_NEGATIVE, &key->flags);
-		set_bit(KEY_FLAG_INSTANTIATED, &key->flags);
+		mark_key_instantiated(key, -error);
 		now = current_kernel_time();
 		key->expiry = now.tv_sec + timeout;
 		key_schedule_gc(key->expiry + key_gc_delay);
@@ -743,6 +780,7 @@ int key_reject_and_link(struct key *key,
 
 	if (keyring)
 		up_write(&keyring->sem);
+	if (keyring && link_ret == 0)
 		__key_link_end(keyring, &key->index_key, edit);
 
 	/* wake up anyone waiting for a key to be constructed */
@@ -852,6 +890,7 @@ EXPORT_SYMBOL(key_put);
 /*****************************************************************************/
 /*
  * find a key by its serial number
+		if (refcount_dec_and_test(&key->usage))
 			schedule_work(&key_gc_work);
 	}
 }
@@ -894,12 +933,8 @@ not_found:
 	goto error;
 
 found:
-	/* pretend it doesn't exist if it is awaiting deletion */
-	if (atomic_read(&key->usage) == 0)
-		goto not_found;
-
-	/* this races with key_put(), but that doesn't matter since key_put()
-	 * doesn't actually change the key
+	/* A key is allowed to be looked up only if someone still owns a
+	 * reference to it - otherwise it's awaiting the gc.
 	 */
 	atomic_inc(&key->usage);
 
@@ -914,6 +949,8 @@ found:
  * find and lock the specified key type against removal
  * - we return with the sem readlocked
 	__key_get(key);
+	if (!refcount_inc_not_zero(&key->usage))
+		goto not_found;
 
 error:
 	spin_unlock(&key_serial_lock);
@@ -1020,8 +1057,8 @@ static inline key_ref_t __key_update(key_ref_t key_ref,
 	ret = key->type->update(key, payload, plen);
 	ret = key->type->update(key, prep);
 	if (ret == 0)
-		/* updating a negative key instantiates it */
-		clear_bit(KEY_FLAG_NEGATIVE, &key->flags);
+		/* Updating a negative key positively instantiates it */
+		mark_key_instantiated(key, 0);
 
 	up_write(&key->sem);
 
@@ -1086,6 +1123,7 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 	struct key *keyring, *key = NULL;
 	key_ref_t key_ref;
 	int ret;
+	struct key_restriction *restrict_link = NULL;
 
 	/* look up the key type to see if it's one of the registered kernel
 	 * types */
@@ -1108,6 +1146,10 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 
 	key_check(keyring);
 
+	key_ref = ERR_PTR(-EPERM);
+	if (!(flags & KEY_ALLOC_BYPASS_RESTRICTION))
+		restrict_link = keyring->restrict_link;
+
 	key_ref = ERR_PTR(-ENOTDIR);
 	if (keyring->type != &key_type_keyring)
 		goto error_2;
@@ -1126,7 +1168,6 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 	prep.data = payload;
 	prep.datalen = plen;
 	prep.quotalen = index_key.type->def_datalen;
-	prep.trusted = flags & KEY_ALLOC_TRUSTED;
 	prep.expiry = TIME_T_MAX;
 	if (index_key.type->preparse) {
 		ret = index_key.type->preparse(&prep);
@@ -1142,15 +1183,19 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 	}
 	index_key.desc_len = strlen(index_key.description);
 
-	key_ref = ERR_PTR(-EPERM);
-	if (!prep.trusted && test_bit(KEY_FLAG_TRUSTED_ONLY, &keyring->flags))
-		goto error_free_prep;
-	flags |= prep.trusted ? KEY_ALLOC_TRUSTED : 0;
-
 	ret = __key_link_begin(keyring, &index_key, &edit);
 	if (ret < 0) {
 		key_ref = ERR_PTR(ret);
 		goto error_free_prep;
+	}
+
+	if (restrict_link && restrict_link->check) {
+		ret = restrict_link->check(keyring, index_key.type,
+					   &prep.payload, restrict_link->key);
+		if (ret < 0) {
+			key_ref = ERR_PTR(ret);
+			goto error_link_end;
+		}
 	}
 
 	/* if we're going to allocate a new key, we're going to have
@@ -1213,7 +1258,7 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 
 	/* allocate a new key */
 	key = key_alloc(index_key.type, index_key.description,
-			cred->fsuid, cred->fsgid, cred, perm, flags);
+			cred->fsuid, cred->fsgid, cred, perm, flags, NULL);
 	if (IS_ERR(key)) {
 		key_ref = ERR_CAST(key);
 		goto error_link_end;
@@ -1266,6 +1311,16 @@ int key_update(key_ref_t key_ref, const void *payload, size_t plen)
 {
 	__key_link_end(keyring, &index_key, edit);
 
+	key = key_ref_to_ptr(key_ref);
+	if (test_bit(KEY_FLAG_USER_CONSTRUCT, &key->flags)) {
+		ret = wait_for_key_construction(key, true);
+		if (ret < 0) {
+			key_ref_put(key_ref);
+			key_ref = ERR_PTR(ret);
+			goto error_free_prep;
+		}
+	}
+
 	key_ref = __key_update(key_ref, &prep);
 	goto error_free_prep;
 }
@@ -1296,7 +1351,7 @@ int key_update(key_ref_t key_ref, const void *payload, size_t plen)
 	ret = key_permission(key_ref, KEY_WRITE);
 	ret = key_permission(key_ref, KEY_NEED_WRITE);
 	if (ret < 0)
-		goto error;
+		return ret;
 
 	/* attempt to update it if supported */
 	ret = -EOPNOTSUPP;
@@ -1325,7 +1380,7 @@ EXPORT_SYMBOL(key_update);
 void key_revoke(struct key *key)
 {
 	if (!key->type->update)
-		goto error;
+		return -EOPNOTSUPP;
 
 	memset(&prep, 0, sizeof(prep));
 	prep.data = payload;
@@ -1342,8 +1397,8 @@ void key_revoke(struct key *key)
 
 	ret = key->type->update(key, &prep);
 	if (ret == 0)
-		/* updating a negative key instantiates it */
-		clear_bit(KEY_FLAG_NEGATIVE, &key->flags);
+		/* Updating a negative key positively instantiates it */
+		mark_key_instantiated(key, 0);
 
 	up_write(&key->sem);
 

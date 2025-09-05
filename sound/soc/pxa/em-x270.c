@@ -47,9 +47,6 @@
 #include <asm/mach-types.h>
 #include <mach/audio.h>
 
-#include "../codecs/wm9712.h"
-#include "pxa2xx-ac97.h"
-
 static struct snd_soc_dai_link em_x270_dai[] = {
 	{
 		.name = "AC97",
@@ -72,7 +69,7 @@ static struct snd_soc_dai_link em_x270_dai[] = {
 static struct snd_soc_machine em_x270 = {
 	.name = "EM-X270",
 		.cpu_dai_name = "pxa2xx-ac97-aux",
-		.codec_dai_name ="wm9712-aux",
+		.codec_dai_name = "wm9712-aux",
 		.platform_name = "pxa-pcm-audio",
 		.codec_name = "wm9712-codec",
 	},

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ALPHA_IO_H
 #define __ALPHA_IO_H
 
@@ -307,6 +308,7 @@ static inline void __iomem * ioremap_nocache(unsigned long offset,
 } 
 }
 
+#define ioremap_wc ioremap_nocache
 #define ioremap_uc ioremap_nocache
 
 static inline void iounmap(volatile void __iomem *addr)

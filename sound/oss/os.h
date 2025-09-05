@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #define ALLOW_SELECT
 #undef NO_INLINE_ASM
 #define SHORT_BANNERS
@@ -18,7 +19,7 @@
 #include <asm/page.h>
 #include <asm/system.h>
 #include <linux/vmalloc.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/poll.h>
 #include <linux/pci.h>
 #endif

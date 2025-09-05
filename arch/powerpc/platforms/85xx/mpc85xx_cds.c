@@ -100,7 +100,8 @@ static int mpc85xx_exclude_device(struct pci_controller *hose,
 		return PCIBIOS_SUCCESSFUL;
 }
 
-static void mpc85xx_cds_restart(char *cmd)
+static int mpc85xx_cds_restart(struct notifier_block *this,
+			       unsigned long mode, void *cmd)
 {
 	struct pci_dev *dev;
 	u_char tmp;
@@ -116,7 +117,7 @@ static void mpc85xx_cds_restart(char *cmd)
 		pci_read_config_byte(dev, 0x47, &tmp);
 
 		/*
-		 *  At this point, the harware reset should have triggered.
+		 *  At this point, the hardware reset should have triggered.
 		 *  However, if it doesn't work for some mysterious reason,
 		 *  just fall through to the default reset below.
 		 */
@@ -125,11 +126,24 @@ static void mpc85xx_cds_restart(char *cmd)
 	}
 
 	/*
-	 *  If we can't find the VIA chip (maybe the P2P bridge is disabled)
-	 *  or the VIA chip reset didn't work, just use the default reset.
+	 *  If we can't find the VIA chip (maybe the P2P bridge is
+	 *  disabled) or the VIA chip reset didn't work, just return
+	 *  and let default reset sequence happen.
 	 */
-	fsl_rstcr_restart(NULL);
+	return NOTIFY_DONE;
 }
+
+static int mpc85xx_cds_restart_register(void)
+{
+	static struct notifier_block restart_handler;
+
+	restart_handler.notifier_call = mpc85xx_cds_restart;
+	restart_handler.priority = 192;
+
+	return register_restart_handler(&restart_handler);
+}
+machine_arch_initcall(mpc85xx_cds, mpc85xx_cds_restart_register);
+
 
 static void __init mpc85xx_cds_pci_irq_fixup(struct pci_dev *dev)
 {
@@ -217,7 +231,7 @@ static void mpc85xx_8259_cascade_handler(struct irq_desc *desc)
 {
 	unsigned int cascade_irq = i8259_irq();
 
-	if (cascade_irq != NO_IRQ)
+	if (cascade_irq)
 		/* handle an interrupt from the 8259 */
 		generic_handle_irq(cascade_irq);
 
@@ -295,7 +309,7 @@ static int mpc85xx_cds_8259_attach(void)
 	}
 
 	cascade_irq = irq_of_parse_and_map(cascade_node, 0);
-	if (cascade_irq == NO_IRQ) {
+	if (!cascade_irq) {
 		printk(KERN_ERR "Failed to map cascade interrupt\n");
 		return -ENXIO;
 	}
@@ -446,9 +460,7 @@ static void mpc85xx_cds_show_cpuinfo(struct seq_file *m)
  */
 static int __init mpc85xx_cds_probe(void)
 {
-        unsigned long root = of_get_flat_dt_root();
-
-        return of_flat_dt_is_compatible(root, "MPC85xxCDS");
+	return of_machine_is_compatible("MPC85xxCDS");
 }
 
 static struct of_device_id __initdata of_bus_ids[] = {
@@ -477,8 +489,6 @@ define_machine(mpc85xx_cds) {
 	.pcibios_fixup_bus	= fsl_pcibios_fixup_bus,
 	.pcibios_fixup_bus	= mpc85xx_cds_fixup_bus,
 	.pcibios_fixup_phb      = fsl_pcibios_fixup_phb,
-#else
-	.restart	= fsl_rstcr_restart,
 #endif
 	.calibrate_decr = generic_calibrate_decr,
 	.progress	= udbg_progress,

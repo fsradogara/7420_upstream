@@ -40,7 +40,7 @@
 #ifdef CONFIG_ACPI_PROCFS_POWER
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #endif
 
 #include <acpi/acpi_bus.h>
@@ -85,6 +85,7 @@ MODULE_DESCRIPTION("ACPI Battery Driver");
 MODULE_LICENSE("GPL");
 
 static async_cookie_t async_cookie;
+static bool battery_driver_registered;
 static int battery_bix_broken_package;
 static int battery_notification_delay_ms;
 static unsigned int cache_time = 1000;
@@ -120,6 +121,11 @@ struct acpi_battery {
 	struct acpi_device *device;
 	unsigned long update_time;
 	int current_now;
+/* Lists of PMIC ACPI HIDs with an (often better) native battery driver */
+static const char * const acpi_battery_blacklist[] = {
+	"INT33F4", /* X-Powers AXP288 PMIC */
+};
+
 enum {
 	ACPI_BATTERY_ALARM_PRESENT,
 	ACPI_BATTERY_XINFO_PRESENT,
@@ -515,12 +521,12 @@ static int acpi_battery_get_status(struct acpi_battery *battery)
 	return 0;
 }
 
-static int acpi_battery_get_info(struct acpi_battery *battery)
+
+static int extract_battery_info(const int use_bix,
+			 struct acpi_battery *battery,
+			 const struct acpi_buffer *buffer)
 {
 	int result = -EFAULT;
-	acpi_status status = 0;
-	char *name = test_bit(ACPI_BATTERY_XINFO_PRESENT, &battery->flags) ?
-			"_BIX" : "_BIF";
 
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 
@@ -550,16 +556,17 @@ static int acpi_battery_get_info(struct acpi_battery *battery)
 
 	if (battery_bix_broken_package)
 		result = extract_package(battery, buffer.pointer,
+	if (use_bix && battery_bix_broken_package)
+		result = extract_package(battery, buffer->pointer,
 				extended_info_offsets + 1,
 				ARRAY_SIZE(extended_info_offsets) - 1);
-	else if (test_bit(ACPI_BATTERY_XINFO_PRESENT, &battery->flags))
-		result = extract_package(battery, buffer.pointer,
+	else if (use_bix)
+		result = extract_package(battery, buffer->pointer,
 				extended_info_offsets,
 				ARRAY_SIZE(extended_info_offsets));
 	else
-		result = extract_package(battery, buffer.pointer,
+		result = extract_package(battery, buffer->pointer,
 				info_offsets, ARRAY_SIZE(info_offsets));
-	kfree(buffer.pointer);
 	if (test_bit(ACPI_BATTERY_QUIRK_PERCENTAGE_CAPACITY, &battery->flags))
 		battery->full_charge_capacity = battery->design_capacity;
 	if (test_bit(ACPI_BATTERY_QUIRK_THINKPAD_MAH, &battery->flags) &&
@@ -577,6 +584,45 @@ static int acpi_battery_get_info(struct acpi_battery *battery)
 		   it's impossible to tell if they would need an adjustment
 		   or not if their values were higher.  */
 	}
+	return result;
+}
+
+static int acpi_battery_get_info(struct acpi_battery *battery)
+{
+	const int xinfo = test_bit(ACPI_BATTERY_XINFO_PRESENT, &battery->flags);
+	int use_bix;
+	int result = -ENODEV;
+
+	if (!acpi_battery_present(battery))
+		return 0;
+
+
+	for (use_bix = xinfo ? 1 : 0; use_bix >= 0; use_bix--) {
+		struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
+		acpi_status status = AE_ERROR;
+
+		mutex_lock(&battery->lock);
+		status = acpi_evaluate_object(battery->device->handle,
+					      use_bix ? "_BIX":"_BIF",
+					      NULL, &buffer);
+		mutex_unlock(&battery->lock);
+
+		if (ACPI_FAILURE(status)) {
+			ACPI_EXCEPTION((AE_INFO, status, "Evaluating %s",
+					use_bix ? "_BIX":"_BIF"));
+		} else {
+			result = extract_battery_info(use_bix,
+						      battery,
+						      &buffer);
+
+			kfree(buffer.pointer);
+			break;
+		}
+	}
+
+	if (!result && !use_bix && xinfo)
+		pr_warn(FW_BUG "The _BIX method is broken, using _BIF.\n");
+
 	return result;
 }
 
@@ -712,6 +758,7 @@ static ssize_t acpi_battery_alarm_store(struct device *dev,
 
 static struct device_attribute alarm_attr = {
 	.attr = {.name = "alarm", .mode = 0644, .owner = THIS_MODULE},
+static const struct device_attribute alarm_attr = {
 	.attr = {.name = "alarm", .mode = 0644},
 	.show = acpi_battery_alarm_show,
 	.store = acpi_battery_alarm_store,
@@ -896,15 +943,17 @@ static int acpi_battery_update(struct acpi_battery *battery, bool resume)
 		sysfs_add_battery(battery);
 #endif
 	return acpi_battery_get_state(battery);
+
+	result = acpi_battery_get_state(battery);
+	if (result)
+		return result;
+	acpi_battery_quirks(battery);
+
 	if (!battery->bat) {
 		result = sysfs_add_battery(battery);
 		if (result)
 			return result;
 	}
-	result = acpi_battery_get_state(battery);
-	if (result)
-		return result;
-	acpi_battery_quirks(battery);
 
 	/*
 	 * Wakeup the system if battery is critical low
@@ -913,7 +962,7 @@ static int acpi_battery_update(struct acpi_battery *battery, bool resume)
 	if ((battery->state & ACPI_BATTERY_STATE_CRITICAL) ||
 	    (test_bit(ACPI_BATTERY_ALARM_PRESENT, &battery->flags) &&
             (battery->capacity_now <= battery->alarm)))
-		pm_wakeup_event(&battery->device->dev, 0);
+		acpi_pm_wakeup_event(&battery->device->dev);
 
 	return result;
 }
@@ -1547,7 +1596,16 @@ static struct acpi_driver acpi_battery_driver = {
 
 static void __init acpi_battery_init_async(void *unused, async_cookie_t cookie)
 {
+	unsigned int i;
 	int result;
+
+	for (i = 0; i < ARRAY_SIZE(acpi_battery_blacklist); i++)
+		if (acpi_dev_present(acpi_battery_blacklist[i], "1", -1)) {
+			pr_info(PREFIX ACPI_BATTERY_DEVICE_NAME
+				": found native %s PMIC, not loading\n",
+				acpi_battery_blacklist[i]);
+			return;
+		}
 
 	dmi_check_system(bat_dmi_table);
 
@@ -1561,6 +1619,7 @@ static void __init acpi_battery_init_async(void *unused, async_cookie_t cookie)
 	if (result < 0)
 		acpi_unlock_battery_dir(acpi_battery_dir);
 #endif
+	battery_driver_registered = (result == 0);
 }
 
 static int __init acpi_battery_init(void)
@@ -1585,10 +1644,12 @@ static int __init acpi_battery_init(void)
 
 static void __exit acpi_battery_exit(void)
 {
-	async_synchronize_cookie(async_cookie);
-	acpi_bus_unregister_driver(&acpi_battery_driver);
+	async_synchronize_cookie(async_cookie + 1);
+	if (battery_driver_registered)
+		acpi_bus_unregister_driver(&acpi_battery_driver);
 #ifdef CONFIG_ACPI_PROCFS_POWER
-	acpi_unlock_battery_dir(acpi_battery_dir);
+	if (acpi_battery_dir)
+		acpi_unlock_battery_dir(acpi_battery_dir);
 #endif
 }
 

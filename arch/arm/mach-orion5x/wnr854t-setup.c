@@ -22,7 +22,7 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/pci.h>
-#include <mach/orion5x.h>
+#include "orion5x.h"
 #include "common.h"
 #include "mpp.h"
 
@@ -132,11 +132,6 @@ static struct dsa_chip_data wnr854t_switch_chip_data = {
 	.port_names[7] = "lan2",
 };
 
-static struct dsa_platform_data wnr854t_switch_plat_data = {
-	.nr_chips	= 1,
-	.chip		= &wnr854t_switch_chip_data,
-};
-
 static void __init wnr854t_init(void)
 {
 	/*
@@ -159,6 +154,7 @@ static void __init wnr854t_init(void)
 
 static int __init wnr854t_pci_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 	orion5x_eth_switch_init(&wnr854t_switch_plat_data, NO_IRQ);
+	orion5x_eth_switch_init(&wnr854t_switch_chip_data);
 	orion5x_uart0_init();
 
 	mvebu_mbus_add_window_by_id(ORION_MBUS_DEVBUS_BOOT_TARGET,
@@ -217,6 +213,7 @@ MACHINE_START(WNR854T, "Netgear WNR854T")
 	.timer		= &orion5x_timer,
 	.fixup		= tag_fixup_mem32,
 	.atag_offset	= 0x100,
+	.nr_irqs	= ORION5X_NR_IRQS,
 	.init_machine	= wnr854t_init,
 	.map_io		= orion5x_map_io,
 	.init_early	= orion5x_init_early,

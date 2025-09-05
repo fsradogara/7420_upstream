@@ -63,9 +63,9 @@
 #define RPCRDMA_DEF_SLOT_TABLE	(128U)
 #define RPCRDMA_MAX_SLOT_TABLE	(256U)
 
-#define RPCRDMA_DEF_INLINE  (1024)	/* default inline max */
-
-#define RPCRDMA_INLINE_PAD_THRESH  (512)/* payload threshold to pad (bytes) */
+#define RPCRDMA_MIN_INLINE  (1024)	/* min inline thresh */
+#define RPCRDMA_DEF_INLINE  (4096)	/* default inline thresh */
+#define RPCRDMA_MAX_INLINE  (65536)	/* max inline thresh */
 
 #define RDMA_RESOLVE_TIMEOUT	(5*HZ)	/* TBD 5 seconds */
 #define RDMA_CONNECT_RETRY_MAX	(2)	/* retries if no listener backlog */

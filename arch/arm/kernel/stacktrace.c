@@ -32,6 +32,7 @@ int walk_stackframe(unsigned long fp, unsigned long low, unsigned long high,
 	return 0;
 #include <linux/export.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
 #include <linux/stacktrace.h>
 
 #include <asm/stacktrace.h>
@@ -231,6 +232,7 @@ void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 {
 	__save_stack_trace(tsk, trace, 1);
 }
+EXPORT_SYMBOL(save_stack_trace_tsk);
 
 void save_stack_trace(struct stack_trace *trace)
 {

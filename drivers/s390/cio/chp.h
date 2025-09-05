@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  drivers/s390/cio/chp.h
  *
@@ -7,7 +8,7 @@
  */
 
 #ifndef S390_CHP_H
-#define S390_CHP_H S390_CHP_H
+#define S390_CHP_H
 
 #include <linux/types.h>
 #include <linux/device.h>
@@ -64,12 +65,13 @@ int chp_is_registered(struct chp_id chpid);
 void *chp_get_chp_desc(struct chp_id chpid);
 void chp_remove_cmg_attr(struct channel_path *chp);
 int chp_add_cmg_attr(struct channel_path *chp);
+	struct cmg_chars cmg_chars;
 };
 
 /* Return channel_path struct for given chpid. */
 static inline struct channel_path *chpid_to_chp(struct chp_id chpid)
 {
-	return channel_subsystems[chpid.cssid]->chps[chpid.id];
+	return css_by_id(chpid.cssid)->chps[chpid.id];
 }
 
 int chp_get_status(struct chp_id chpid);

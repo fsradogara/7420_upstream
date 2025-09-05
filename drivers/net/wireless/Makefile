@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the Linux Wireless network device drivers.
 #
@@ -45,6 +46,22 @@ obj-$(CONFIG_B43)		+= b43/
 obj-$(CONFIG_B43LEGACY)		+= b43legacy/
 obj-$(CONFIG_ZD1211RW)		+= zd1211rw/
 obj-$(CONFIG_WLAN)		+= realtek/
+obj-$(CONFIG_WLAN_VENDOR_ADMTEK) += admtek/
+obj-$(CONFIG_WLAN_VENDOR_ATH) += ath/
+obj-$(CONFIG_WLAN_VENDOR_ATMEL) += atmel/
+obj-$(CONFIG_WLAN_VENDOR_BROADCOM) += broadcom/
+obj-$(CONFIG_WLAN_VENDOR_CISCO) += cisco/
+obj-$(CONFIG_WLAN_VENDOR_INTEL) += intel/
+obj-$(CONFIG_WLAN_VENDOR_INTERSIL) += intersil/
+obj-$(CONFIG_WLAN_VENDOR_MARVELL) += marvell/
+obj-$(CONFIG_WLAN_VENDOR_MEDIATEK) += mediatek/
+obj-$(CONFIG_WLAN_VENDOR_RALINK) += ralink/
+obj-$(CONFIG_WLAN_VENDOR_REALTEK) += realtek/
+obj-$(CONFIG_WLAN_VENDOR_RSI) += rsi/
+obj-$(CONFIG_WLAN_VENDOR_ST) += st/
+obj-$(CONFIG_WLAN_VENDOR_TI) += ti/
+obj-$(CONFIG_WLAN_VENDOR_ZYDAS) += zydas/
+obj-$(CONFIG_WLAN_VENDOR_QUANTENNA) += quantenna/
 
 # 16-bit wireless PCMCIA client drivers
 obj-$(CONFIG_PCMCIA_RAYCS)	+= ray_cs.o
@@ -89,13 +106,3 @@ obj-$(CONFIG_P54_COMMON)	+= p54/
 obj-$(CONFIG_ATH_CARDS)		+= ath/
 
 obj-$(CONFIG_MAC80211_HWSIM)	+= mac80211_hwsim.o
-
-obj-$(CONFIG_WL_TI)	+= ti/
-
-obj-$(CONFIG_MWIFIEX)	+= mwifiex/
-
-obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
-obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
-
-obj-$(CONFIG_CW1200)	+= cw1200/
-obj-$(CONFIG_RSI_91X)	+= rsi/

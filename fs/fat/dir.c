@@ -101,6 +101,7 @@ next:
 	iblock = *pos >> sb->s_blocksize_bits;
 	err = fat_bmap(dir, iblock, &phys, &mapped_blocks);
 	err = fat_bmap(dir, iblock, &phys, &mapped_blocks, 0);
+	err = fat_bmap(dir, iblock, &phys, &mapped_blocks, 0, false);
 	if (err || !phys)
 		return -1;	/* beyond EOF or error */
 
@@ -1056,6 +1057,7 @@ static int fat_ioctl_readdir(struct inode *inode, struct file *file,
 	if (!IS_DEADDIR(inode)) {
 		ret = __fat_readdir(inode, filp, &buf, filldir,
 				    short_only, both);
+	inode_lock_shared(inode);
 	buf.ctx.pos = file->f_pos;
 	ret = -ENOENT;
 	if (!IS_DEADDIR(inode)) {
@@ -1063,7 +1065,7 @@ static int fat_ioctl_readdir(struct inode *inode, struct file *file,
 				    short_only, both ? &buf : NULL);
 		file->f_pos = buf.ctx.pos;
 	}
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock_shared(inode);
 	if (ret >= 0)
 		ret = buf.result;
 	return ret;
@@ -1160,7 +1162,7 @@ const struct file_operations fat_dir_operations = {
 	.fsync		= file_fsync,
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate	= fat_readdir,
+	.iterate_shared	= fat_readdir,
 	.unlocked_ioctl	= fat_dir_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= fat_compat_dir_ioctl,
@@ -1397,7 +1399,7 @@ int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
 		}
 	}
 
-	dir->i_mtime = dir->i_atime = CURRENT_TIME_SEC;
+	dir->i_mtime = dir->i_atime = current_time(dir);
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
 	else

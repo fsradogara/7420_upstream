@@ -1,4 +1,5 @@
 /* Dummy asm-offsets.c file. Required by kbuild and ready to be used - hint! */
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/thread_info.h>
 #include <linux/kbuild.h>
 

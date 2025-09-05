@@ -1,4 +1,5 @@
 /* $Id: parport_probe.c,v 1.1 1999/07/03 08:56:17 davem Exp $
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Parallel port device probing code
  *
@@ -11,7 +12,7 @@
 #include <linux/ctype.h>
 #include <linux/string.h>
 #include <linux/slab.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static const struct {
 	const char *token;

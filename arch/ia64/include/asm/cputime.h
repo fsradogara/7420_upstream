@@ -112,6 +112,7 @@ static inline void cputime_to_timeval(const cputime_t ct, struct timeval *val)
 #else
 # include <asm/processor.h>
 # include <asm-generic/cputime_nsecs.h>
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 extern void arch_vtime_task_switch(struct task_struct *tsk);
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 

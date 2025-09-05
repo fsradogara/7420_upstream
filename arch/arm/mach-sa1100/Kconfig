@@ -72,6 +72,7 @@ config SA1100_H3100
 
 config SA1100_H3600
 	bool "Compaq iPAQ H3600/H3700"
+	  H3100 handheld computer.
 
 config SA1100_H3600
 	bool "Compaq iPAQ H3600/H3700"
@@ -103,6 +104,7 @@ config SA1100_H3XXX
 
 config SA1100_BADGE4
 	bool "HP Labs BadgePAD 4"
+	  H3600 and H3700 handheld computers.
 
 config SA1100_BADGE4
 	bool "HP Labs BadgePAD 4"

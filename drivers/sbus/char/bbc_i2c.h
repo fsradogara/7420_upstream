@@ -9,6 +9,7 @@ struct bbc_i2c_client;
 /* Probing and attachment. */
 extern struct linux_ebus_child *bbc_i2c_getdev(int);
 extern struct bbc_i2c_client *bbc_i2c_attach(struct linux_ebus_child *);
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _BBC_I2C_H
 #define _BBC_I2C_H
 

@@ -21,15 +21,15 @@
  */
 #if defined(CONFIG_PPC64) && !defined(__powerpc64__)
 /* 64 bits kernel, 32 bits code (ie. vdso32) */
-#define FTR_ENTRY_LONG		.llong
+#define FTR_ENTRY_LONG		.8byte
 #define FTR_ENTRY_OFFSET	.long 0xffffffff; .long
 #else
 /* 64 bit kernel 64 bit code, or 32 bit kernel 32 bit code */
 #define FTR_ENTRY_LONG		PPC_LONG
 #define FTR_ENTRY_OFFSET	PPC_LONG
 #elif defined(CONFIG_PPC64)
-#define FTR_ENTRY_LONG		.llong
-#define FTR_ENTRY_OFFSET	.llong
+#define FTR_ENTRY_LONG		.8byte
+#define FTR_ENTRY_OFFSET	.8byte
 #else
 #define FTR_ENTRY_LONG		.long
 #define FTR_ENTRY_OFFSET	.long
@@ -83,6 +83,9 @@ label##5:							\
 
 #define END_FTR_SECTION(msk, val)		\
 	END_FTR_SECTION_NESTED(msk, val, 97)
+
+#define END_FTR_SECTION_NESTED_IFSET(msk, label)	\
+	END_FTR_SECTION_NESTED((msk), (msk), label)
 
 #define END_FTR_SECTION_IFSET(msk)	END_FTR_SECTION((msk), (msk))
 #define END_FTR_SECTION_IFCLR(msk)	END_FTR_SECTION((msk), 0)
@@ -202,5 +205,10 @@ label##3:					       	\
 	.long label##1b-label##3b;			\
 	FTR_ENTRY_OFFSET label##1b-label##3b;		\
 	.popsection;
+
+#ifndef __ASSEMBLY__
+void apply_feature_fixups(void);
+void setup_feature_keys(void);
+#endif
 
 #endif /* __ASM_POWERPC_FEATURE_FIXUPS_H */

@@ -45,6 +45,7 @@ static int __init clevo_mail_led_dmi_callback(const struct dmi_system_id *id)
  */
 static struct dmi_system_id __initdata mail_led_whitelist[] = {
 static struct dmi_system_id clevo_mail_led_dmi_table[] __initdata = {
+static const struct dmi_system_id clevo_mail_led_dmi_table[] __initconst = {
 	{
 		.callback = clevo_mail_led_dmi_callback,
 		.ident = "Clevo D410J",

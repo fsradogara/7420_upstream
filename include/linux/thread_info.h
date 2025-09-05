@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* thread_info.h: common low-level thread information accessors
  *
  * Copyright (C) 2002  David Howells (dhowells@redhat.com)
@@ -9,12 +10,13 @@
 
 #include <linux/types.h>
 #include <linux/bug.h>
+#include <linux/restart_block.h>
 
-struct timespec;
-struct compat_timespec;
-
+#ifdef CONFIG_THREAD_INFO_IN_TASK
 /*
- * System call restart block.
+ * For CONFIG_THREAD_INFO_IN_TASK kernels we need <asm/current.h> for the
+ * definition of current, but for !CONFIG_THREAD_INFO_IN_TASK kernels,
+ * including <asm/current.h> can cause a circular dependency on some platforms.
  */
 struct restart_block {
 	long (*fn)(struct restart_block *);
@@ -44,31 +46,36 @@ struct restart_block {
 			struct timespec __user *rmtp;
 #ifdef CONFIG_COMPAT
 			struct compat_timespec __user *compat_rmtp;
+#include <asm/current.h>
+#define current_thread_info() ((struct thread_info *)current)
 #endif
-			u64 expires;
-		} nanosleep;
-		/* For poll */
-		struct {
-			struct pollfd __user *ufds;
-			int nfds;
-			int has_timeout;
-			unsigned long tv_sec;
-			unsigned long tv_nsec;
-		} poll;
-	};
-};
-
-extern long do_no_restart_syscall(struct restart_block *parm);
 
 #include <linux/bitops.h>
+
+/*
+ * For per-arch arch_within_stack_frames() implementations, defined in
+ * asm/thread_info.h.
+ */
+enum {
+	BAD_STACK = -1,
+	NOT_STACK = 0,
+	GOOD_FRAME,
+	GOOD_STACK,
+};
+
 #include <asm/thread_info.h>
 
 #ifdef __KERNEL__
 
-#ifdef CONFIG_DEBUG_STACK_USAGE
-# define THREADINFO_GFP		(GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO)
+#ifndef THREAD_ALIGN
+#define THREAD_ALIGN	THREAD_SIZE
+#endif
+
+#if IS_ENABLED(CONFIG_DEBUG_STACK_USAGE) || IS_ENABLED(CONFIG_DEBUG_KMEMLEAK)
+# define THREADINFO_GFP		(GFP_KERNEL_ACCOUNT | __GFP_NOTRACK | \
+				 __GFP_ZERO)
 #else
-# define THREADINFO_GFP		(GFP_KERNEL | __GFP_NOTRACK)
+# define THREADINFO_GFP		(GFP_KERNEL_ACCOUNT | __GFP_NOTRACK)
 #endif
 
 /*
@@ -116,12 +123,14 @@ static inline int test_ti_thread_flag(struct thread_info *ti, int flag)
 #define clear_need_resched()	clear_thread_flag(TIF_NEED_RESCHED)
 #define tif_need_resched() test_thread_flag(TIF_NEED_RESCHED)
 
-#if defined TIF_RESTORE_SIGMASK && !defined HAVE_SET_RESTORE_SIGMASK
-/*
- * An arch can define its own version of set_restore_sigmask() to get the
- * job done however works, with or without TIF_RESTORE_SIGMASK.
- */
-#define HAVE_SET_RESTORE_SIGMASK	1
+#ifndef CONFIG_HAVE_ARCH_WITHIN_STACK_FRAMES
+static inline int arch_within_stack_frames(const void * const stack,
+					   const void * const stackend,
+					   const void *obj, unsigned long len)
+{
+	return 0;
+}
+#endif
 
 /**
  * set_restore_sigmask() - make sure saved_sigmask processing gets done
@@ -156,9 +165,51 @@ static inline bool test_and_clear_restore_sigmask(void)
 	return test_and_clear_thread_flag(TIF_RESTORE_SIGMASK);
 }
 #endif	/* TIF_RESTORE_SIGMASK && !HAVE_SET_RESTORE_SIGMASK */
+#ifdef CONFIG_HARDENED_USERCOPY
+extern void __check_object_size(const void *ptr, unsigned long n,
+					bool to_user);
 
-#ifndef HAVE_SET_RESTORE_SIGMASK
-#error "no set_restore_sigmask() provided and default one won't work"
+static __always_inline void check_object_size(const void *ptr, unsigned long n,
+					      bool to_user)
+{
+	if (!__builtin_constant_p(n))
+		__check_object_size(ptr, n, to_user);
+}
+#else
+static inline void check_object_size(const void *ptr, unsigned long n,
+				     bool to_user)
+{ }
+#endif /* CONFIG_HARDENED_USERCOPY */
+
+extern void __compiletime_error("copy source size is too small")
+__bad_copy_from(void);
+extern void __compiletime_error("copy destination size is too small")
+__bad_copy_to(void);
+
+static inline void copy_overflow(int size, unsigned long count)
+{
+	WARN(1, "Buffer overflow detected (%d < %lu)!\n", size, count);
+}
+
+static __always_inline bool
+check_copy_size(const void *addr, size_t bytes, bool is_source)
+{
+	int sz = __compiletime_object_size(addr);
+	if (unlikely(sz >= 0 && sz < bytes)) {
+		if (!__builtin_constant_p(bytes))
+			copy_overflow(sz, bytes);
+		else if (is_source)
+			__bad_copy_from();
+		else
+			__bad_copy_to();
+		return false;
+	}
+	check_object_size(addr, bytes, is_source);
+	return true;
+}
+
+#ifndef arch_setup_new_exec
+static inline void arch_setup_new_exec(void) { }
 #endif
 
 #endif	/* __KERNEL__ */

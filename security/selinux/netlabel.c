@@ -58,6 +58,7 @@
  *
  */
 static int selinux_netlbl_sidlookup_cached(struct sk_buff *skb,
+					   u16 family,
 					   struct netlbl_lsm_secattr *secattr,
 					   u32 *sid)
 {
@@ -67,7 +68,7 @@ static int selinux_netlbl_sidlookup_cached(struct sk_buff *skb,
 	if (rc == 0 &&
 	    (secattr->flags & NETLBL_SECATTR_CACHEABLE) &&
 	    (secattr->flags & NETLBL_SECATTR_CACHE))
-		netlbl_cache_add(skb, secattr);
+		netlbl_cache_add(skb, family, secattr);
 
 	return rc;
 }
@@ -184,9 +185,9 @@ void selinux_netlbl_cache_invalidate(void)
  * present on the packet, NetLabel is smart enough to only act when it should.
  *
  */
-void selinux_netlbl_err(struct sk_buff *skb, int error, int gateway)
+void selinux_netlbl_err(struct sk_buff *skb, u16 family, int error, int gateway)
 {
-	netlbl_skbuff_err(skb, error, gateway);
+	netlbl_skbuff_err(skb, family, error, gateway);
 }
 
 /**
@@ -257,7 +258,8 @@ int selinux_netlbl_skbuff_getsid(struct sk_buff *skb,
 	netlbl_secattr_init(&secattr);
 	rc = netlbl_skbuff_getattr(skb, family, &secattr);
 	if (rc == 0 && secattr.flags != NETLBL_SECATTR_NONE)
-		rc = selinux_netlbl_sidlookup_cached(skb, &secattr, sid);
+		rc = selinux_netlbl_sidlookup_cached(skb, family,
+						     &secattr, sid);
 	else
 		*sid = SECSID_NULL;
 	*type = secattr.type;
@@ -356,7 +358,7 @@ int selinux_netlbl_inet_conn_request(struct request_sock *req, u16 family)
 	int rc;
 	struct netlbl_lsm_secattr secattr;
 
-	if (family != PF_INET)
+	if (family != PF_INET && family != PF_INET6)
 		return 0;
 
 	netlbl_secattr_init(&secattr);
@@ -453,7 +455,7 @@ int selinux_netlbl_socket_post_create(struct sock *sk, u16 family)
 	struct sk_security_struct *sksec = sk->sk_security;
 	struct netlbl_lsm_secattr *secattr;
 
-	if (family != PF_INET)
+	if (family != PF_INET && family != PF_INET6)
 		return 0;
 
 	secattr = selinux_netlbl_sock_genattr(sk);
@@ -503,7 +505,8 @@ int selinux_netlbl_sock_rcv_skb(struct sk_security_struct *sksec,
 	netlbl_secattr_init(&secattr);
 	rc = netlbl_skbuff_getattr(skb, family, &secattr);
 	if (rc == 0 && secattr.flags != NETLBL_SECATTR_NONE)
-		rc = selinux_netlbl_sidlookup_cached(skb, &secattr, &nlbl_sid);
+		rc = selinux_netlbl_sidlookup_cached(skb, family,
+						     &secattr, &nlbl_sid);
 	else
 		nlbl_sid = SECINITSID_UNLABELED;
 	netlbl_secattr_destroy(&secattr);
@@ -528,7 +531,23 @@ int selinux_netlbl_sock_rcv_skb(struct sk_security_struct *sksec,
 	if (nlbl_sid != SECINITSID_UNLABELED)
 		netlbl_skbuff_err(skb, rc);
 		netlbl_skbuff_err(skb, rc, 0);
+		netlbl_skbuff_err(skb, family, rc, 0);
 	return rc;
+}
+
+/**
+ * selinux_netlbl_option - Is this a NetLabel option
+ * @level: the socket level or protocol
+ * @optname: the socket option name
+ *
+ * Description:
+ * Returns true if @level and @optname refer to a NetLabel option.
+ * Helper for selinux_netlbl_socket_setsockopt().
+ */
+static inline int selinux_netlbl_option(int level, int optname)
+{
+	return (level == IPPROTO_IP && optname == IP_OPTIONS) ||
+		(level == IPPROTO_IPV6 && optname == IPV6_HOPOPTS);
 }
 
 /**
@@ -561,6 +580,7 @@ int selinux_netlbl_socket_setsockopt(struct socket *sock,
 		release_sock(sk);
 		if (rc == 0 && secattr.flags != NETLBL_SECATTR_NONE)
 			rc = -EACCES;
+	if (selinux_netlbl_option(level, optname) &&
 	    (sksec->nlbl_state == NLBL_LABELED ||
 	     sksec->nlbl_state == NLBL_CONNLABELED)) {
 		netlbl_secattr_init(&secattr);

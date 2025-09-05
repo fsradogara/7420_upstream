@@ -428,6 +428,7 @@ static int cisco_ioctl(struct net_device *dev, struct ifreq *ifr)
 		dev->hard_start_xmit = hdlc->xmit;
 		dev->header_ops = &cisco_header_ops;
 		dev->type = ARPHRD_CISCO;
+		call_netdevice_notifiers(NETDEV_POST_TYPE_CHANGE, dev);
 		netif_dormant_on(dev);
 		return 0;
 	}

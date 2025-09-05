@@ -138,7 +138,10 @@ struct connection {
 	struct connection *othercon;
 	struct work_struct rwork; /* Receive workqueue */
 	struct work_struct swork; /* Send workqueue */
-	void (*orig_error_report)(struct sock *sk);
+	void (*orig_error_report)(struct sock *);
+	void (*orig_data_ready)(struct sock *);
+	void (*orig_state_change)(struct sock *);
+	void (*orig_write_space)(struct sock *);
 };
 #define sock2con(x) ((struct connection *)(x)->sk_user_data)
 
@@ -558,16 +561,24 @@ int dlm_lowcomms_connect_node(int nodeid)
 
 static void lowcomms_error_report(struct sock *sk)
 {
-	struct connection *con = sock2con(sk);
+	struct connection *con;
 	struct sockaddr_storage saddr;
+	int buflen;
+	void (*orig_report)(struct sock *) = NULL;
 
-	if (nodeid_to_addr(con->nodeid, &saddr, NULL, false)) {
+	read_lock_bh(&sk->sk_callback_lock);
+	con = sock2con(sk);
+	if (con == NULL)
+		goto out;
+
+	orig_report = con->orig_error_report;
+	if (con->sock == NULL ||
+	    kernel_getpeername(con->sock, (struct sockaddr *)&saddr, &buflen)) {
 		printk_ratelimited(KERN_ERR "dlm: node %d: socket error "
 				   "sending to node %d, port %d, "
 				   "sk_err=%d/%d\n", dlm_our_nodeid(),
 				   con->nodeid, dlm_config.ci_tcp_port,
 				   sk->sk_err, sk->sk_err_soft);
-		return;
 	} else if (saddr.ss_family == AF_INET) {
 		struct sockaddr_in *sin4 = (struct sockaddr_in *)&saddr;
 
@@ -590,14 +601,43 @@ static void lowcomms_error_report(struct sock *sk)
 				   dlm_config.ci_tcp_port, sk->sk_err,
 				   sk->sk_err_soft);
 	}
-	con->orig_error_report(sk);
+out:
+	read_unlock_bh(&sk->sk_callback_lock);
+	if (orig_report)
+		orig_report(sk);
+}
+
+/* Note: sk_callback_lock must be locked before calling this function. */
+static void save_callbacks(struct connection *con, struct sock *sk)
+{
+	con->orig_data_ready = sk->sk_data_ready;
+	con->orig_state_change = sk->sk_state_change;
+	con->orig_write_space = sk->sk_write_space;
+	con->orig_error_report = sk->sk_error_report;
+}
+
+static void restore_callbacks(struct connection *con, struct sock *sk)
+{
+	write_lock_bh(&sk->sk_callback_lock);
+	sk->sk_user_data = NULL;
+	sk->sk_data_ready = con->orig_data_ready;
+	sk->sk_state_change = con->orig_state_change;
+	sk->sk_write_space = con->orig_write_space;
+	sk->sk_error_report = con->orig_error_report;
+	write_unlock_bh(&sk->sk_callback_lock);
 }
 
 /* Make a socket active */
-static void add_sock(struct socket *sock, struct connection *con)
+static void add_sock(struct socket *sock, struct connection *con, bool save_cb)
 {
+	struct sock *sk = sock->sk;
+
+	write_lock_bh(&sk->sk_callback_lock);
 	con->sock = sock;
 
+	sk->sk_user_data = con;
+	if (save_cb)
+		save_callbacks(con, sk);
 	/* Install a data_ready callback */
 	con->sock->sk->sk_data_ready = lowcomms_data_ready;
 	con->sock->sk->sk_write_space = lowcomms_write_space;
@@ -607,6 +647,12 @@ static void add_sock(struct socket *sock, struct connection *con)
 	con->sock->sk->sk_allocation = GFP_NOFS;
 	con->orig_error_report = con->sock->sk->sk_error_report;
 	con->sock->sk->sk_error_report = lowcomms_error_report;
+	sk->sk_data_ready = lowcomms_data_ready;
+	sk->sk_write_space = lowcomms_write_space;
+	sk->sk_state_change = lowcomms_state_change;
+	sk->sk_allocation = GFP_NOFS;
+	sk->sk_error_report = lowcomms_error_report;
+	write_unlock_bh(&sk->sk_callback_lock);
 }
 
 /* Add the port number to an IPv6 or 4 sockaddr and return the address
@@ -645,6 +691,8 @@ static void close_connection(struct connection *con, bool and_other,
 
 	mutex_lock(&con->sock_mutex);
 	if (con->sock) {
+		if (!test_bit(CF_IS_OTHERCON, &con->flags))
+			restore_callbacks(con, con->sock->sk);
 		sock_release(con->sock);
 		con->sock = NULL;
 	}
@@ -880,7 +928,7 @@ static int receive_from_sock(struct connection *con)
 		con->rx_page = alloc_page(GFP_ATOMIC);
 		if (con->rx_page == NULL)
 			goto out_resched;
-		cbuf_init(&con->cb, PAGE_CACHE_SIZE);
+		cbuf_init(&con->cb, PAGE_SIZE);
 	}
 
 	/* Only SCTP needs these really */
@@ -902,7 +950,7 @@ static int receive_from_sock(struct connection *con)
 	 * buffer and the start of the currently used section (cb.base)
 	 */
 	if (cbuf_data(&con->cb) >= con->cb.base) {
-		iov[0].iov_len = PAGE_CACHE_SIZE - cbuf_data(&con->cb);
+		iov[0].iov_len = PAGE_SIZE - cbuf_data(&con->cb);
 		iov[1].iov_len = con->cb.base;
 		iov[1].iov_base = page_address(con->rx_page);
 		nvec = 2;
@@ -935,7 +983,7 @@ static int receive_from_sock(struct connection *con)
 	ret = dlm_process_incoming_buffer(con->nodeid,
 					  page_address(con->rx_page),
 					  con->cb.base, con->cb.len,
-					  PAGE_CACHE_SIZE);
+					  PAGE_SIZE);
 	if (ret == -EBADMSG) {
 		log_print("lowcomms: addr=%p, base=%u, len=%u, "
 			  "iov_len=%u, iov_base[0]=%p, read=%d",
@@ -1001,7 +1049,7 @@ static int tcp_accept_from_sock(struct connection *con)
 	mutex_unlock(&connections_lock);
 
 	memset(&peeraddr, 0, sizeof(peeraddr));
-	result = sock_create_kern(&init_net, dlm_local_addr[0]->ss_family,
+	result = sock_create_lite(dlm_local_addr[0]->ss_family,
 				  SOCK_STREAM, IPPROTO_TCP, &newsock);
 	if (result < 0)
 		return -ENOMEM;
@@ -1015,7 +1063,7 @@ static int tcp_accept_from_sock(struct connection *con)
 	newsock->type = con->sock->type;
 	newsock->ops = con->sock->ops;
 
-	result = con->sock->ops->accept(con->sock, newsock, O_NONBLOCK);
+	result = con->sock->ops->accept(con->sock, newsock, O_NONBLOCK, true);
 	if (result < 0)
 		goto accept_err;
 
@@ -1078,7 +1126,7 @@ static int tcp_accept_from_sock(struct connection *con)
 			newcon->othercon = othercon;
 			othercon->sock = newsock;
 			newsock->sk->sk_user_data = othercon;
-			add_sock(newsock, othercon);
+			add_sock(newsock, othercon, false);
 			addcon = othercon;
 		}
 		else {
@@ -1091,7 +1139,10 @@ static int tcp_accept_from_sock(struct connection *con)
 	else {
 		newsock->sk->sk_user_data = newcon;
 		newcon->rx_action = receive_from_sock;
-		add_sock(newsock, newcon);
+		/* accept copies the sk after we've saved the callbacks, so we
+		   don't want to save them a second time or comm errors will
+		   result in calling sk_error_report recursively. */
+		add_sock(newsock, newcon, false);
 		addcon = newcon;
 	}
 
@@ -1153,7 +1204,8 @@ static int sctp_accept_from_sock(struct connection *con)
 	}
 
 	make_sockaddr(&prim.ssp_addr, 0, &addr_len);
-	if (addr_to_nodeid(&prim.ssp_addr, &nodeid)) {
+	ret = addr_to_nodeid(&prim.ssp_addr, &nodeid);
+	if (ret) {
 		unsigned char *b = (unsigned char *)&prim.ssp_addr;
 
 		log_print("reject connect from unknown addr");
@@ -1192,7 +1244,7 @@ static int sctp_accept_from_sock(struct connection *con)
 			newcon->othercon = othercon;
 			othercon->sock = newsock;
 			newsock->sk->sk_user_data = othercon;
-			add_sock(newsock, othercon);
+			add_sock(newsock, othercon, false);
 			addcon = othercon;
 		} else {
 			printk("Extra connection from node %d attempted\n", nodeid);
@@ -1203,7 +1255,7 @@ static int sctp_accept_from_sock(struct connection *con)
 	} else {
 		newsock->sk->sk_user_data = newcon;
 		newcon->rx_action = receive_from_sock;
-		add_sock(newsock, newcon);
+		add_sock(newsock, newcon, false);
 		addcon = newcon;
 	}
 
@@ -1413,7 +1465,7 @@ static void sctp_connect_to_sock(struct connection *con)
 	sock->sk->sk_user_data = con;
 	con->rx_action = receive_from_sock;
 	con->connect_action = sctp_connect_to_sock;
-	add_sock(sock, con);
+	add_sock(sock, con, true);
 
 	/* Bind to all addresses. */
 	if (sctp_bind_addrs(con, 0))
@@ -1515,7 +1567,7 @@ static void tcp_connect_to_sock(struct connection *con)
 	sock->sk->sk_user_data = con;
 	con->rx_action = receive_from_sock;
 	con->connect_action = tcp_connect_to_sock;
-	add_sock(sock, con);
+	add_sock(sock, con, true);
 
 	/* Bind to our cluster-known address connecting to avoid
 	   routing problems */
@@ -1620,6 +1672,7 @@ static struct socket *tcp_create_listen_sock(struct connection *con,
 	con->rx_action = tcp_accept_from_sock;
 	con->connect_action = tcp_connect_to_sock;
 	con->sock = sock;
+
 	con->rx_action = tcp_accept_from_sock;
 	con->connect_action = tcp_connect_to_sock;
 
@@ -1667,10 +1720,9 @@ static void init_local(void)
 		if (dlm_our_addr(&sas, i))
 			break;
 
-		addr = kmalloc(sizeof(*addr), GFP_NOFS);
+		addr = kmemdup(&sas, sizeof(*addr), GFP_NOFS);
 		if (!addr)
 			break;
-		memcpy(addr, &sas, sizeof(*addr));
 		dlm_local_addr[dlm_local_count++] = addr;
 	}
 }
@@ -1752,6 +1804,7 @@ static int sctp_listen_for_all(void)
 	if (result < 0)
 		log_print("Could not set SCTP NODELAY error %d\n", result);
 
+	write_lock_bh(&sock->sk->sk_callback_lock);
 	/* Init con struct */
 	sock->sk->sk_user_data = con;
 	con->sock = sock;
@@ -1771,6 +1824,8 @@ static int sctp_listen_for_all(void)
 	}
 	con->rx_action = sctp_accept_from_sock;
 	con->connect_action = sctp_connect_to_sock;
+
+	write_unlock_bh(&sock->sk->sk_callback_lock);
 
 	/* Bind to all addresses. */
 	if (sctp_bind_addrs(con, dlm_config.ci_tcp_port))
@@ -1812,7 +1867,7 @@ static int tcp_listen_for_all(void)
 
 	sock = tcp_create_listen_sock(con, dlm_local_addr[0]);
 	if (sock) {
-		add_sock(sock, con);
+		add_sock(sock, con, true);
 		result = 0;
 	}
 	else {
@@ -1862,7 +1917,7 @@ void *dlm_lowcomms_get_buffer(int nodeid, int len, gfp_t allocation, char **ppc)
 	spin_lock(&con->writequeue_lock);
 	e = list_entry(con->writequeue.prev, struct writequeue_entry, list);
 	if ((&e->list == &con->writequeue) ||
-	    (PAGE_CACHE_SIZE - e->end < len)) {
+	    (PAGE_SIZE - e->end < len)) {
 		e = NULL;
 	} else {
 		offset = e->end;
@@ -2194,6 +2249,8 @@ void dlm_lowcomms_stop(void)
 	}
 	dlm_allow_conn = 0;
 	foreach_conn(stop_conn);
+	clean_writequeues();
+	foreach_conn(free_conn);
 	mutex_unlock(&connections_lock);
 
 	work_stop();

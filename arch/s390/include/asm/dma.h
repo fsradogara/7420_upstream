@@ -14,6 +14,7 @@
 #define free_dma(x)	do { } while (0)
 
 #endif /* _ASM_DMA_H */
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_S390_DMA_H
 #define _ASM_S390_DMA_H
 

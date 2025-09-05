@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *      Routines to indentify caches on Intel CPU.
  *
@@ -27,10 +28,11 @@
 #include <linux/cacheinfo.h>
 #include <linux/cpu.h>
 #include <linux/sched.h>
+#include <linux/capability.h>
 #include <linux/sysfs.h>
 #include <linux/pci.h>
 
-#include <asm/processor.h>
+#include <asm/cpufeature.h>
 #include <asm/amd_nb.h>
 #include <asm/smp.h>
 
@@ -212,6 +214,7 @@ struct _cpuid4_info_regs {
 	union _cpuid4_leaf_eax eax;
 	union _cpuid4_leaf_ebx ebx;
 	union _cpuid4_leaf_ecx ecx;
+	unsigned int id;
 	unsigned long size;
 	cpumask_t shared_cpu_map;	/* future?: only cpus/node is needed */
 };
@@ -566,7 +569,7 @@ static ssize_t store_cache_disable(struct cacheinfo *this_leaf,
 	err = amd_set_l3_disable_slot(nb, cpu, slot, val);
 	if (err) {
 		if (err == -EEXIST)
-			pr_warning("L3 slot %d in use/index already disabled!\n",
+			pr_warn("L3 slot %d in use/index already disabled!\n",
 				   slot);
 		return err;
 	}
@@ -713,7 +716,7 @@ cpuid4_cache_lookup_regs(int index, struct _cpuid4_info_regs *this_leaf)
 	unsigned		edx;
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD) {
-		if (cpu_has_topoext)
+		if (boot_cpu_has(X86_FEATURE_TOPOEXT))
 			cpuid_count(0x8000001d, index, &eax.full,
 				    &ebx.full, &ecx.full, &edx);
 		else
@@ -788,7 +791,7 @@ static int find_num_cache_leaves(struct cpuinfo_x86 *c)
 void init_amd_cacheinfo(struct cpuinfo_x86 *c)
 {
 
-	if (cpu_has_topoext) {
+	if (boot_cpu_has(X86_FEATURE_TOPOEXT)) {
 		num_cache_leaves = find_num_cache_leaves(c);
 	} else if (c->extended_cpuid_level >= 0x80000006) {
 		if (cpuid_edx(0x80000006) & 0xf000)
@@ -1028,10 +1031,26 @@ static int __cache_amd_cpumap_setup(unsigned int cpu, int index,
 	struct cacheinfo *this_leaf;
 	int i, sibling;
 
-	if (cpu_has_topoext) {
+	/*
+	 * For L3, always use the pre-calculated cpu_llc_shared_mask
+	 * to derive shared_cpu_map.
+	 */
+	if (index == 3) {
+		for_each_cpu(i, cpu_llc_shared_mask(cpu)) {
+			this_cpu_ci = get_cpu_cacheinfo(i);
+			if (!this_cpu_ci->info_list)
+				continue;
+			this_leaf = this_cpu_ci->info_list + index;
+			for_each_cpu(sibling, cpu_llc_shared_mask(cpu)) {
+				if (!cpu_online(sibling))
+					continue;
+				cpumask_set_cpu(sibling,
+						&this_leaf->shared_cpu_map);
+			}
+		}
+	} else if (boot_cpu_has(X86_FEATURE_TOPOEXT)) {
 		unsigned int apicid, nshared, first, last;
 
-		this_leaf = this_cpu_ci->info_list + index;
 		nshared = base->eax.split.num_threads_sharing + 1;
 		apicid = cpu_data(cpu).apicid;
 		first = apicid - (apicid % nshared);
@@ -1051,19 +1070,6 @@ static int __cache_amd_cpumap_setup(unsigned int cpu, int index,
 			for_each_online_cpu(sibling) {
 				apicid = cpu_data(sibling).apicid;
 				if ((apicid < first) || (apicid > last))
-					continue;
-				cpumask_set_cpu(sibling,
-						&this_leaf->shared_cpu_map);
-			}
-		}
-	} else if (index == 3) {
-		for_each_cpu(i, cpu_llc_shared_mask(cpu)) {
-			this_cpu_ci = get_cpu_cacheinfo(i);
-			if (!this_cpu_ci->info_list)
-				continue;
-			this_leaf = this_cpu_ci->info_list + index;
-			for_each_cpu(sibling, cpu_llc_shared_mask(cpu)) {
-				if (!cpu_online(sibling))
 					continue;
 				cpumask_set_cpu(sibling,
 						&this_leaf->shared_cpu_map);
@@ -1504,6 +1510,8 @@ device_initcall(cache_sysfs_init);
 static void ci_leaf_init(struct cacheinfo *this_leaf,
 			 struct _cpuid4_info_regs *base)
 {
+	this_leaf->id = base->id;
+	this_leaf->attributes = CACHE_ID;
 	this_leaf->level = base->eax.split.level;
 	this_leaf->type = cache_type_map[base->eax.split.type];
 	this_leaf->coherency_line_size =
@@ -1530,6 +1538,22 @@ static int __init_cache_level(unsigned int cpu)
 	return 0;
 }
 
+/*
+ * The max shared threads number comes from CPUID.4:EAX[25-14] with input
+ * ECX as cache index. Then right shift apicid by the number's order to get
+ * cache id for this cache node.
+ */
+static void get_cache_id(int cpu, struct _cpuid4_info_regs *id4_regs)
+{
+	struct cpuinfo_x86 *c = &cpu_data(cpu);
+	unsigned long num_threads_sharing;
+	int index_msb;
+
+	num_threads_sharing = 1 + id4_regs->eax.split.num_threads_sharing;
+	index_msb = get_count_order(num_threads_sharing);
+	id4_regs->id = c->apicid >> index_msb;
+}
+
 static int __populate_cache_leaves(unsigned int cpu)
 {
 	unsigned int idx, ret;
@@ -1541,9 +1565,12 @@ static int __populate_cache_leaves(unsigned int cpu)
 		ret = cpuid4_cache_lookup_regs(idx, &id4_regs);
 		if (ret)
 			return ret;
+		get_cache_id(cpu, &id4_regs);
 		ci_leaf_init(this_leaf++, &id4_regs);
 		__cache_cpumap_setup(cpu, idx, &id4_regs);
 	}
+	this_cpu_ci->cpu_map_populated = true;
+
 	return 0;
 }
 

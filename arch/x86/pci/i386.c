@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	Low-Level PCI Access for i386 machines
  *
@@ -37,6 +38,7 @@
 
 #include "pci.h"
 #include <asm/e820.h>
+#include <asm/e820/api.h>
 #include <asm/pci_x86.h>
 #include <asm/io_apic.h>
 
@@ -559,7 +561,7 @@ void __init pcibios_resource_survey(void)
 	list_for_each_entry(bus, &pci_root_buses, node)
 		pcibios_allocate_resources(bus, 1);
 
-	e820_reserve_resources_late();
+	e820__reserve_resources_late();
 	/*
 	 * Insert the IO APIC resources after PCI initialization has
 	 * occurred to handle IO APICS that are mapped in on a BAR in

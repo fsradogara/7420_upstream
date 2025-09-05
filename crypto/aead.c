@@ -33,6 +33,7 @@
 #include <linux/slab.h>
 #include <linux/seq_file.h>
 #include <linux/cryptouser.h>
+#include <linux/compiler.h>
 #include <net/netlink.h>
 
 #include "internal.h"
@@ -189,7 +190,7 @@ static int crypto_aead_report(struct sk_buff *skb, struct crypto_alg *alg)
 #endif
 
 static void crypto_aead_show(struct seq_file *m, struct crypto_alg *alg)
-	__attribute__ ((unused));
+	__maybe_unused;
 static void crypto_aead_show(struct seq_file *m, struct crypto_alg *alg)
 {
 	struct aead_alg *aead = &alg->cra_aead;
@@ -626,9 +627,9 @@ int aead_init_geniv(struct crypto_aead *aead)
 	if (err)
 		goto out;
 
-	ctx->null = crypto_get_default_null_skcipher();
-	err = PTR_ERR(ctx->null);
-	if (IS_ERR(ctx->null))
+	ctx->sknull = crypto_get_default_null_skcipher2();
+	err = PTR_ERR(ctx->sknull);
+	if (IS_ERR(ctx->sknull))
 		goto out;
 
 	child = crypto_spawn_aead(aead_instance_ctx(inst));
@@ -646,7 +647,7 @@ out:
 	return err;
 
 drop_null:
-	crypto_put_default_null_skcipher();
+	crypto_put_default_null_skcipher2();
 	goto out;
 }
 EXPORT_SYMBOL_GPL(aead_init_geniv);
@@ -656,7 +657,7 @@ void aead_exit_geniv(struct crypto_aead *tfm)
 	struct aead_geniv_ctx *ctx = crypto_aead_ctx(tfm);
 
 	crypto_free_aead(ctx->child);
-	crypto_put_default_null_skcipher();
+	crypto_put_default_null_skcipher2();
 }
 EXPORT_SYMBOL_GPL(aead_exit_geniv);
 
@@ -730,8 +731,12 @@ static int aead_prepare_alg(struct aead_alg *alg)
 {
 	struct crypto_alg *base = &alg->base;
 
-	if (max(alg->maxauthsize, alg->ivsize) > PAGE_SIZE / 8)
+	if (max3(alg->maxauthsize, alg->ivsize, alg->chunksize) >
+	    PAGE_SIZE / 8)
 		return -EINVAL;
+
+	if (!alg->chunksize)
+		alg->chunksize = base->cra_blocksize;
 
 	base->cra_type = &crypto_aead_type;
 	base->cra_flags &= ~CRYPTO_ALG_TYPE_MASK;

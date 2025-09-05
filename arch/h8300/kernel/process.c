@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/h8300/kernel/process.c
  *
@@ -25,6 +26,9 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
@@ -51,7 +55,7 @@
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/traps.h>
 #include <asm/setup.h>
 #include <asm/pgtable.h>

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Simple synchronous serial port driver for ETRAX 100LX.
  *
@@ -33,6 +34,7 @@
 #include <asm/arch/io_interface_mux.h>
 
 /* The receiver is a bit tricky beacuse of the continuous stream of data.*/
+#include <linux/sched/signal.h>
 #include <linux/interrupt.h>
 #include <linux/poll.h>
 #include <linux/init.h>
@@ -43,7 +45,7 @@
 #include <asm/dma.h>
 #include <asm/io.h>
 #include <arch/svinto.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/sync_serial.h>
 #include <arch/io_interface_mux.h>
 

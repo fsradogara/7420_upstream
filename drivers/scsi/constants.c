@@ -1,4 +1,5 @@
 /* 
+// SPDX-License-Identifier: GPL-2.0
 /*
  * ASCII values for a number of symbolic constants, printing functions,
  * etc.
@@ -552,7 +553,7 @@ EXPORT_SYMBOL(scsi_print_status);
 
 struct error_info {
 	unsigned short code12;	/* 0x0302 looks better than 0x03,0x02 */
-	const char * text;
+	unsigned short size;
 };
 
 /*
@@ -560,8 +561,13 @@ struct error_info {
  * http://www.t10.org/lists/asc-num.txt
  */
  * http://www.t10.org/lists/asc-num.txt [most recent: 20141221]
+ * There are 700+ entries in this table. To save space, we don't store
+ * (code, pointer) pairs, which would make sizeof(struct
+ * error_info)==16 on 64 bits. Rather, the second element just stores
+ * the size (including \0) of the corresponding string, and we use the
+ * sum of these to get the appropriate offset into additional_text
+ * defined below. This approach saves 12 bytes per entry.
  */
-
 static const struct error_info additional[] =
 {
 	{0x0000, "No additional sense information"},
@@ -1404,7 +1410,16 @@ static const struct error_info additional[] =
 	{0x7479, "Security conflict in translated device"},
 
 	{0, NULL}
+#define SENSE_CODE(c, s) {c, sizeof(s)},
+#include "sense_codes.h"
+#undef SENSE_CODE
 };
+
+static const char *additional_text =
+#define SENSE_CODE(c, s) s "\0"
+#include "sense_codes.h"
+#undef SENSE_CODE
+	;
 
 struct error_info2 {
 	unsigned char code1, code2_min, code2_max;
@@ -1470,6 +1485,9 @@ scsi_sense_key_string(unsigned char key) {
 		return snstext[key];
 #endif
 	if (key <= 0xE)
+scsi_sense_key_string(unsigned char key)
+{
+	if (key < ARRAY_SIZE(snstext))
 		return snstext[key];
 	return NULL;
 }
@@ -1498,11 +1516,14 @@ scsi_extd_sense_format(unsigned char asc, unsigned char ascq, const char **fmt)
 {
 	int i;
 	unsigned short code = ((asc << 8) | ascq);
+	unsigned offset = 0;
 
 	*fmt = NULL;
-	for (i = 0; additional[i].text; i++)
+	for (i = 0; i < ARRAY_SIZE(additional); i++) {
 		if (additional[i].code12 == code)
-			return additional[i].text;
+			return additional_text + offset;
+		offset += additional[i].size;
+	}
 	for (i = 0; additional2[i].fmt; i++) {
 		if (additional2[i].code1 == asc &&
 		    ascq >= additional2[i].code2_min &&

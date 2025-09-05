@@ -58,6 +58,8 @@ static inline int _dbg_level(unsigned l)
 #define DBG(level, fmt, args...) xprintk(level, KERN_DEBUG, fmt, ## args)
 
 extern const char *otg_state_string(struct musb *);
+void musb_dbg(struct musb *musb, const char *fmt, ...);
+
 #ifdef CONFIG_DEBUG_FS
 int musb_init_debugfs(struct musb *musb);
 void musb_exit_debugfs(struct musb *musb);

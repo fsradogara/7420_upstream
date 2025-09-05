@@ -33,7 +33,7 @@
 #include <linux/coredump.h>
 #include <linux/binfmts.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "spufs.h"
 
@@ -206,6 +206,7 @@ static int spufs_arch_write_note(struct spu_context *ctx, int i,
 	char *name;
 	char fullname[80], *buf;
 	struct elf_note en;
+	size_t skip;
 
 	buf = (void *)get_zeroed_page(GFP_KERNEL);
 	if (!buf)
@@ -276,9 +277,11 @@ int spufs_coredump_extra_notes_write(struct file *file, loff_t *foffset)
 	if (rc < 0)
 		goto out;
 
-	if (!dump_skip(cprm,
-		       roundup(cprm->written - total + sz, 4) - cprm->written))
+	skip = roundup(cprm->pos - total + sz, 4) - cprm->pos;
+	if (!dump_skip(cprm, skip))
 		goto Eio;
+
+	rc = 0;
 out:
 	free_page((unsigned long)buf);
 	return rc;

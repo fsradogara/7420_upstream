@@ -27,7 +27,7 @@
 #include <linux/init.h>
 #include <linux/gfp.h>
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/netdevice.h>
 #include <linux/isdn/capicmd.h>
 #include <linux/isdn/capiutil.h>
@@ -46,7 +46,7 @@ static char *revision = "$Revision: 1.1.2.2 $";
 static int suppress_pollack;
 static bool suppress_pollack;
 
-static struct pci_device_id c4_pci_tbl[] = {
+static const struct pci_device_id c4_pci_tbl[] = {
 	{ PCI_VENDOR_ID_DEC, PCI_DEVICE_ID_DEC_21285, PCI_VENDOR_ID_AVM, PCI_DEVICE_ID_AVM_C4, 0, 0, (unsigned long)4 },
 	{ PCI_VENDOR_ID_DEC, PCI_DEVICE_ID_DEC_21285, PCI_VENDOR_ID_AVM, PCI_DEVICE_ID_AVM_C2, 0, 0, (unsigned long)2 },
 	{ }			/* Terminating entry */
@@ -665,8 +665,8 @@ static void c4_handle_rx(avmcard *card)
 			printk(KERN_ERR "%s: incoming packet dropped\n",
 			       card->name);
 		} else {
-			memcpy(skb_put(skb, MsgLen), card->msgbuf, MsgLen);
-			memcpy(skb_put(skb, DataB3Len), card->databuf, DataB3Len);
+			skb_put_data(skb, card->msgbuf, MsgLen);
+			skb_put_data(skb, card->databuf, DataB3Len);
 			capi_ctr_handle_message(ctrl, ApplId, skb);
 		}
 		break;
@@ -685,7 +685,7 @@ static void c4_handle_rx(avmcard *card)
 					card->name);
 			       card->name);
 		} else {
-			memcpy(skb_put(skb, MsgLen), card->msgbuf, MsgLen);
+			skb_put_data(skb, card->msgbuf, MsgLen);
 			if (CAPIMSG_CMD(skb->data) == CAPI_DATA_B3_CONF)
 				capilib_data_b3_conf(&cinfo->ncci_head, ApplId,
 						     CAPIMSG_NCCI(skb->data),

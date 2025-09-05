@@ -58,12 +58,15 @@ static struct xt_table packet_filter = {
 	.lock		= __RW_LOCK_UNLOCKED(packet_filter.lock),
 	.me		= THIS_MODULE,
 	.af		= AF_INET6,
+static int __net_init ip6table_filter_table_init(struct net *net);
+
 static const struct xt_table packet_filter = {
 	.name		= "filter",
 	.valid_hooks	= FILTER_VALID_HOOKS,
 	.me		= THIS_MODULE,
 	.af		= NFPROTO_IPV6,
 	.priority	= NF_IP6_PRI_FILTER,
+	.table_init	= ip6table_filter_table_init,
 };
 
 /* The work comes in here from netfilter.c. */
@@ -148,7 +151,7 @@ static struct nf_hook_ops *filter_ops __read_mostly;
 static bool forward = true;
 module_param(forward, bool, 0000);
 
-static int __net_init ip6table_filter_net_init(struct net *net)
+static int __net_init ip6table_filter_table_init(struct net *net)
 {
 	/* Register table */
 	net->ipv6.ip6table_filter =
@@ -157,6 +160,10 @@ static int __net_init ip6table_filter_net_init(struct net *net)
 		return PTR_ERR(net->ipv6.ip6table_filter);
 	return 0;
 	struct ip6t_replace *repl;
+	int err;
+
+	if (net->ipv6.ip6table_filter)
+		return 0;
 
 	repl = ip6t_alloc_initial_table(&packet_filter);
 	if (repl == NULL)
@@ -165,16 +172,28 @@ static int __net_init ip6table_filter_net_init(struct net *net)
 	((struct ip6t_standard *)repl->entries)[1].target.verdict =
 		forward ? -NF_ACCEPT - 1 : -NF_DROP - 1;
 
-	net->ipv6.ip6table_filter =
-		ip6t_register_table(net, &packet_filter, repl);
+	err = ip6t_register_table(net, &packet_filter, repl, filter_ops,
+				  &net->ipv6.ip6table_filter);
 	kfree(repl);
-	return PTR_ERR_OR_ZERO(net->ipv6.ip6table_filter);
+	return err;
+}
+
+static int __net_init ip6table_filter_net_init(struct net *net)
+{
+	if (net == &init_net || !forward)
+		return ip6table_filter_table_init(net);
+
+	return 0;
 }
 
 static void __net_exit ip6table_filter_net_exit(struct net *net)
 {
 	ip6t_unregister_table(net->ipv6.ip6table_filter);
 	ip6t_unregister_table(net, net->ipv6.ip6table_filter);
+	if (!net->ipv6.ip6table_filter)
+		return;
+	ip6t_unregister_table(net, net->ipv6.ip6table_filter, filter_ops);
+	net->ipv6.ip6table_filter = NULL;
 }
 
 static struct pernet_operations ip6table_filter_net_ops = {
@@ -193,10 +212,13 @@ static int __init ip6table_filter_init(void)
 
 	/* Entry 1 is the FORWARD hook */
 	initial_table.entries[1].target.verdict = -forward - 1;
+	filter_ops = xt_hook_ops_alloc(&packet_filter, ip6table_filter_hook);
+	if (IS_ERR(filter_ops))
+		return PTR_ERR(filter_ops);
 
 	ret = register_pernet_subsys(&ip6table_filter_net_ops);
 	if (ret < 0)
-		return ret;
+		kfree(filter_ops);
 
 	/* Register hooks */
 	ret = nf_register_hooks(ip6t_ops, ARRAY_SIZE(ip6t_ops));
@@ -220,6 +242,7 @@ static void __exit ip6table_filter_fini(void)
 	nf_unregister_hooks(ip6t_ops, ARRAY_SIZE(ip6t_ops));
 	xt_hook_unlink(&packet_filter, filter_ops);
 	unregister_pernet_subsys(&ip6table_filter_net_ops);
+	kfree(filter_ops);
 }
 
 module_init(ip6table_filter_init);

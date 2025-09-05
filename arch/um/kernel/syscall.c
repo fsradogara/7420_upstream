@@ -68,7 +68,7 @@ long sys_mmap2(unsigned long addr, unsigned long len,
 #include <linux/syscalls.h>
 #include <asm/current.h>
 #include <asm/mman.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/unistd.h>
 
 long old_mmap(unsigned long addr, unsigned long len,

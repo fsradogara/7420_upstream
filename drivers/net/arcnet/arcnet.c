@@ -58,6 +58,7 @@
 #include <linux/jiffies.h>
 
 #include <linux/jiffies.h>
+#include <linux/errqueue.h>
 
 #include <linux/leds.h>
 
@@ -174,7 +175,7 @@ static int __init arcnet_init(void)
 		sizeof(struct arc_rfc1051), sizeof(struct arc_eth_encap),
 		   sizeof(struct archdr));
 	if (BUGLVL(D_DURING))
-		pr_info("struct sizes: %Zd %Zd %Zd %Zd %Zd\n",
+		pr_info("struct sizes: %zd %zd %zd %zd %zd\n",
 			sizeof(struct arc_hardware),
 			sizeof(struct arc_rfc1201),
 			sizeof(struct arc_rfc1051),
@@ -551,6 +552,52 @@ static void arcnet_timer(unsigned long data)
 	}
 }
 
+static void arcnet_reply_tasklet(unsigned long data)
+{
+	struct arcnet_local *lp = (struct arcnet_local *)data;
+
+	struct sk_buff *ackskb, *skb;
+	struct sock_exterr_skb *serr;
+	struct sock *sk;
+	int ret;
+
+	local_irq_disable();
+	skb = lp->outgoing.skb;
+	if (!skb || !skb->sk) {
+		local_irq_enable();
+		return;
+	}
+
+	sock_hold(skb->sk);
+	sk = skb->sk;
+	ackskb = skb_clone_sk(skb);
+	sock_put(skb->sk);
+
+	if (!ackskb) {
+		local_irq_enable();
+		return;
+	}
+
+	serr = SKB_EXT_ERR(ackskb);
+	memset(serr, 0, sizeof(*serr));
+	serr->ee.ee_errno = ENOMSG;
+	serr->ee.ee_origin = SO_EE_ORIGIN_TXSTATUS;
+	serr->ee.ee_data = skb_shinfo(skb)->tskey;
+	serr->ee.ee_info = lp->reply_status;
+
+	/* finally erasing outgoing skb */
+	dev_kfree_skb(lp->outgoing.skb);
+	lp->outgoing.skb = NULL;
+
+	ackskb->dev = lp->dev;
+
+	ret = sock_queue_err_skb(sk, ackskb);
+	if (ret)
+		kfree_skb(ackskb);
+
+	local_irq_enable();
+};
+
 struct net_device *alloc_arcdev(const char *name)
 {
 	struct net_device *dev;
@@ -565,6 +612,7 @@ struct net_device *alloc_arcdev(const char *name)
 	if (dev) {
 		struct arcnet_local *lp = netdev_priv(dev);
 
+		lp->dev = dev;
 		spin_lock_init(&lp->lock);
 		init_timer(&lp->timer);
 		lp->timer.data = (unsigned long) dev;
@@ -619,6 +667,9 @@ int arcnet_open(struct net_device *dev)
 			arc_cont(D_PROTO, "%c", arc_proto_map[count]->suffix);
 		arc_cont(D_PROTO, "\n");
 	}
+
+	tasklet_init(&lp->reply_tasklet, arcnet_reply_tasklet,
+		     (unsigned long)lp);
 
 	arc_printk(D_INIT, dev, "arcnet_open: resetting card.\n");
 
@@ -748,6 +799,8 @@ int arcnet_close(struct net_device *dev)
 
 	netif_stop_queue(dev);
 	netif_carrier_off(dev);
+
+	tasklet_kill(&lp->reply_tasklet);
 
 	/* flush TX and disable RX */
 	lp->hw.intmask(dev, 0);
@@ -980,6 +1033,7 @@ netdev_tx_t arcnet_send_packet(struct sk_buff *skb,
 		txbuf = -1;
 
 	if (txbuf != -1) {
+		lp->outgoing.skb = skb;
 		if (proto->prepare_tx(dev, pkt, skb->len, txbuf) &&
 		    !proto->ack_tx) {
 			/* done right away and we don't want to acknowledge
@@ -989,7 +1043,6 @@ netdev_tx_t arcnet_send_packet(struct sk_buff *skb,
 			 *  the package later - forget about it now
 			 */
 			dev->stats.tx_bytes += skb->len;
-			dev_kfree_skb(skb);
 		} else {
 			/* do it the 'split' way */
 			lp->outgoing.proto = proto;
@@ -1179,6 +1232,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 	struct net_device *dev = dev_id;
 	struct arcnet_local *lp;
 	int recbuf, status, diagstatus, didsomething, boguscount;
+	unsigned long flags;
 	int retval = IRQ_NONE;
 
 	BUGMSG(D_DURING, "\n");
@@ -1229,7 +1283,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 	lp = netdev_priv(dev);
 	BUG_ON(!lp);
 
-	spin_lock(&lp->lock);
+	spin_lock_irqsave(&lp->lock, flags);
 
 	/* RESET flag was enabled - if device is not running, we must
 	 * clear it right away (but nothing else).
@@ -1238,7 +1292,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 		if (lp->hw.status(dev) & RESETflag)
 			lp->hw.command(dev, CFLAGScmd | RESETclear);
 		lp->hw.intmask(dev, 0);
-		spin_unlock(&lp->lock);
+		spin_unlock_irqrestore(&lp->lock, flags);
 		return retval;
 	}
 
@@ -1355,7 +1409,15 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 
 		/* a transmit finished, and we're interested in it. */
 		if ((status & lp->intmask & TXFREEflag) || lp->timed_out) {
+			int ackstatus;
 			lp->intmask &= ~(TXFREEflag | EXCNAKflag);
+
+			if (status & TXACKflag)
+				ackstatus = 2;
+			else if (lp->excnak_pending)
+				ackstatus = 1;
+			else
+				ackstatus = 0;
 
 			arc_printk(D_DURING, dev, "TX IRQ (stat=%Xh)\n",
 				   status);
@@ -1401,6 +1463,8 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 					lp->outgoing.proto
 						->ack_tx(dev, ackstatus);
 				}
+				lp->reply_status = ackstatus;
+				tasklet_hi_schedule(&lp->reply_tasklet);
 			}
 			if (lp->cur_tx != -1)
 				release_arcbuf(dev, lp->cur_tx);
@@ -1589,7 +1653,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id)
 	udelay(1);
 	lp->hw.intmask(dev, lp->intmask);
 
-	spin_unlock(&lp->lock);
+	spin_unlock_irqrestore(&lp->lock, flags);
 	return retval;
 }
 EXPORT_SYMBOL(arcnet_interrupt);

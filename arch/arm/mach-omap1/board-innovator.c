@@ -62,7 +62,7 @@ static int innovator_keymap[] = {
 #include <asm/mach/map.h>
 
 #include <mach/mux.h>
-#include <mach/flash.h>
+#include "flash.h"
 #include <mach/tc.h>
 #include <linux/platform_data/keypad-omap.h>
 
@@ -413,7 +413,7 @@ static struct omap_usb_config h2_usb_config __initdata = {
 #if IS_ENABLED(CONFIG_USB_OMAP)
 	.hmc_mode	= 19,	/* 0:host(off) 1:dev|otg 2:disabled */
 	/* .hmc_mode	= 21,*/	/* 0:host(off) 1:dev(loopback) 2:host(loopback) */
-#elif	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
+#elif	IS_ENABLED(CONFIG_USB_OHCI_HCD)
 	/* NONSTANDARD CABLE NEEDED (B-to-Mini-B) */
 	.hmc_mode	= 20,	/* 1:dev|otg(off) 1:host 2:disabled */
 #endif
@@ -452,6 +452,7 @@ static void __init innovator_init(void)
 #ifdef CONFIG_ARCH_OMAP15XX
 	if (cpu_is_omap1510()) {
 #if defined(CONFIG_MMC_OMAP) || defined(CONFIG_MMC_OMAP_MODULE)
+#if IS_ENABLED(CONFIG_MMC_OMAP)
 
 static int mmc_set_power(struct device *dev, int slot, int power_on,
 				int vdd)

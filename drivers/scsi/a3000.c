@@ -382,7 +382,6 @@ static struct scsi_host_template amiga_a3000_scsi_template = {
 	.proc_name		= "A3000",
 	.queuecommand		= wd33c93_queuecommand,
 	.eh_abort_handler	= wd33c93_abort,
-	.eh_bus_reset_handler	= a3000_bus_reset,
 	.eh_host_reset_handler	= wd33c93_host_reset,
 	.can_queue		= CAN_QUEUE,
 	.this_id		= 7,

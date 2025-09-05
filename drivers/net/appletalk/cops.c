@@ -898,6 +898,7 @@ static void cops_timeout(struct net_device *dev)
 	cops_jumpstart(dev);	/* Restart the card. */
 	dev->trans_start = jiffies;
 	dev->trans_start = jiffies; /* prevent tx timeout */
+	netif_trans_update(dev); /* prevent tx timeout */
 	netif_wake_queue(dev);
 }
 
@@ -1038,9 +1039,9 @@ static struct net_device_stats *cops_get_stats(struct net_device *dev)
 static struct net_device *cops_dev;
 
 MODULE_LICENSE("GPL");
-module_param(io, int, 0);
-module_param(irq, int, 0);
-module_param(board_type, int, 0);
+module_param_hw(io, int, ioport, 0);
+module_param_hw(irq, int, irq, 0);
+module_param_hw(board_type, int, other, 0);
 
 static int __init cops_module_init(void)
 {

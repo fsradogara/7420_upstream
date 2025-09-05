@@ -20,7 +20,7 @@
  *
  */
 
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/kvm_host.h>
 
 #include "irq.h"
@@ -40,6 +40,10 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 	return ret;
 	return apic_has_pending_timer(vcpu);
+	if (lapic_in_kernel(vcpu))
+		return apic_has_pending_timer(vcpu);
+
+	return 0;
 }
 EXPORT_SYMBOL(kvm_cpu_has_pending_timer);
 
@@ -63,7 +67,7 @@ static int kvm_cpu_has_extint(struct kvm_vcpu *v)
 		if (irqchip_split(v->kvm))
 			return pending_userspace_extint(v);
 		else
-			return pic_irqchip(v->kvm)->output;
+			return v->kvm->arch.vpic->output;
 	} else
 		return 0;
 }
@@ -82,7 +86,7 @@ int kvm_cpu_has_injectable_intr(struct kvm_vcpu *v)
 	if (kvm_cpu_has_extint(v))
 		return 1;
 
-	if (kvm_vcpu_apic_vid_enabled(v))
+	if (kvm_vcpu_apicv_active(v))
 		return 0;
 
 	return kvm_apic_has_interrupt(v) != -1; /* LAPIC */
@@ -168,6 +172,8 @@ void kvm_inject_pending_timer_irqs(struct kvm_vcpu *vcpu)
 	kvm_inject_apic_timer_irqs(vcpu);
 	kvm_inject_pit_timer_irqs(vcpu);
 	/* TODO: PIT, RTC etc. */
+	if (lapic_in_kernel(vcpu))
+		kvm_inject_apic_timer_irqs(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_inject_pending_timer_irqs);
 

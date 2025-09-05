@@ -33,6 +33,7 @@
 #include <linux/notifier.h>
 #include <linux/smp.h>
 #include <linux/compiler.h>	/* for __kprobes */
+#include <linux/compiler.h>
 #include <linux/linkage.h>
 #include <linux/list.h>
 #include <linux/notifier.h>
@@ -43,9 +44,9 @@
 #include <linux/rcupdate.h>
 #include <linux/mutex.h>
 #include <linux/ftrace.h>
+#include <asm/kprobes.h>
 
 #ifdef CONFIG_KPROBES
-#include <asm/kprobes.h>
 
 /* kprobe_status settings */
 #define KPROBE_HIT_ACTIVE	0x00000001
@@ -56,6 +57,7 @@
 /* Attach to insert probes on any functions which should be ignored*/
 #define __kprobes	__attribute__((__section__(".kprobes.text")))
 #else /* CONFIG_KPROBES */
+#include <asm-generic/kprobes.h>
 typedef int kprobe_opcode_t;
 struct arch_specific_insn {
 	int dummy;
@@ -310,6 +312,8 @@ extern void free_insn_slot(kprobe_opcode_t *slot, int dirty);
 extern void kprobes_inc_nmissed_count(struct kprobe *p);
 extern void kprobes_inc_nmissed_count(struct kprobe *p);
 extern bool arch_within_kprobe_blacklist(unsigned long addr);
+extern bool arch_kprobe_on_func_entry(unsigned long offset);
+extern bool kprobe_on_func_entry(kprobe_opcode_t *addr, const char *sym, unsigned long offset);
 
 extern bool within_kprobe_blacklist(unsigned long addr);
 
@@ -322,9 +326,13 @@ struct kprobe_insn_cache {
 	int nr_garbage;
 };
 
+#ifdef __ARCH_WANT_KPROBES_INSN_SLOT
 extern kprobe_opcode_t *__get_insn_slot(struct kprobe_insn_cache *c);
 extern void __free_insn_slot(struct kprobe_insn_cache *c,
 			     kprobe_opcode_t *slot, int dirty);
+/* sleep-less address checking routine  */
+extern bool __is_insn_slot_addr(struct kprobe_insn_cache *c,
+				unsigned long addr);
 
 #define DEFINE_INSN_CACHE_OPS(__name)					\
 extern struct kprobe_insn_cache kprobe_##__name##_slots;		\
@@ -338,6 +346,18 @@ static inline void free_##__name##_slot(kprobe_opcode_t *slot, int dirty)\
 {									\
 	__free_insn_slot(&kprobe_##__name##_slots, slot, dirty);	\
 }									\
+									\
+static inline bool is_kprobe_##__name##_slot(unsigned long addr)	\
+{									\
+	return __is_insn_slot_addr(&kprobe_##__name##_slots, addr);	\
+}
+#else /* __ARCH_WANT_KPROBES_INSN_SLOT */
+#define DEFINE_INSN_CACHE_OPS(__name)					\
+static inline bool is_kprobe_##__name##_slot(unsigned long addr)	\
+{									\
+	return 0;							\
+}
+#endif
 
 DEFINE_INSN_CACHE_OPS(insn);
 
@@ -374,7 +394,9 @@ extern int proc_kprobes_optimization_handler(struct ctl_table *table,
 					     int write, void __user *buffer,
 					     size_t *length, loff_t *ppos);
 #endif
-
+extern void wait_for_kprobe_optimizer(void);
+#else
+static inline void wait_for_kprobe_optimizer(void) { }
 #endif /* CONFIG_OPTPROBES */
 #ifdef CONFIG_KPROBES_ON_FTRACE
 extern void kprobe_ftrace_handler(unsigned long ip, unsigned long parent_ip,
@@ -410,6 +432,7 @@ static inline struct kprobe_ctlblk *get_kprobe_ctlblk(void)
 	return this_cpu_ptr(&kprobe_ctlblk);
 }
 
+kprobe_opcode_t *kprobe_lookup_name(const char *name, unsigned int offset);
 int register_kprobe(struct kprobe *p);
 void unregister_kprobe(struct kprobe *p);
 int register_kprobes(struct kprobe **kps, int num);
@@ -536,18 +559,17 @@ static inline int enable_jprobe(struct jprobe *jp)
 	return enable_kprobe(&jp->kp);
 }
 
-#ifdef CONFIG_KPROBES
-/*
- * Blacklist ganerating macro. Specify functions which is not probed
- * by using this macro.
- */
-#define __NOKPROBE_SYMBOL(fname)			\
-static unsigned long __used				\
-	__attribute__((section("_kprobe_blacklist")))	\
-	_kbl_addr_##fname = (unsigned long)fname;
-#define NOKPROBE_SYMBOL(fname)	__NOKPROBE_SYMBOL(fname)
-#else
-#define NOKPROBE_SYMBOL(fname)
+#ifndef CONFIG_KPROBES
+static inline bool is_kprobe_insn_slot(unsigned long addr)
+{
+	return false;
+}
+#endif
+#ifndef CONFIG_OPTPROBES
+static inline bool is_kprobe_optinsn_slot(unsigned long addr)
+{
+	return false;
+}
 #endif
 
 #endif /* _LINUX_KPROBES_H */

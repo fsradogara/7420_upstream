@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __CPM_H
 #define __CPM_H
 
@@ -7,6 +8,7 @@
 
 #include <linux/errno.h>
 #include <linux/of.h>
+#include <soc/fsl/qe/qe.h>
 
 /*
  * SPI Parameter RAM common to QE and CPM.

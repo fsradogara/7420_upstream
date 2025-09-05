@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __NET_TC_IPT_H
 #define __NET_TC_IPT_H
 
@@ -6,7 +7,7 @@
 struct xt_entry_target;
 
 struct tcf_ipt {
-	struct tcf_common	common;
+	struct tc_action	common;
 	u32			tcfi_hook;
 	char			*tcfi_tname;
 	struct xt_entry_target	*tcfi_t;
@@ -15,5 +16,6 @@ struct tcf_ipt {
 	container_of(pc, struct tcf_ipt, common)
 #define to_ipt(a) \
 	container_of(a->priv, struct tcf_ipt, common)
+#define to_ipt(a) ((struct tcf_ipt *)a)
 
 #endif /* __NET_TC_IPT_H */

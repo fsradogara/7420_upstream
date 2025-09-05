@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * mmconfig.c - Low-level direct PCI config space access via MMCONFIG
  *
@@ -46,7 +47,7 @@ static char __iomem *pci_dev_base(unsigned int seg, unsigned int bus, unsigned i
 		return NULL;
  	return addr + ((bus << 20) | (devfn << 12));
 #include <linux/rcupdate.h>
-#include <asm/e820.h>
+#include <asm/e820/api.h>
 #include <asm/pci_x86.h>
 
 #define PREFIX "PCI: "

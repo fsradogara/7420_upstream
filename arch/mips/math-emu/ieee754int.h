@@ -108,6 +108,10 @@
 
 #define CLPAIR(x, y)	((x)*6+(y))
 
+enum maddf_flags {
+	MADDF_NEGATE_PRODUCT	= 1 << 0,
+};
+
 static inline void ieee754_clearcx(void)
 {
 	ieee754_csr.cx = 0;
@@ -137,6 +141,9 @@ static inline int ieee754_class_nan(int xc)
 #define COMPYSP \
 	unsigned ym; int ye; int ys; int yc
 
+#define COMPZSP \
+	unsigned zm; int ze; int zs; int zc
+
 #define EXPLODESP(v, vc, vs, ve, vm)					\
 {									\
 	vs = SPSIGN(v);							\
@@ -145,10 +152,10 @@ static inline int ieee754_class_nan(int xc)
 	if (ve == SP_EMAX+1+SP_EBIAS) {					\
 		if (vm == 0)						\
 			vc = IEEE754_CLASS_INF;				\
-		else if (vm & SP_MBIT(SP_FBITS-1))			\
-			vc = IEEE754_CLASS_SNAN;			\
-		else							\
+		else if (ieee754_csr.nan2008 ^ !(vm & SP_MBIT(SP_FBITS - 1))) \
 			vc = IEEE754_CLASS_QNAN;			\
+		else							\
+			vc = IEEE754_CLASS_SNAN;			\
 	} else if (ve == SP_EMIN-1+SP_EBIAS) {				\
 		if (vm) {						\
 			ve = SP_EMIN;					\
@@ -163,6 +170,7 @@ static inline int ieee754_class_nan(int xc)
 }
 #define EXPLODEXSP EXPLODESP(x, xc, xs, xe, xm)
 #define EXPLODEYSP EXPLODESP(y, yc, ys, ye, ym)
+#define EXPLODEZSP EXPLODESP(z, zc, zs, ze, zm)
 
 
 #define COMPXDP \
@@ -199,6 +207,9 @@ u64 ym; int ye; int ys; int yc
 #define COMPYDP \
 	u64 ym; int ye; int ys; int yc
 
+#define COMPZDP \
+	u64 zm; int ze; int zs; int zc
+
 #define EXPLODEDP(v, vc, vs, ve, vm)					\
 {									\
 	vm = DPMANT(v);							\
@@ -207,10 +218,10 @@ u64 ym; int ye; int ys; int yc
 	if (ve == DP_EMAX+1+DP_EBIAS) {					\
 		if (vm == 0)						\
 			vc = IEEE754_CLASS_INF;				\
-		else if (vm & DP_MBIT(DP_FBITS-1))			\
-			vc = IEEE754_CLASS_SNAN;			\
-		else							\
+		else if (ieee754_csr.nan2008 ^ !(vm & DP_MBIT(DP_FBITS - 1))) \
 			vc = IEEE754_CLASS_QNAN;			\
+		else							\
+			vc = IEEE754_CLASS_SNAN;			\
 	} else if (ve == DP_EMIN-1+DP_EBIAS) {				\
 		if (vm) {						\
 			ve = DP_EMIN;					\
@@ -225,6 +236,7 @@ u64 ym; int ye; int ys; int yc
 }
 #define EXPLODEXDP EXPLODEDP(x, xc, xs, xe, xm)
 #define EXPLODEYDP EXPLODEDP(y, yc, ys, ye, ym)
+#define EXPLODEZDP EXPLODEDP(z, zc, zs, ze, zm)
 
 #define FLUSHDP(v, vc, vs, ve, vm) \
 	if(vc==IEEE754_CLASS_DNORM) {\
@@ -270,7 +282,9 @@ u64 ym; int ye; int ys; int yc
 
 #define FLUSHXDP FLUSHDP(x, xc, xs, xe, xm)
 #define FLUSHYDP FLUSHDP(y, yc, ys, ye, ym)
+#define FLUSHZDP FLUSHDP(z, zc, zs, ze, zm)
 #define FLUSHXSP FLUSHSP(x, xc, xs, xe, xm)
 #define FLUSHYSP FLUSHSP(y, yc, ys, ye, ym)
+#define FLUSHZSP FLUSHSP(z, zc, zs, ze, zm)
 
 #endif /* __IEEE754INT_H  */

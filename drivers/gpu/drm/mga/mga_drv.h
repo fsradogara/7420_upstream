@@ -162,6 +162,8 @@ extern int mga_dma_bootstrap(struct drm_device *dev, void *data,
 			     struct drm_file *file_priv);
 extern int mga_dma_init(struct drm_device *dev, void *data,
 			struct drm_file *file_priv);
+extern int mga_getparam(struct drm_device *dev, void *data,
+			struct drm_file *file_priv);
 extern int mga_dma_flush(struct drm_device *dev, void *data,
 			 struct drm_file *file_priv);
 extern int mga_dma_reset(struct drm_device *dev, void *data,
@@ -222,6 +224,7 @@ static inline u32 _MGA_READ(u32 * addr)
 #define MGA_WRITE( reg, val )	DRM_WRITE32(dev_priv->mmio, (reg), (val))
 #endif
 extern int mga_driver_unload(struct drm_device *dev);
+extern void mga_driver_unload(struct drm_device *dev);
 extern void mga_driver_lastclose(struct drm_device *dev);
 extern int mga_driver_dma_quiescent(struct drm_device *dev);
 
@@ -355,7 +358,7 @@ do {									\
 do {									\
 	if (MGA_VERBOSE) {						\
 		DRM_INFO("BEGIN_DMA(%d)\n", (n));			\
-		DRM_INFO("   space=0x%x req=0x%Zx\n",			\
+		DRM_INFO("   space=0x%x req=0x%zx\n",			\
 			 dev_priv->prim.space, (n) * DMA_BLOCK_SIZE);	\
 	}								\
 	prim = dev_priv->prim.start;					\
@@ -442,7 +445,7 @@ do {									\
 #define DMA_WRITE(offset, val)						\
 do {									\
 	if (MGA_VERBOSE)						\
-		DRM_INFO("   DMA_WRITE( 0x%08x ) at 0x%04Zx\n",		\
+		DRM_INFO("   DMA_WRITE( 0x%08x ) at 0x%04zx\n",		\
 			 (u32)(val), write + (offset) * sizeof(u32));	\
 	*(volatile u32 *)(prim + write + (offset) * sizeof(u32)) = val;	\
 } while (0)

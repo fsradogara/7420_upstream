@@ -192,7 +192,11 @@ ENTRY(printascii)
 		mov	r1, r0
 		mov	r0, #0x04		@ SYS_WRITE0
 	ARM(	svc	#0x123456	)
+#ifdef CONFIG_CPU_V7M
+	THUMB(	bkpt	#0xab		)
+#else
 	THUMB(	svc	#0xab		)
+#endif
 		ret	lr
 ENDPROC(printascii)
 
@@ -201,7 +205,11 @@ ENTRY(printch)
 		strb	r0, [r1]
 		mov	r0, #0x03		@ SYS_WRITEC
 	ARM(	svc	#0x123456	)
+#ifdef CONFIG_CPU_V7M
+	THUMB(	bkpt	#0xab		)
+#else
 	THUMB(	svc	#0xab		)
+#endif
 		ret	lr
 ENDPROC(printch)
 

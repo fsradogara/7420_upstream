@@ -22,22 +22,19 @@
 #include <linux/edac.h>
 #include <linux/smp.h>
 #include <linux/gfp.h>
+#include <linux/fsl/edac.h>
 
 #include <linux/of_platform.h>
 #include <linux/of_device.h>
 #include "edac_module.h"
-#include "edac_core.h"
 #include "mpc85xx_edac.h"
+#include "fsl_ddr_edac.h"
 
 static int edac_dev_idx;
 static int edac_pci_idx;
 #ifdef CONFIG_PCI
 static int edac_pci_idx;
 #endif
-static int edac_mc_idx;
-
-static u32 orig_ddr_err_disable;
-static u32 orig_ddr_err_sbe;
 
 /*
  * PCI Err defines
@@ -216,18 +213,18 @@ static void mpc85xx_pci_check(struct edac_pci_ctl_info *pci)
 		return;
 	}
 
-	printk(KERN_ERR "PCI error(s) detected\n");
-	printk(KERN_ERR "PCI/X ERR_DR register: %#08x\n", err_detect);
+	pr_err("PCI error(s) detected\n");
+	pr_err("PCI/X ERR_DR register: %#08x\n", err_detect);
 
-	printk(KERN_ERR "PCI/X ERR_ATTRIB register: %#08x\n",
+	pr_err("PCI/X ERR_ATTRIB register: %#08x\n",
 	       in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_ATTRIB));
-	printk(KERN_ERR "PCI/X ERR_ADDR register: %#08x\n",
+	pr_err("PCI/X ERR_ADDR register: %#08x\n",
 	       in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_ADDR));
-	printk(KERN_ERR "PCI/X ERR_EXT_ADDR register: %#08x\n",
+	pr_err("PCI/X ERR_EXT_ADDR register: %#08x\n",
 	       in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_EXT_ADDR));
-	printk(KERN_ERR "PCI/X ERR_DL register: %#08x\n",
+	pr_err("PCI/X ERR_DL register: %#08x\n",
 	       in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_DL));
-	printk(KERN_ERR "PCI/X ERR_DH register: %#08x\n",
+	pr_err("PCI/X ERR_DH register: %#08x\n",
 	       in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_DH));
 
 	/* clear error bits */
@@ -243,14 +240,14 @@ static void mpc85xx_pci_check(struct edac_pci_ctl_info *pci)
 static void mpc85xx_pcie_check(struct edac_pci_ctl_info *pci)
 {
 	struct mpc85xx_pci_pdata *pdata = pci->pvt_info;
-	u32 err_detect;
+	u32 err_detect, err_cap_stat;
 
 	err_detect = in_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_DR);
+	err_cap_stat = in_be32(pdata->pci_vbase + MPC85XX_PCI_GAS_TIMR);
 
 	pr_err("PCIe error(s) detected\n");
 	pr_err("PCIe ERR_DR register: 0x%08x\n", err_detect);
-	pr_err("PCIe ERR_CAP_STAT register: 0x%08x\n",
-			in_be32(pdata->pci_vbase + MPC85XX_PCI_GAS_TIMR));
+	pr_err("PCIe ERR_CAP_STAT register: 0x%08x\n", err_cap_stat);
 	pr_err("PCIe ERR_CAP_R0 register: 0x%08x\n",
 			in_be32(pdata->pci_vbase + MPC85XX_PCIE_ERR_CAP_R0));
 	pr_err("PCIe ERR_CAP_R1 register: 0x%08x\n",
@@ -262,6 +259,9 @@ static void mpc85xx_pcie_check(struct edac_pci_ctl_info *pci)
 
 	/* clear error bits */
 	out_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_DR, err_detect);
+
+	/* reset error capture */
+	out_be32(pdata->pci_vbase + MPC85XX_PCI_GAS_TIMR, err_cap_stat | 0x1);
 }
 
 static int mpc85xx_pcie_find_capability(struct device_node *np)
@@ -299,9 +299,12 @@ static irqreturn_t mpc85xx_pci_isr(int irq, void *dev_id)
 static int __devinit mpc85xx_pci_err_probe(struct of_device *op,
 					   const struct of_device_id *match)
 int mpc85xx_pci_err_probe(struct platform_device *op)
+static int mpc85xx_pci_err_probe(struct platform_device *op)
 {
 	struct edac_pci_ctl_info *pci;
 	struct mpc85xx_pci_pdata *pdata;
+	struct mpc85xx_edac_pci_plat_data *plat_data;
+	struct device_node *of_node;
 	struct resource r;
 	int res = 0;
 
@@ -327,9 +330,16 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 
 	pdata = pci->pvt_info;
 	pdata->name = "mpc85xx_pci_err";
-	pdata->irq = NO_IRQ;
 
-	if (mpc85xx_pcie_find_capability(op->dev.of_node) > 0)
+	plat_data = op->dev.platform_data;
+	if (!plat_data) {
+		dev_err(&op->dev, "no platform data");
+		res = -ENXIO;
+		goto err;
+	}
+	of_node = plat_data->of_node;
+
+	if (mpc85xx_pcie_find_capability(of_node) > 0)
 		pdata->is_pcie = true;
 
 	dev_set_drvdata(&op->dev, pci);
@@ -355,10 +365,9 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 
 	pdata->edac_idx = edac_pci_idx++;
 
-	res = of_address_to_resource(op->dev.of_node, 0, &r);
+	res = of_address_to_resource(of_node, 0, &r);
 	if (res) {
-		printk(KERN_ERR "%s: Unable to get resource for "
-		       "PCI err regs\n", __func__);
+		pr_err("%s: Unable to get resource for PCI err regs\n", __func__);
 		goto err;
 	}
 
@@ -369,8 +378,7 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 					r.end - r.start + 1, pdata->name)) {
 	if (!devm_request_mem_region(&op->dev, r.start, resource_size(&r),
 					pdata->name)) {
-		printk(KERN_ERR "%s: Error while requesting mem region\n",
-		       __func__);
+		pr_err("%s: Error while requesting mem region\n", __func__);
 		res = -EBUSY;
 		goto err;
 	}
@@ -379,7 +387,7 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 					r.end - r.start + 1);
 	pdata->pci_vbase = devm_ioremap(&op->dev, r.start, resource_size(&r));
 	if (!pdata->pci_vbase) {
-		printk(KERN_ERR "%s: Unable to setup PCI err regs\n", __func__);
+		pr_err("%s: Unable to setup PCI err regs\n", __func__);
 		res = -ENOMEM;
 		goto err;
 	}
@@ -418,6 +426,9 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 	/* clear error bits */
 	out_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_DR, ~0);
 
+	/* reset error capture */
+	out_be32(pdata->pci_vbase + MPC85XX_PCI_GAS_TIMR, 0x1);
+
 	if (edac_pci_add_device(pci, pdata->edac_idx) > 0) {
 		debugf3("%s(): failed edac_pci_add_device()\n", __func__);
 		edac_dbg(3, "failed edac_pci_add_device()\n");
@@ -433,20 +444,20 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 			printk(KERN_ERR
 			       "%s: Unable to requiest irq %d for "
 		pdata->irq = irq_of_parse_and_map(op->dev.of_node, 0);
+		pdata->irq = irq_of_parse_and_map(of_node, 0);
 		res = devm_request_irq(&op->dev, pdata->irq,
 				       mpc85xx_pci_isr,
 				       IRQF_SHARED,
 				       "[EDAC] PCI err", pci);
 		if (res < 0) {
-			printk(KERN_ERR
-			       "%s: Unable to request irq %d for "
-			       "MPC85xx PCI err\n", __func__, pdata->irq);
+			pr_err("%s: Unable to request irq %d for MPC85xx PCI err\n",
+				__func__, pdata->irq);
 			irq_dispose_mapping(pdata->irq);
 			res = -ENODEV;
 			goto err2;
 		}
 
-		printk(KERN_INFO EDAC_MOD_STR " acquired irq %d for PCI Err\n",
+		pr_info(EDAC_MOD_STR " acquired irq %d for PCI Err\n",
 		       pdata->irq);
 	}
 
@@ -470,7 +481,7 @@ int mpc85xx_pci_err_probe(struct platform_device *op)
 
 	devres_remove_group(&op->dev, mpc85xx_pci_err_probe);
 	edac_dbg(3, "success\n");
-	printk(KERN_INFO EDAC_MOD_STR " PCI err registered\n");
+	pr_info(EDAC_MOD_STR " PCI err registered\n");
 
 	return 0;
 
@@ -527,6 +538,38 @@ static struct of_platform_driver mpc85xx_pci_err_driver = {
 };
 EXPORT_SYMBOL(mpc85xx_pci_err_probe);
 
+static int mpc85xx_pci_err_remove(struct platform_device *op)
+{
+	struct edac_pci_ctl_info *pci = dev_get_drvdata(&op->dev);
+	struct mpc85xx_pci_pdata *pdata = pci->pvt_info;
+
+	edac_dbg(0, "\n");
+
+	out_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_ADDR, orig_pci_err_cap_dr);
+	out_be32(pdata->pci_vbase + MPC85XX_PCI_ERR_EN, orig_pci_err_en);
+
+	edac_pci_del_device(&op->dev);
+	edac_pci_free_ctl_info(pci);
+
+	return 0;
+}
+
+static const struct platform_device_id mpc85xx_pci_err_match[] = {
+	{
+		.name = "mpc85xx-pci-edac"
+	},
+	{}
+};
+
+static struct platform_driver mpc85xx_pci_err_driver = {
+	.probe = mpc85xx_pci_err_probe,
+	.remove = mpc85xx_pci_err_remove,
+	.id_table = mpc85xx_pci_err_match,
+	.driver = {
+		.name = "mpc85xx_pci_err",
+		.suppress_bind_attrs = true,
+	},
+};
 #endif				/* CONFIG_PCI */
 
 /**************************** L2 Err device ***************************/
@@ -643,17 +686,17 @@ static void mpc85xx_l2_check(struct edac_device_ctl_info *edac_dev)
 	if (!(err_detect & L2_EDE_MASK))
 		return;
 
-	printk(KERN_ERR "ECC Error in CPU L2 cache\n");
-	printk(KERN_ERR "L2 Error Detect Register: 0x%08x\n", err_detect);
-	printk(KERN_ERR "L2 Error Capture Data High Register: 0x%08x\n",
+	pr_err("ECC Error in CPU L2 cache\n");
+	pr_err("L2 Error Detect Register: 0x%08x\n", err_detect);
+	pr_err("L2 Error Capture Data High Register: 0x%08x\n",
 	       in_be32(pdata->l2_vbase + MPC85XX_L2_CAPTDATAHI));
-	printk(KERN_ERR "L2 Error Capture Data Lo Register: 0x%08x\n",
+	pr_err("L2 Error Capture Data Lo Register: 0x%08x\n",
 	       in_be32(pdata->l2_vbase + MPC85XX_L2_CAPTDATALO));
-	printk(KERN_ERR "L2 Error Syndrome Register: 0x%08x\n",
+	pr_err("L2 Error Syndrome Register: 0x%08x\n",
 	       in_be32(pdata->l2_vbase + MPC85XX_L2_CAPTECC));
-	printk(KERN_ERR "L2 Error Attributes Capture Register: 0x%08x\n",
+	pr_err("L2 Error Attributes Capture Register: 0x%08x\n",
 	       in_be32(pdata->l2_vbase + MPC85XX_L2_ERRATTR));
-	printk(KERN_ERR "L2 Error Address Capture Register: 0x%08x\n",
+	pr_err("L2 Error Address Capture Register: 0x%08x\n",
 	       in_be32(pdata->l2_vbase + MPC85XX_L2_ERRADDR));
 
 	/* clear error detect register */
@@ -704,7 +747,6 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 
 	pdata = edac_dev->pvt_info;
 	pdata->name = "mpc85xx_l2_err";
-	pdata->irq = NO_IRQ;
 	edac_dev->dev = &op->dev;
 	dev_set_drvdata(edac_dev->dev, edac_dev);
 	edac_dev->ctl_name = pdata->name;
@@ -713,8 +755,7 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 	res = of_address_to_resource(op->node, 0, &r);
 	res = of_address_to_resource(op->dev.of_node, 0, &r);
 	if (res) {
-		printk(KERN_ERR "%s: Unable to get resource for "
-		       "L2 err regs\n", __func__);
+		pr_err("%s: Unable to get resource for L2 err regs\n", __func__);
 		goto err;
 	}
 
@@ -725,8 +766,7 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 				     r.end - r.start + 1, pdata->name)) {
 	if (!devm_request_mem_region(&op->dev, r.start, resource_size(&r),
 				     pdata->name)) {
-		printk(KERN_ERR "%s: Error while requesting mem region\n",
-		       __func__);
+		pr_err("%s: Error while requesting mem region\n", __func__);
 		res = -EBUSY;
 		goto err;
 	}
@@ -734,7 +774,7 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 	pdata->l2_vbase = devm_ioremap(&op->dev, r.start, r.end - r.start + 1);
 	pdata->l2_vbase = devm_ioremap(&op->dev, r.start, resource_size(&r));
 	if (!pdata->l2_vbase) {
-		printk(KERN_ERR "%s: Unable to setup L2 err regs\n", __func__);
+		pr_err("%s: Unable to setup L2 err regs\n", __func__);
 		res = -ENOMEM;
 		goto err;
 	}
@@ -774,16 +814,14 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 				       mpc85xx_l2_isr, IRQF_SHARED,
 				       "[EDAC] L2 err", edac_dev);
 		if (res < 0) {
-			printk(KERN_ERR
-			       "%s: Unable to request irq %d for "
-			       "MPC85xx L2 err\n", __func__, pdata->irq);
+			pr_err("%s: Unable to request irq %d for MPC85xx L2 err\n",
+				__func__, pdata->irq);
 			irq_dispose_mapping(pdata->irq);
 			res = -ENODEV;
 			goto err2;
 		}
 
-		printk(KERN_INFO EDAC_MOD_STR " acquired irq %d for L2 Err\n",
-		       pdata->irq);
+		pr_info(EDAC_MOD_STR " acquired irq %d for L2 Err\n", pdata->irq);
 
 		edac_dev->op_state = OP_RUNNING_INTERRUPT;
 
@@ -794,7 +832,7 @@ static int mpc85xx_l2_err_probe(struct platform_device *op)
 
 	debugf3("%s(): success\n", __func__);
 	edac_dbg(3, "success\n");
-	printk(KERN_INFO EDAC_MOD_STR " L2 err registered\n");
+	pr_info(EDAC_MOD_STR " L2 err registered\n");
 
 	return 0;
 
@@ -879,6 +917,7 @@ static const struct of_device_id mpc85xx_l2_err_of_match[] = {
 	{ .compatible = "fsl,p1020-l2-cache-controller", },
 	{ .compatible = "fsl,p1021-l2-cache-controller", },
 	{ .compatible = "fsl,p2020-l2-cache-controller", },
+	{ .compatible = "fsl,t2080-l2-cache-controller", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, mpc85xx_l2_err_of_match);
@@ -1501,29 +1540,28 @@ static const struct of_device_id mpc85xx_mc_err_of_match[] = {
 MODULE_DEVICE_TABLE(of, mpc85xx_mc_err_of_match);
 
 static struct platform_driver mpc85xx_mc_err_driver = {
-	.probe = mpc85xx_mc_err_probe,
-	.remove = mpc85xx_mc_err_remove,
+	.probe = fsl_mc_err_probe,
+	.remove = fsl_mc_err_remove,
 	.driver = {
 		.name = "mpc85xx_mc_err",
 		.of_match_table = mpc85xx_mc_err_of_match,
 	},
 };
 
-#ifdef CONFIG_FSL_SOC_BOOKE
-static void __init mpc85xx_mc_clear_rfxe(void *data)
-{
-	orig_hid1[smp_processor_id()] = mfspr(SPRN_HID1);
-	mtspr(SPRN_HID1, (orig_hid1[smp_processor_id()] & ~HID1_RFXE));
-}
+static struct platform_driver * const drivers[] = {
+	&mpc85xx_mc_err_driver,
+	&mpc85xx_l2_err_driver,
+#ifdef CONFIG_PCI
+	&mpc85xx_pci_err_driver,
 #endif
+};
 
 static int __init mpc85xx_mc_init(void)
 {
 	int res = 0;
-	u32 pvr = 0;
+	u32 __maybe_unused pvr = 0;
 
-	printk(KERN_INFO "Freescale(R) MPC85xx EDAC driver, "
-	       "(C) 2006 Montavista Software\n");
+	pr_info("Freescale(R) MPC85xx EDAC driver, (C) 2006 Montavista Software\n");
 
 	/* make sure error reporting method is sane */
 	switch (edac_op_state) {
@@ -1558,26 +1596,9 @@ static int __init mpc85xx_mc_init(void)
 		mtspr(SPRN_HID1, (orig_hid1 & ~0x20000));
 	}
 	res = platform_driver_register(&mpc85xx_mc_err_driver);
+	res = platform_register_drivers(drivers, ARRAY_SIZE(drivers));
 	if (res)
-		printk(KERN_WARNING EDAC_MOD_STR "MC fails to register\n");
-
-	res = platform_driver_register(&mpc85xx_l2_err_driver);
-	if (res)
-		printk(KERN_WARNING EDAC_MOD_STR "L2 fails to register\n");
-
-#ifdef CONFIG_FSL_SOC_BOOKE
-	pvr = mfspr(SPRN_PVR);
-
-	if ((PVR_VER(pvr) == PVR_VER_E500V1) ||
-	    (PVR_VER(pvr) == PVR_VER_E500V2)) {
-		/*
-		 * need to clear HID1[RFXE] to disable machine check int
-		 * so we can catch it
-		 */
-		if (edac_op_state == EDAC_OPSTATE_INT)
-			on_each_cpu(mpc85xx_mc_clear_rfxe, NULL, 0);
-	}
-#endif
+		pr_warn(EDAC_MOD_STR "drivers fail to register\n");
 
 	return 0;
 }
@@ -1601,16 +1622,7 @@ static void __exit mpc85xx_mc_restore_hid1(void *data)
 
 static void __exit mpc85xx_mc_exit(void)
 {
-#ifdef CONFIG_FSL_SOC_BOOKE
-	u32 pvr = mfspr(SPRN_PVR);
-
-	if ((PVR_VER(pvr) == PVR_VER_E500V1) ||
-	    (PVR_VER(pvr) == PVR_VER_E500V2)) {
-		on_each_cpu(mpc85xx_mc_restore_hid1, NULL, 0);
-	}
-#endif
-	platform_driver_unregister(&mpc85xx_l2_err_driver);
-	platform_driver_unregister(&mpc85xx_mc_err_driver);
+	platform_unregister_drivers(drivers, ARRAY_SIZE(drivers));
 }
 
 module_exit(mpc85xx_mc_exit);

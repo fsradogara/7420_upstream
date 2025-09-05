@@ -255,12 +255,14 @@ isac_interrupt(struct IsdnCardState *cs, u_char val)
 			if (count == 0)
 				count = 32;
 			isac_empty_fifo(cs, count);
-			if ((count = cs->rcvidx) > 0) {
+			count = cs->rcvidx;
+			if (count > 0) {
 				cs->rcvidx = 0;
-				if (!(skb = alloc_skb(count, GFP_ATOMIC)))
+				skb = alloc_skb(count, GFP_ATOMIC);
+				if (!skb)
 					printk(KERN_WARNING "HiSax: D receive out of memory\n");
 				else {
-					memcpy(skb_put(skb, count), cs->rcvbuf, count);
+					skb_put_data(skb, cs->rcvbuf, count);
 					skb_queue_tail(&cs->rq, skb);
 				}
 			}
@@ -291,7 +293,8 @@ isac_interrupt(struct IsdnCardState *cs, u_char val)
 				cs->tx_skb = NULL;
 			}
 		}
-		if ((cs->tx_skb = skb_dequeue(&cs->sq))) {
+		cs->tx_skb = skb_dequeue(&cs->sq);
+		if (cs->tx_skb) {
 			cs->tx_cnt = 0;
 			isac_fill_fifo(cs);
 		} else
@@ -359,7 +362,8 @@ afterXPR:
 #if ARCOFI_USE
 			if (v1 & 0x08) {
 				if (!cs->dc.isac.mon_rx) {
-					if (!(cs->dc.isac.mon_rx = kmalloc(MAX_MON_FRAME, GFP_ATOMIC))) {
+					cs->dc.isac.mon_rx = kmalloc(MAX_MON_FRAME, GFP_ATOMIC);
+					if (!cs->dc.isac.mon_rx) {
 						if (cs->debug & L1_DEB_WARN)
 							debugl1(cs, "ISAC MON RX out of memory!");
 						cs->dc.isac.mocr &= 0xf0;
@@ -391,7 +395,8 @@ afterXPR:
 		afterMONR0:
 			if (v1 & 0x80) {
 				if (!cs->dc.isac.mon_rx) {
-					if (!(cs->dc.isac.mon_rx = kmalloc(MAX_MON_FRAME, GFP_ATOMIC))) {
+					cs->dc.isac.mon_rx = kmalloc(MAX_MON_FRAME, GFP_ATOMIC);
+					if (!cs->dc.isac.mon_rx) {
 						if (cs->debug & L1_DEB_WARN)
 							debugl1(cs, "ISAC MON RX out of memory!");
 						cs->dc.isac.mocr &= 0x0f;
@@ -862,7 +867,5 @@ setup_isac(struct IsdnCardState *cs)
 void setup_isac(struct IsdnCardState *cs)
 {
 	INIT_WORK(&cs->tqueue, isac_bh);
-	cs->dbusytimer.function = (void *) dbusy_timer_handler;
-	cs->dbusytimer.data = (long) cs;
-	init_timer(&cs->dbusytimer);
+	setup_timer(&cs->dbusytimer, (void *)dbusy_timer_handler, (long)cs);
 }

@@ -1,6 +1,7 @@
 #ifndef _ASM_IA64_INTRINSICS_H
 #define _ASM_IA64_INTRINSICS_H
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Compiler-dependent intrinsics.
  *

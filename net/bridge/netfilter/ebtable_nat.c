@@ -12,7 +12,7 @@
 #include <linux/module.h>
 
 #define NAT_VALID_HOOKS ((1 << NF_BR_PRE_ROUTING) | (1 << NF_BR_LOCAL_OUT) | \
-   (1 << NF_BR_POST_ROUTING))
+			 (1 << NF_BR_POST_ROUTING))
 
 static struct ebt_entries initial_chains[] =
 {
@@ -59,6 +59,7 @@ static struct ebt_table frame_nat =
 	.valid_hooks	= NAT_VALID_HOOKS,
 	.lock		= __RW_LOCK_UNLOCKED(frame_nat.lock),
 static struct ebt_table frame_nat = {
+static const struct ebt_table frame_nat = {
 	.name		= "nat",
 	.table		= &initial_table,
 	.valid_hooks	= NAT_VALID_HOOKS,
@@ -91,7 +92,7 @@ ebt_nat_out(void *priv, struct sk_buff *skb,
 	return ebt_do_table(skb, state, state->net->xt.frame_nat);
 }
 
-static struct nf_hook_ops ebt_ops_nat[] __read_mostly = {
+static const struct nf_hook_ops ebt_ops_nat[] = {
 	{
 		.hook		= ebt_nat_dst,
 		.owner		= THIS_MODULE,
@@ -123,13 +124,13 @@ static struct nf_hook_ops ebt_ops_nat[] __read_mostly = {
 
 static int __net_init frame_nat_net_init(struct net *net)
 {
-	net->xt.frame_nat = ebt_register_table(net, &frame_nat);
-	return PTR_ERR_OR_ZERO(net->xt.frame_nat);
+	return ebt_register_table(net, &frame_nat, ebt_ops_nat,
+				  &net->xt.frame_nat);
 }
 
 static void __net_exit frame_nat_net_exit(struct net *net)
 {
-	ebt_unregister_table(net, net->xt.frame_nat);
+	ebt_unregister_table(net, net->xt.frame_nat, ebt_ops_nat);
 }
 
 static struct pernet_operations frame_nat_net_ops = {
@@ -150,6 +151,7 @@ static int __init ebtable_nat_init(void)
 		ebt_unregister_table(&frame_nat);
 		unregister_pernet_subsys(&frame_nat_net_ops);
 	return ret;
+	return register_pernet_subsys(&frame_nat_net_ops);
 }
 
 static void __exit ebtable_nat_fini(void)

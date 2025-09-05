@@ -16,6 +16,7 @@
 #include <linux/delay.h>
 #include <asm/bitops.h>
 #include <linux/bitops.h>
+#include <linux/mm.h>
 #include "pcsp_input.h"
 #include "pcsp.h"
 
@@ -144,12 +145,13 @@ static int snd_card_pcsp_probe(int devnum, struct device *dev)
 		return err;
 	}
 	err = snd_pcsp_new_pcm(&pcsp_chip);
+	if (err < 0)
+		goto free_card;
+
 	if (!nopcm) {
 		err = snd_pcsp_new_pcm(&pcsp_chip);
-		if (err < 0) {
-			snd_card_free(card);
-			return err;
-		}
+		if (err < 0)
+			goto free_card;
 	}
 	err = snd_pcsp_new_mixer(&pcsp_chip, nopcm);
 	if (err < 0) {
@@ -163,6 +165,8 @@ static int snd_card_pcsp_probe(int devnum, struct device *dev)
 	}
 
 	snd_card_set_dev(pcsp_chip.card, dev);
+	if (err < 0)
+		goto free_card;
 
 	strcpy(card->driver, "PC-Speaker");
 	strcpy(card->shortname, "pcsp");
@@ -170,12 +174,14 @@ static int snd_card_pcsp_probe(int devnum, struct device *dev)
 		pcsp_chip.port);
 
 	err = snd_card_register(card);
-	if (err < 0) {
-		snd_card_free(card);
-		return err;
-	}
+	if (err < 0)
+		goto free_card;
 
 	return 0;
+
+free_card:
+	snd_card_free(card);
+	return err;
 }
 
 static int __devinit alsa_card_pcsp_init(struct device *dev)
@@ -189,11 +195,11 @@ static int alsa_card_pcsp_init(struct device *dev)
 		return err;
 	}
 
-#ifdef CONFIG_DEBUG_PAGEALLOC
 	/* Well, CONFIG_DEBUG_PAGEALLOC makes the sound horrible. Lets alert */
-	printk(KERN_WARNING "PCSP: CONFIG_DEBUG_PAGEALLOC is enabled, "
-	       "which may make the sound noisy.\n");
-#endif
+	if (debug_pagealloc_enabled()) {
+		printk(KERN_WARNING "PCSP: CONFIG_DEBUG_PAGEALLOC is enabled, "
+		       "which may make the sound noisy.\n");
+	}
 
 	return 0;
 }

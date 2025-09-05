@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Head of the kernel - alter with care
  *
@@ -14,6 +15,8 @@
  * Copyright (C) 2000, 2001, 2010 Axis Communications AB
  *
  */
+
+#include <linux/init.h>
 
 #define ASSEMBLER_MACROS_ONLY
 /* The IO_* macros use the ## token concatenation operator, so
@@ -39,7 +42,7 @@
 	.globl  swapper_pg_dir
 					
 
-	.text
+	__HEAD
 
 	;; This is the entry point of the kernel. We are in supervisor mode.
 	;; 0x00000000 if Flash, 0x40004000 if DRAM
@@ -186,7 +189,7 @@ _inflash0:
 
 	;; Put this in a suitable section where we can reclaim storage
 	;; after init.
-	.section ".init.text", "ax"
+	__INIT
 _inflash:
 #ifdef CONFIG_ETRAX_ETHERNET	
 #ifdef CONFIG_ETRAX_ETHERNET

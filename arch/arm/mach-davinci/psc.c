@@ -138,7 +138,7 @@ void __init davinci_psc_init(void)
 #include <linux/io.h>
 
 #include <mach/cputype.h>
-#include <mach/psc.h>
+#include "psc.h"
 
 #include "clock.h"
 

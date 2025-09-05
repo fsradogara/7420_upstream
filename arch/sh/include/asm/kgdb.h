@@ -67,6 +67,7 @@ extern int     setjmp(jmp_buf __jmpb);
 #define breakpoint()	__asm__ __volatile__("trapa   #0x3c")
 
 #endif
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_SH_KGDB_H
 #define __ASM_SH_KGDB_H
 

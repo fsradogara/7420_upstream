@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  drivers/s390/cio/qdio_debug.h
  *
@@ -89,7 +90,7 @@ void qdio_shutdown_debug_entries(struct qdio_irq *irq_ptr,
 int qdio_debug_init(void);
 void qdio_debug_exit(void);
 /* that gives us 15 characters in the text event views */
-#define QDIO_DBF_LEN	16
+#define QDIO_DBF_LEN	32
 
 extern debug_info_t *qdio_dbf_setup;
 extern debug_info_t *qdio_dbf_error;

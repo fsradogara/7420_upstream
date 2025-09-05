@@ -43,6 +43,9 @@ static int dcssblk_direct_access(struct block_device *bdev, sector_t secnum,
 #include <linux/completion.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <linux/pfn_t.h>
+#include <linux/uio.h>
+#include <linux/dax.h>
 #include <asm/extmem.h>
 #include <asm/io.h>
 
@@ -55,8 +58,8 @@ static int dcssblk_open(struct block_device *bdev, fmode_t mode);
 static void dcssblk_release(struct gendisk *disk, fmode_t mode);
 static blk_qc_t dcssblk_make_request(struct request_queue *q,
 						struct bio *bio);
-static long dcssblk_direct_access(struct block_device *bdev, sector_t secnum,
-			 void __pmem **kaddr, unsigned long *pfn);
+static long dcssblk_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
+		long nr_pages, void **kaddr, pfn_t *pfn);
 
 static char dcssblk_segments[DCSSBLK_PARM_LEN] = "\0";
 
@@ -66,7 +69,17 @@ static const struct block_device_operations dcssblk_devops = {
 	.owner   	= THIS_MODULE,
 	.open    	= dcssblk_open,
 	.release 	= dcssblk_release,
-	.direct_access 	= dcssblk_direct_access,
+};
+
+static size_t dcssblk_dax_copy_from_iter(struct dax_device *dax_dev,
+		pgoff_t pgoff, void *addr, size_t bytes, struct iov_iter *i)
+{
+	return copy_from_iter(addr, bytes, i);
+}
+
+static const struct dax_operations dcssblk_dax_ops = {
+	.direct_access = dcssblk_dax_direct_access,
+	.copy_from_iter = dcssblk_dax_copy_from_iter,
 };
 
 static ssize_t dcssblk_add_store(struct device * dev, struct device_attribute *attr, const char * buf,
@@ -109,6 +122,7 @@ struct dcssblk_dev_info {
 
 	int num_of_segments;
 	struct list_head seg_list;
+	struct dax_device *dax_dev;
 };
 
 struct segment_info {
@@ -485,6 +499,8 @@ removeseg:
 	}
 	list_del(&dev_info->lh);
 
+	kill_dax(dev_info->dax_dev);
+	put_dax(dev_info->dax_dev);
 	del_gendisk(dev_info->gd);
 	blk_cleanup_queue(dev_info->dcssblk_queue);
 	dev_info->gd->queue = NULL;
@@ -765,7 +781,6 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 	dev_info->dcssblk_queue = blk_alloc_queue(GFP_KERNEL);
 	dev_info->gd->queue = dev_info->dcssblk_queue;
 	dev_info->gd->private_data = dev_info;
-	dev_info->gd->driverfs_dev = &dev_info->dev;
 	blk_queue_make_request(dev_info->dcssblk_queue, dcssblk_make_request);
 	blk_queue_hardsect_size(dev_info->dcssblk_queue, 4096);
 	/*
@@ -785,6 +800,7 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 
 	dev_info->segment_type = rc;
 	blk_queue_logical_block_size(dev_info->dcssblk_queue, 4096);
+	queue_flag_set_unlocked(QUEUE_FLAG_DAX, dev_info->dcssblk_queue);
 
 	seg_byte_size = (dev_info->end - dev_info->start + 1);
 	set_capacity(dev_info->gd, seg_byte_size >> 9); // size in sectors
@@ -851,8 +867,15 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 	if (rc)
 		goto put_dev;
 
+	dev_info->dax_dev = alloc_dax(dev_info, dev_info->gd->disk_name,
+			&dcssblk_dax_ops);
+	if (!dev_info->dax_dev) {
+		rc = -ENOMEM;
+		goto put_dev;
+	}
+
 	get_device(&dev_info->dev);
-	add_disk(dev_info->gd);
+	device_add_disk(&dev_info->dev, dev_info->gd);
 
 	switch (dev_info->segment_type) {
 		case SEG_TYPE_SR:
@@ -956,6 +979,8 @@ dcssblk_remove_store(struct device *dev, struct device_attribute *attr, const ch
 		PRINT_WARN("Segment %s is not loaded!\n", local_buf);
 		pr_warning("Device %s cannot be removed because it is not a "
 			   "known device\n", local_buf);
+		pr_warn("Device %s cannot be removed because it is not a known device\n",
+			local_buf);
 		rc = -ENODEV;
 		goto out_buf;
 	}
@@ -969,11 +994,15 @@ dcssblk_remove_store(struct device *dev, struct device_attribute *attr, const ch
 
 		pr_warning("Device %s cannot be removed while it is in "
 			   "use\n", local_buf);
+		pr_warn("Device %s cannot be removed while it is in use\n",
+			local_buf);
 		rc = -EBUSY;
 		goto out_buf;
 	}
 
 	list_del(&dev_info->lh);
+	kill_dax(dev_info->dax_dev);
+	put_dax(dev_info->dax_dev);
 	del_gendisk(dev_info->gd);
 	blk_cleanup_queue(dev_info->dcssblk_queue);
 	dev_info->gd->queue = NULL;
@@ -987,8 +1016,10 @@ dcssblk_remove_store(struct device *dev, struct device_attribute *attr, const ch
 	list_for_each_entry(entry, &dev_info->seg_list, lh)
 		segment_unload(entry->segment_name);
 
-	put_device(&dev_info->dev);
 	up_write(&dcssblk_devices_sem);
+
+	device_unregister(&dev_info->dev);
+	put_device(&dev_info->dev);
 
 	rc = count;
 out_buf:
@@ -1083,10 +1114,10 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 	unsigned long bytes_done;
 	int i;
 
-	blk_queue_split(q, &bio, q->bio_split);
+	blk_queue_split(q, &bio);
 
 	bytes_done = 0;
-	dev_info = bio->bi_bdev->bd_disk->private_data;
+	dev_info = bio->bi_disk->private_data;
 	if (dev_info == NULL)
 		goto fail;
 	if ((bio->bi_sector & 7) != 0 || (bio->bi_size & 4095) != 0)
@@ -1098,7 +1129,7 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 	    (bio->bi_iter.bi_size & 4095) != 0)
 		/* Request is not page-aligned. */
 		goto fail;
-	if (bio_end_sector(bio) > get_capacity(bio->bi_bdev->bd_disk)) {
+	if (bio_end_sector(bio) > get_capacity(bio->bi_disk)) {
 		/* Request beyond end of DCSS segment. */
 		goto fail;
 	}
@@ -1114,6 +1145,8 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 				pr_warning("Writing to %s failed because it "
 					   "is a read-only device\n",
 					   dev_name(&dev_info->dev));
+				pr_warn("Writing to %s failed because it is a read-only device\n",
+					dev_name(&dev_info->dev));
 				goto fail;
 			}
 		}
@@ -1170,12 +1203,11 @@ fail:
 }
 
 static long
-dcssblk_direct_access (struct block_device *bdev, sector_t secnum,
-			void __pmem **kaddr, unsigned long *pfn)
+__dcssblk_direct_access(struct dcssblk_dev_info *dev_info, pgoff_t pgoff,
+		long nr_pages, void **kaddr, pfn_t *pfn)
 {
-	struct dcssblk_dev_info *dev_info;
-	unsigned long offset, dev_sz;
-	void *addr;
+	resource_size_t offset = pgoff * PAGE_SIZE;
+	unsigned long dev_sz;
 
 	dev_info = bdev->bd_disk->private_data;
 	if (!dev_info)
@@ -1194,8 +1226,20 @@ dcssblk_direct_access (struct block_device *bdev, sector_t secnum,
 	addr = (void *) (dev_info->start + offset);
 	*pfn = virt_to_phys(addr) >> PAGE_SHIFT;
 	*kaddr = (void __pmem *) addr;
+	dev_sz = dev_info->end - dev_info->start + 1;
+	*kaddr = (void *) dev_info->start + offset;
+	*pfn = __pfn_to_pfn_t(PFN_DOWN(dev_info->start + offset), PFN_DEV);
 
-	return dev_sz - offset;
+	return (dev_sz - offset) / PAGE_SIZE;
+}
+
+static long
+dcssblk_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
+		long nr_pages, void **kaddr, pfn_t *pfn)
+{
+	struct dcssblk_dev_info *dev_info = dax_get_private(dax_dev);
+
+	return __dcssblk_direct_access(dev_info, pgoff, nr_pages, kaddr, pfn);
 }
 
 static void

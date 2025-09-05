@@ -20,6 +20,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
 #include <linux/times.h>
+#include <linux/sched/signal.h>
 
 #include "br_private.h"
 
@@ -50,7 +51,14 @@ static ssize_t store_bridge_parm(struct device *d,
 	spin_lock_bh(&br->lock);
 	err = (*set)(br, val);
 	spin_unlock_bh(&br->lock);
+	if (!rtnl_trylock())
+		return restart_syscall();
+
 	err = (*set)(br, val);
+	if (!err)
+		netdev_state_change(br->dev);
+	rtnl_unlock();
+
 	return err ? err : len;
 }
 
@@ -182,6 +190,7 @@ static ssize_t store_ageing_time(struct device *d,
 	rtnl_unlock();
 
 	return ret;
+	return br_set_ageing_time(br, val);
 }
 
 static ssize_t ageing_time_store(struct device *d,
@@ -205,6 +214,13 @@ static ssize_t stp_state_show(struct device *d,
 
 
 static ssize_t store_stp_state(struct device *d,
+static int set_stp_state(struct net_bridge *br, unsigned long val)
+{
+	br_stp_set_enabled(br, val);
+
+	return 0;
+}
+
 static ssize_t stp_state_store(struct device *d,
 			       struct device_attribute *attr, const char *buf,
 			       size_t len)
@@ -228,6 +244,7 @@ static ssize_t stp_state_store(struct device *d,
 	rtnl_unlock();
 
 	return len;
+	return store_bridge_parm(d, buf, len, set_stp_state);
 }
 static DEVICE_ATTR(stp_state, S_IRUGO | S_IWUSR, show_stp_state,
 		   store_stp_state);
@@ -243,29 +260,22 @@ static ssize_t group_fwd_mask_show(struct device *d,
 	return sprintf(buf, "%#x\n", br->group_fwd_mask);
 }
 
+static int set_group_fwd_mask(struct net_bridge *br, unsigned long val)
+{
+	if (val & BR_GROUPFWD_RESTRICTED)
+		return -EINVAL;
+
+	br->group_fwd_mask = val;
+
+	return 0;
+}
 
 static ssize_t group_fwd_mask_store(struct device *d,
 				    struct device_attribute *attr,
 				    const char *buf,
 				    size_t len)
 {
-	struct net_bridge *br = to_bridge(d);
-	char *endp;
-	unsigned long val;
-
-	if (!ns_capable(dev_net(br->dev)->user_ns, CAP_NET_ADMIN))
-		return -EPERM;
-
-	val = simple_strtoul(buf, &endp, 0);
-	if (endp == buf)
-		return -EINVAL;
-
-	if (val & BR_GROUPFWD_RESTRICTED)
-		return -EINVAL;
-
-	br->group_fwd_mask = val;
-
-	return len;
+	return store_bridge_parm(d, buf, len, set_group_fwd_mask);
 }
 static DEVICE_ATTR_RW(group_fwd_mask);
 
@@ -400,7 +410,7 @@ static ssize_t gc_timer_show(struct device *d, struct device_attribute *attr,
 			     char *buf)
 {
 	struct net_bridge *br = to_bridge(d);
-	return sprintf(buf, "%ld\n", br_timer_value(&br->gc_timer));
+	return sprintf(buf, "%ld\n", br_timer_value(&br->gc_work.timer));
 }
 static DEVICE_ATTR(gc_timer, S_IRUGO, show_gc_timer, NULL);
 
@@ -479,6 +489,7 @@ static ssize_t store_flush(struct device *d,
 
 	br->group_addr_set = true;
 	br_recalculate_fwd_mask(br);
+	netdev_state_change(br->dev);
 
 	rtnl_unlock();
 
@@ -486,6 +497,12 @@ static ssize_t store_flush(struct device *d,
 }
 
 static DEVICE_ATTR_RW(group_addr);
+
+static int set_flush(struct net_bridge *br, unsigned long val)
+{
+	br_fdb_flush(br);
+	return 0;
+}
 
 static ssize_t flush_store(struct device *d,
 			   struct device_attribute *attr,
@@ -499,6 +516,7 @@ static ssize_t flush_store(struct device *d,
 
 	br_fdb_flush(br);
 	return len;
+	return store_bridge_parm(d, buf, len, set_flush);
 }
 static DEVICE_ATTR(flush, S_IWUSR, NULL, store_flush);
 static DEVICE_ATTR_WO(flush);
@@ -608,6 +626,23 @@ static ssize_t hash_max_store(struct device *d, struct device_attribute *attr,
 	return store_bridge_parm(d, buf, len, br_multicast_set_hash_max);
 }
 static DEVICE_ATTR_RW(hash_max);
+
+static ssize_t multicast_igmp_version_show(struct device *d,
+					   struct device_attribute *attr,
+					   char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+
+	return sprintf(buf, "%u\n", br->multicast_igmp_version);
+}
+
+static ssize_t multicast_igmp_version_store(struct device *d,
+					    struct device_attribute *attr,
+					    const char *buf, size_t len)
+{
+	return store_bridge_parm(d, buf, len, br_multicast_set_igmp_version);
+}
+static DEVICE_ATTR_RW(multicast_igmp_version);
 
 static ssize_t multicast_last_member_count_show(struct device *d,
 						struct device_attribute *attr,
@@ -787,6 +822,49 @@ static ssize_t multicast_startup_query_interval_store(
 	return store_bridge_parm(d, buf, len, set_startup_query_interval);
 }
 static DEVICE_ATTR_RW(multicast_startup_query_interval);
+
+static ssize_t multicast_stats_enabled_show(struct device *d,
+					    struct device_attribute *attr,
+					    char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+
+	return sprintf(buf, "%u\n", br->multicast_stats_enabled);
+}
+
+static int set_stats_enabled(struct net_bridge *br, unsigned long val)
+{
+	br->multicast_stats_enabled = !!val;
+	return 0;
+}
+
+static ssize_t multicast_stats_enabled_store(struct device *d,
+					     struct device_attribute *attr,
+					     const char *buf,
+					     size_t len)
+{
+	return store_bridge_parm(d, buf, len, set_stats_enabled);
+}
+static DEVICE_ATTR_RW(multicast_stats_enabled);
+
+#if IS_ENABLED(CONFIG_IPV6)
+static ssize_t multicast_mld_version_show(struct device *d,
+					  struct device_attribute *attr,
+					  char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+
+	return sprintf(buf, "%u\n", br->multicast_mld_version);
+}
+
+static ssize_t multicast_mld_version_store(struct device *d,
+					   struct device_attribute *attr,
+					   const char *buf, size_t len)
+{
+	return store_bridge_parm(d, buf, len, br_multicast_set_mld_version);
+}
+static DEVICE_ATTR_RW(multicast_mld_version);
+#endif
 #endif
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 static ssize_t nf_call_iptables_show(
@@ -900,6 +978,22 @@ static ssize_t default_pvid_store(struct device *d,
 	return store_bridge_parm(d, buf, len, br_vlan_set_default_pvid);
 }
 static DEVICE_ATTR_RW(default_pvid);
+
+static ssize_t vlan_stats_enabled_show(struct device *d,
+				       struct device_attribute *attr,
+				       char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+	return sprintf(buf, "%u\n", br->vlan_stats_enabled);
+}
+
+static ssize_t vlan_stats_enabled_store(struct device *d,
+					struct device_attribute *attr,
+					const char *buf, size_t len)
+{
+	return store_bridge_parm(d, buf, len, br_vlan_set_stats);
+}
+static DEVICE_ATTR_RW(vlan_stats_enabled);
 #endif
 
 static struct attribute *bridge_attrs[] = {
@@ -937,6 +1031,11 @@ static struct attribute *bridge_attrs[] = {
 	&dev_attr_multicast_query_interval.attr,
 	&dev_attr_multicast_query_response_interval.attr,
 	&dev_attr_multicast_startup_query_interval.attr,
+	&dev_attr_multicast_stats_enabled.attr,
+	&dev_attr_multicast_igmp_version.attr,
+#if IS_ENABLED(CONFIG_IPV6)
+	&dev_attr_multicast_mld_version.attr,
+#endif
 #endif
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	&dev_attr_nf_call_iptables.attr,
@@ -947,11 +1046,12 @@ static struct attribute *bridge_attrs[] = {
 	&dev_attr_vlan_filtering.attr,
 	&dev_attr_vlan_protocol.attr,
 	&dev_attr_default_pvid.attr,
+	&dev_attr_vlan_stats_enabled.attr,
 #endif
 	NULL
 };
 
-static struct attribute_group bridge_group = {
+static const struct attribute_group bridge_group = {
 	.name = SYSFS_BRIDGE_ATTR,
 	.attrs = bridge_attrs,
 };
@@ -967,7 +1067,7 @@ static ssize_t brforward_read(struct file *filp, struct kobject *kobj,
 			      struct bin_attribute *bin_attr,
 			      char *buf, loff_t off, size_t count)
 {
-	struct device *dev = to_dev(kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct net_bridge *br = to_bridge(dev);
 	int n;
 
@@ -1026,6 +1126,7 @@ int br_sysfs_addbr(struct net_device *dev)
 	if (!br->ifobj) {
 		pr_info("%s: can't add kobject (directory) %s/%s\n",
 			__func__, dev->name, SYSFS_BRIDGE_PORT_SUBDIR);
+		err = -ENOMEM;
 		goto out3;
 	}
 	return 0;

@@ -6,6 +6,7 @@ infblock.c
 infblock.h
 infcodes.c
 infcodes.h
+decompress_inflate.c
 empty.c
 hack-coff
 inffast.c
@@ -20,11 +21,13 @@ infutil.h
 kernel-vmlinux.strip.c
 kernel-vmlinux.strip.gz
 mktree
+otheros.bld
 uImage
 cuImage.*
 dtbImage.*
 *.dtb
 treeImage.*
+vmlinux.strip
 zImage
 zImage.initrd
 zImage.bin.*
@@ -35,6 +38,7 @@ zImage.iseries
 zImage.epapr
 zImage.holly
 zImage.*lds
+zImage.maple
 zImage.miboot
 zImage.pmac
 zImage.pseries

@@ -7,6 +7,7 @@ u32 reciprocal_value(u32 k)
 	do_div(val, k);
 	return (u32)val;
 }
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/kernel.h>
 #include <asm/div64.h>
 #include <linux/reciprocal_div.h>

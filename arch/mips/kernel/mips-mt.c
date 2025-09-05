@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * General MIPS MT support routines, usable in AP/SP, SMVP, or SMTC kernels
  * General MIPS MT support routines, usable in AP/SP and SMVP.

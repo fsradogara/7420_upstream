@@ -88,6 +88,7 @@ static struct ata_port_info sch_port_info = {
 	.pio_mask	= ATA_PIO4,   /* pio0-4 */
 	.mwdma_mask	= ATA_MWDMA2, /* mwdma0-2 */
 	.udma_mask	= ATA_UDMA5,  /* udma0-5 */
+static const struct ata_port_info sch_port_info = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
 	.pio_mask	= ATA_PIO4,
 	.mwdma_mask	= ATA_MWDMA2,

@@ -42,6 +42,7 @@
 * Jan 16, 1997	Gene Kozin	router_devlist made public
 * Jan 02, 1997	Gene Kozin	Initial version (based on wanpipe.h).
 *****************************************************************************/
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * wanrouter.h	Legacy declarations kept around until X25 is removed
  */

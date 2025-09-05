@@ -56,6 +56,8 @@
 #include <mach/ohci.h>
 #include <mach/pxa27x.h>
 #include <mach/lpd270.h>
+#include "pxa27x.h"
+#include "lpd270.h"
 #include <mach/audio.h>
 #include <linux/platform_data/video-pxafb.h>
 #include <linux/platform_data/mmc-pxamci.h>

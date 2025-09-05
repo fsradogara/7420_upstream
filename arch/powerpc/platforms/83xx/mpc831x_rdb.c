@@ -61,6 +61,7 @@ void __init mpc831x_rdb_init_IRQ(void)
 		ppc_md.progress("mpc831x_rdb_setup_arch()", 0);
 
 	mpc83xx_setup_pci();
+	mpc83xx_setup_arch();
 	mpc831x_usb_cfg();
 }
 
@@ -93,6 +94,7 @@ static int __init declare_of_platform_devices(void)
 }
 machine_device_initcall(mpc831x_rdb, declare_of_platform_devices);
 	return of_flat_dt_match(of_get_flat_dt_root(), board);
+	return of_device_compatible_match(of_root, board);
 }
 
 machine_device_initcall(mpc831x_rdb, mpc83xx_declare_of_platform_devices);

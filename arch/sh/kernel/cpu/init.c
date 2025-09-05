@@ -17,7 +17,7 @@
 #include <linux/log2.h>
 #include <asm/mmu_context.h>
 #include <asm/processor.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/page.h>
 #include <asm/system.h>
 #include <asm/cacheflush.h>
@@ -127,6 +127,7 @@ void __attribute__ ((weak)) l2_cache_init(void)
  */
 #ifdef CONFIG_SUPERH32
 static void __uses_jump_to_uncached cache_init(void)
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_CPU_J2)
 static void cache_init(void)
 {
 	unsigned long ccr, flags;
@@ -373,9 +374,13 @@ asmlinkage void cpu_init(void)
 	cache_init();
 
 	if (raw_smp_processor_id() == 0) {
+#ifdef CONFIG_MMU
 		shm_align_mask = max_t(unsigned long,
 				       current_cpu_data.dcache.way_size - 1,
 				       PAGE_SIZE - 1);
+#else
+		shm_align_mask = PAGE_SIZE - 1;
+#endif
 
 		/* Boot CPU sets the cache shape */
 		detect_cache_shape();

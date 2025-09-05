@@ -39,7 +39,6 @@
 #include <asm/amigahw.h>
 #include <asm/amigaints.h>
 #include <asm/irq.h>
-#include <asm/rtc.h>
 #include <asm/machdep.h>
 #include <asm/io.h>
 
@@ -467,7 +466,7 @@ void __init config_amiga(void)
 	mach_set_clock_mmss  = amiga_set_clock_mmss;
 	mach_get_ss          = amiga_get_ss;
 	mach_reset           = amiga_reset;
-#if defined(CONFIG_INPUT_M68K_BEEP) || defined(CONFIG_INPUT_M68K_BEEP_MODULE)
+#if IS_ENABLED(CONFIG_INPUT_M68K_BEEP)
 	mach_beep            = amiga_mksound;
 #endif
 
@@ -1058,8 +1057,7 @@ static void amiga_get_hardware_list(struct seq_file *m)
 	len += sprintf (buffer + len, "Detected hardware:\n");
 		seq_printf (m, "\t%s\n", str)
 
-	seq_printf (m, "Detected hardware:\n");
-
+	seq_puts(m, "Detected hardware:\n");
 	AMIGAHW_ANNOUNCE(AMI_VIDEO, "Amiga Video");
 	AMIGAHW_ANNOUNCE(AMI_BLITTER, "Blitter");
 	AMIGAHW_ANNOUNCE(AMBER_FF, "Amber Flicker Fixer");

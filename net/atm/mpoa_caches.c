@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/types.h>
 #include <linux/atmmpc.h>
 #include <linux/slab.h>
@@ -51,7 +52,7 @@ static in_cache_entry *in_cache_get(__be32 dst_ip,
 		if( entry->ctrl_info.in_dst_ip == dst_ip ){
 	while (entry != NULL) {
 		if (entry->ctrl_info.in_dst_ip == dst_ip) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_bh(&client->ingress_lock);
 			return entry;
 		}
@@ -74,7 +75,7 @@ static in_cache_entry *in_cache_get_with_mask(__be32 dst_ip,
 		if((entry->ctrl_info.in_dst_ip & mask)  == (dst_ip & mask )){
 	while (entry != NULL) {
 		if ((entry->ctrl_info.in_dst_ip & mask) == (dst_ip & mask)) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_bh(&client->ingress_lock);
 			return entry;
 		}
@@ -98,7 +99,7 @@ static in_cache_entry *in_cache_get_by_vcc(struct atm_vcc *vcc,
 		if(entry->shortcut == vcc) {
 	while (entry != NULL) {
 		if (entry->shortcut == vcc) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_bh(&client->ingress_lock);
 			return entry;
 		}
@@ -129,7 +130,7 @@ static in_cache_entry *in_cache_add_entry(__be32 dst_ip,
 
 	dprintk("adding an ingress entry, ip = %pI4\n", &dst_ip);
 
-	atomic_set(&entry->use, 1);
+	refcount_set(&entry->use, 1);
 	dprintk("new_in_cache_entry: about to lock\n");
 	write_lock_bh(&client->ingress_lock);
 	entry->next = client->in_cache;
@@ -145,7 +146,7 @@ static in_cache_entry *in_cache_add_entry(__be32 dst_ip,
 	entry->count = 1;
 	entry->entry_state = INGRESS_INVALID;
 	entry->ctrl_info.holding_time = HOLDING_TIME_DEFAULT;
-	atomic_inc(&entry->use);
+	refcount_inc(&entry->use);
 
 	write_unlock_bh(&client->ingress_lock);
 	dprintk("mpoa: mpoa_caches.c: new_in_cache_entry: unlocked\n");
@@ -223,7 +224,7 @@ static int cache_hit(in_cache_entry *entry, struct mpoa_client *mpc)
 
 static void in_cache_put(in_cache_entry *entry)
 {
-	if (atomic_dec_and_test(&entry->use)) {
+	if (refcount_dec_and_test(&entry->use)) {
 		memset(entry, 0, sizeof(in_cache_entry));
 		kfree(entry);
 	}
@@ -441,7 +442,7 @@ static eg_cache_entry *eg_cache_get_by_cache_id(__be32 cache_id,
 		if(entry->ctrl_info.cache_id == cache_id){
 	while (entry != NULL) {
 		if (entry->ctrl_info.cache_id == cache_id) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_irq(&mpc->egress_lock);
 			return entry;
 		}
@@ -463,7 +464,7 @@ static eg_cache_entry *eg_cache_get_by_tag(__be32 tag, struct mpoa_client *mpc)
 	while (entry != NULL){
 	while (entry != NULL) {
 		if (entry->ctrl_info.tag == tag) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_irqrestore(&mpc->egress_lock, flags);
 			return entry;
 		}
@@ -487,7 +488,7 @@ static eg_cache_entry *eg_cache_get_by_vcc(struct atm_vcc *vcc,
 	while (entry != NULL){
 	while (entry != NULL) {
 		if (entry->shortcut == vcc) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_irqrestore(&mpc->egress_lock, flags);
 			return entry;
 		}
@@ -510,7 +511,7 @@ static eg_cache_entry *eg_cache_get_by_src_ip(__be32 ipaddr,
 		if(entry->latest_ip_addr == ipaddr) {
 	while (entry != NULL) {
 		if (entry->latest_ip_addr == ipaddr) {
-			atomic_inc(&entry->use);
+			refcount_inc(&entry->use);
 			read_unlock_irq(&mpc->egress_lock);
 			return entry;
 		}
@@ -523,7 +524,7 @@ static eg_cache_entry *eg_cache_get_by_src_ip(__be32 ipaddr,
 
 static void eg_cache_put(eg_cache_entry *entry)
 {
-	if (atomic_dec_and_test(&entry->use)) {
+	if (refcount_dec_and_test(&entry->use)) {
 		memset(entry, 0, sizeof(eg_cache_entry));
 		kfree(entry);
 	}
@@ -595,7 +596,7 @@ static eg_cache_entry *eg_cache_add_entry(struct k_message *msg,
 	dprintk("adding an egress entry, ip = %pI4, this should be our IP\n",
 		&msg->content.eg_info.eg_dst_ip);
 
-	atomic_set(&entry->use, 1);
+	refcount_set(&entry->use, 1);
 	dprintk("new_eg_cache_entry: about to lock\n");
 	write_lock_irq(&client->egress_lock);
 	entry->next = client->eg_cache;
@@ -618,7 +619,7 @@ static eg_cache_entry *eg_cache_add_entry(struct k_message *msg,
 	dprintk("new_eg_cache_entry cache_id %u\n",
 		ntohl(entry->ctrl_info.cache_id));
 	dprintk("mps_ip = %pI4\n", &entry->ctrl_info.mps_ip);
-	atomic_inc(&entry->use);
+	refcount_inc(&entry->use);
 
 	write_unlock_irq(&client->egress_lock);
 	dprintk("new_eg_cache_entry: unlocked\n");
@@ -689,33 +690,32 @@ static void eg_destroy_cache(struct mpoa_client *mpc)
 }
 
 
-static struct in_cache_ops ingress_ops = {
-	in_cache_add_entry,               /* add_entry       */
-	in_cache_get,                     /* get             */
-	in_cache_get_with_mask,           /* get_with_mask   */
-	in_cache_get_by_vcc,              /* get_by_vcc      */
-	in_cache_put,                     /* put             */
-	in_cache_remove_entry,            /* remove_entry    */
-	cache_hit,                        /* cache_hit       */
-	clear_count_and_expired,          /* clear_count     */
-	check_resolving_entries,          /* check_resolving */
-	refresh_entries,                  /* refresh         */
-	in_destroy_cache                  /* destroy_cache   */
+static const struct in_cache_ops ingress_ops = {
+	.add_entry = in_cache_add_entry,
+	.get = in_cache_get,
+	.get_with_mask = in_cache_get_with_mask,
+	.get_by_vcc = in_cache_get_by_vcc,
+	.put = in_cache_put,
+	.remove_entry = in_cache_remove_entry,
+	.cache_hit = cache_hit,
+	.clear_count = clear_count_and_expired,
+	.check_resolving = check_resolving_entries,
+	.refresh = refresh_entries,
+	.destroy_cache = in_destroy_cache
 };
 
-static struct eg_cache_ops egress_ops = {
-	eg_cache_add_entry,               /* add_entry        */
-	eg_cache_get_by_cache_id,         /* get_by_cache_id  */
-	eg_cache_get_by_tag,              /* get_by_tag       */
-	eg_cache_get_by_vcc,              /* get_by_vcc       */
-	eg_cache_get_by_src_ip,           /* get_by_src_ip    */
-	eg_cache_put,                     /* put              */
-	eg_cache_remove_entry,            /* remove_entry     */
-	update_eg_cache_entry,            /* update           */
-	clear_expired,                    /* clear_expired    */
-	eg_destroy_cache                  /* destroy_cache    */
+static const struct eg_cache_ops egress_ops = {
+	.add_entry = eg_cache_add_entry,
+	.get_by_cache_id = eg_cache_get_by_cache_id,
+	.get_by_tag = eg_cache_get_by_tag,
+	.get_by_vcc = eg_cache_get_by_vcc,
+	.get_by_src_ip = eg_cache_get_by_src_ip,
+	.put = eg_cache_put,
+	.remove_entry = eg_cache_remove_entry,
+	.update = update_eg_cache_entry,
+	.clear_expired = clear_expired,
+	.destroy_cache = eg_destroy_cache
 };
-
 
 void atm_mpoa_init_cache(struct mpoa_client *mpc)
 {

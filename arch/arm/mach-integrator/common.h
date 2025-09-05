@@ -1,5 +1,6 @@
 extern void integrator_time_init(unsigned long, unsigned int);
 extern unsigned long integrator_gettimeoffset(void);
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/reboot.h>
 #include <linux/amba/serial.h>
 extern struct amba_pl010_data ap_uart_data;

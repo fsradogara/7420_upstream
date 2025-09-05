@@ -128,7 +128,7 @@ EXPORT_SYMBOL(ipv6_ext_hdr);
 EXPORT_SYMBOL(ipv6_skip_exthdr);
 EXPORT_SYMBOL(ipv6_skip_exthdr);
 
-int ipv6_find_tlv(struct sk_buff *skb, int offset, int type)
+int ipv6_find_tlv(const struct sk_buff *skb, int offset, int type)
 {
 	const unsigned char *nh = skb_network_header(skb);
 	int packet_len = skb_tail_pointer(skb) - skb_network_header(skb);
@@ -273,7 +273,11 @@ int ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 						*fragoff = _frag_off;
 					return hp->nexthdr;
 				}
-				return -ENOENT;
+				if (!found)
+					return -ENOENT;
+				if (fragoff)
+					*fragoff = _frag_off;
+				break;
 			}
 			hdrlen = 8;
 		} else if (nexthdr == NEXTHDR_AUTH) {

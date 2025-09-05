@@ -73,7 +73,9 @@ void free_irqno(unsigned int irq)
 #include <linux/ftrace.h>
 
 #include <linux/atomic.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
+
+void *irq_stack[NR_CPUS];
 
 /*
  * 'what should we do if we get a hw irq event on an illegal vector'.
@@ -162,7 +164,19 @@ void __init init_IRQ(void)
 	for (i = 0; i < NR_IRQS; i++)
 		irq_set_noprobe(i);
 
+	if (cpu_has_veic)
+		clear_c0_status(ST0_IM);
+
 	arch_init_irq();
+
+	for_each_possible_cpu(i) {
+		int irq_pages = IRQ_STACK_SIZE / PAGE_SIZE;
+		void *s = (void *)__get_free_pages(GFP_KERNEL, irq_pages);
+
+		irq_stack[i] = s;
+		pr_debug("CPU%d IRQ stack at 0x%p - 0x%p\n", i,
+			irq_stack[i], irq_stack[i] + IRQ_STACK_SIZE);
+	}
 }
 
 #ifdef CONFIG_DEBUG_STACKOVERFLOW

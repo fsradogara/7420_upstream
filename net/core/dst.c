@@ -202,13 +202,13 @@ void * dst_alloc(struct dst_ops * ops)
 static void ___dst_free(struct dst_entry * dst)
 EXPORT_SYMBOL(dst_discard_out);
 
-const u32 dst_default_metrics[RTAX_MAX + 1] = {
+const struct dst_metrics dst_default_metrics = {
 	/* This initializer is needed to force linker to place this variable
 	 * into const section. Otherwise it might end into bss section.
 	 * We really want to avoid false sharing on this variable, and catch
 	 * any writes on it.
 	 */
-	[RTAX_MAX] = 0xdeadbeef,
+	.refcnt = REFCOUNT_INIT(1),
 };
 
 void dst_init(struct dst_entry *dst, struct dst_ops *ops,
@@ -220,7 +220,7 @@ void dst_init(struct dst_entry *dst, struct dst_ops *ops,
 	if (dev)
 		dev_hold(dev);
 	dst->ops = ops;
-	dst_init_metrics(dst, dst_default_metrics, true);
+	dst_init_metrics(dst, dst_default_metrics.metrics, true);
 	dst->expires = 0UL;
 	dst->path = dst;
 	dst->from = NULL;
@@ -241,7 +241,6 @@ void dst_init(struct dst_entry *dst, struct dst_ops *ops,
 	dst->__use = 0;
 	dst->lastuse = jiffies;
 	dst->flags = flags;
-	dst->pending_confirm = 0;
 	dst->next = NULL;
 	if (!(flags & DST_NOCOUNT))
 		dst_entries_add(ops, 1);
@@ -346,25 +345,13 @@ again:
 	lwtstate_put(dst->lwtstate);
 
 	if (dst->flags & DST_METADATA)
-		kfree(dst);
+		metadata_dst_free((struct metadata_dst *)dst);
 	else
 		kmem_cache_free(dst->ops->kmem_cachep, dst);
 
 	dst = child;
-	if (dst) {
-		int nohash = dst->flags & DST_NOHASH;
-
-		if (atomic_dec_and_test(&dst->__refcnt)) {
-			/* We were real parent of this dst, so kill child. */
-			if (nohash)
-				goto again;
-		} else {
-			/* Child is still referenced, return it for freeing. */
-			if (nohash)
-				return dst;
-			/* Child is still in his hash table */
-		}
-	}
+	if (dst)
+		dst_release_immediate(dst);
 	return NULL;
 }
 EXPORT_SYMBOL(dst_destroy);
@@ -374,9 +361,31 @@ static void dst_destroy_rcu(struct rcu_head *head)
 	struct dst_entry *dst = container_of(head, struct dst_entry, rcu_head);
 
 	dst = dst_destroy(dst);
-	if (dst)
-		__dst_free(dst);
 }
+
+/* Operations to mark dst as DEAD and clean up the net device referenced
+ * by dst:
+ * 1. put the dst under loopback interface and discard all tx/rx packets
+ *    on this route.
+ * 2. release the net_device
+ * This function should be called when removing routes from the fib tree
+ * in preparation for a NETDEV_DOWN/NETDEV_UNREGISTER event and also to
+ * make the next dst_ops->check() fail.
+ */
+void dst_dev_put(struct dst_entry *dst)
+{
+	struct net_device *dev = dst->dev;
+
+	dst->obsolete = DST_OBSOLETE_DEAD;
+	if (dst->ops->ifdown)
+		dst->ops->ifdown(dst, dev, true);
+	dst->input = dst_discard;
+	dst->output = dst_discard_out;
+	dst->dev = dev_net(dst->dev)->loopback_dev;
+	dev_hold(dst->dev);
+	dev_put(dev);
+}
+EXPORT_SYMBOL(dst_dev_put);
 
 void dst_release(struct dst_entry *dst)
 {
@@ -385,39 +394,58 @@ void dst_release(struct dst_entry *dst)
 		smp_mb__before_atomic_dec();
 		atomic_dec(&dst->__refcnt);
 		int newrefcnt;
-		unsigned short nocache = dst->flags & DST_NOCACHE;
 
 		newrefcnt = atomic_dec_return(&dst->__refcnt);
 		if (unlikely(newrefcnt < 0))
 			net_warn_ratelimited("%s: dst:%p refcnt:%d\n",
 					     __func__, dst, newrefcnt);
-		if (!newrefcnt && unlikely(nocache))
+		if (!newrefcnt)
 			call_rcu(&dst->rcu_head, dst_destroy_rcu);
 	}
 }
 EXPORT_SYMBOL(dst_release);
 
+void dst_release_immediate(struct dst_entry *dst)
+{
+	if (dst) {
+		int newrefcnt;
+
+		newrefcnt = atomic_dec_return(&dst->__refcnt);
+		if (unlikely(newrefcnt < 0))
+			net_warn_ratelimited("%s: dst:%p refcnt:%d\n",
+					     __func__, dst, newrefcnt);
+		if (!newrefcnt)
+			dst_destroy(dst);
+	}
+}
+EXPORT_SYMBOL(dst_release_immediate);
+
 u32 *dst_cow_metrics_generic(struct dst_entry *dst, unsigned long old)
 {
-	u32 *p = kmalloc(sizeof(u32) * RTAX_MAX, GFP_ATOMIC);
+	struct dst_metrics *p = kmalloc(sizeof(*p), GFP_ATOMIC);
 
 	if (p) {
-		u32 *old_p = __DST_METRICS_PTR(old);
+		struct dst_metrics *old_p = (struct dst_metrics *)__DST_METRICS_PTR(old);
 		unsigned long prev, new;
 
-		memcpy(p, old_p, sizeof(u32) * RTAX_MAX);
+		refcount_set(&p->refcnt, 1);
+		memcpy(p->metrics, old_p->metrics, sizeof(p->metrics));
 
 		new = (unsigned long) p;
 		prev = cmpxchg(&dst->_metrics, old, new);
 
 		if (prev != old) {
 			kfree(p);
-			p = __DST_METRICS_PTR(prev);
+			p = (struct dst_metrics *)__DST_METRICS_PTR(prev);
 			if (prev & DST_METRICS_READ_ONLY)
 				p = NULL;
+		} else if (prev & DST_METRICS_REFCOUNTED) {
+			if (refcount_dec_and_test(&old_p->refcnt))
+				kfree(old_p);
 		}
 	}
-	return p;
+	BUILD_BUG_ON(offsetof(struct dst_metrics, metrics) != 0);
+	return (u32 *)p;
 }
 EXPORT_SYMBOL(dst_cow_metrics_generic);
 
@@ -426,7 +454,7 @@ void __dst_destroy_metrics_generic(struct dst_entry *dst, unsigned long old)
 {
 	unsigned long prev, new;
 
-	new = ((unsigned long) dst_default_metrics) | DST_METRICS_READ_ONLY;
+	new = ((unsigned long) &dst_default_metrics) | DST_METRICS_READ_ONLY;
 	prev = cmpxchg(&dst->_metrics, old, new);
 	if (prev == old)
 		kfree(__DST_METRICS_PTR(old));
@@ -451,21 +479,25 @@ static int dst_md_discard(struct sk_buff *skb)
 	return 0;
 }
 
-static void __metadata_dst_init(struct metadata_dst *md_dst, u8 optslen)
+static void __metadata_dst_init(struct metadata_dst *md_dst,
+				enum metadata_type type, u8 optslen)
+
 {
 	struct dst_entry *dst;
 
 	dst = &md_dst->dst;
 	dst_init(dst, &md_dst_ops, NULL, 1, DST_OBSOLETE_NONE,
-		 DST_METADATA | DST_NOCACHE | DST_NOCOUNT);
+		 DST_METADATA | DST_NOCOUNT);
 
 	dst->input = dst_md_discard;
 	dst->output = dst_md_discard_out;
 
 	memset(dst + 1, 0, sizeof(*md_dst) + optslen - sizeof(*dst));
+	md_dst->type = type;
 }
 
-struct metadata_dst *metadata_dst_alloc(u8 optslen, gfp_t flags)
+struct metadata_dst *metadata_dst_alloc(u8 optslen, enum metadata_type type,
+					gfp_t flags)
 {
 	struct metadata_dst *md_dst;
 
@@ -473,13 +505,23 @@ struct metadata_dst *metadata_dst_alloc(u8 optslen, gfp_t flags)
 	if (!md_dst)
 		return NULL;
 
-	__metadata_dst_init(md_dst, optslen);
+	__metadata_dst_init(md_dst, type, optslen);
 
 	return md_dst;
 }
 EXPORT_SYMBOL_GPL(metadata_dst_alloc);
 
-struct metadata_dst __percpu *metadata_dst_alloc_percpu(u8 optslen, gfp_t flags)
+void metadata_dst_free(struct metadata_dst *md_dst)
+{
+#ifdef CONFIG_DST_CACHE
+	if (md_dst->type == METADATA_IP_TUNNEL)
+		dst_cache_destroy(&md_dst->u.tun_info.dst_cache);
+#endif
+	kfree(md_dst);
+}
+
+struct metadata_dst __percpu *
+metadata_dst_alloc_percpu(u8 optslen, enum metadata_type type, gfp_t flags)
 {
 	int cpu;
 	struct metadata_dst __percpu *md_dst;
@@ -490,7 +532,7 @@ struct metadata_dst __percpu *metadata_dst_alloc_percpu(u8 optslen, gfp_t flags)
 		return NULL;
 
 	for_each_possible_cpu(cpu)
-		__metadata_dst_init(per_cpu_ptr(md_dst, cpu), optslen);
+		__metadata_dst_init(per_cpu_ptr(md_dst, cpu), type, optslen);
 
 	return md_dst;
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/init.h>
 #include <linux/mm.h>
 #include <asm/mtrr.h>
@@ -184,6 +185,7 @@ static void prepare_set(void)
 	/*  Disable and flush caches. Note that wbinvd flushes the TLBs as
 	    a side-effect  */
 	if (cpu_has_pge) {
+	if (boot_cpu_has(X86_FEATURE_PGE)) {
 		cr4 = __read_cr4();
 		__write_cr4(cr4 & ~X86_CR4_PGE);
 	}
@@ -225,7 +227,7 @@ static void post_set(void)
 	write_cr0(read_cr0() & ~X86_CR0_CD);
 
 	/* Restore value of CR4 */
-	if (cpu_has_pge)
+	if (boot_cpu_has(X86_FEATURE_PGE))
 		__write_cr4(cr4);
 }
 

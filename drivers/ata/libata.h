@@ -21,7 +21,7 @@
  *
  *
  *  libata documentation is available via 'make {ps|pdf}docs',
- *  as Documentation/DocBook/libata.*
+ *  as Documentation/driver-api/libata.rst
  *
  */
 
@@ -89,6 +89,9 @@ extern void ata_dev_disable(struct ata_device *dev);
 extern void ata_pio_queue_task(struct ata_port *ap, void *data,
 			       unsigned long delay);
 extern void ata_port_flush_task(struct ata_port *ap);
+			   unsigned int tag, int class);
+extern u64 ata_tf_read_block(const struct ata_taskfile *tf,
+			     struct ata_device *dev);
 extern unsigned ata_exec_internal(struct ata_device *dev,
 				  struct ata_taskfile *tf, const u8 *cdb,
 				  int dma_dir, void *buf, unsigned int buflen,
@@ -112,7 +115,6 @@ extern int sata_down_spd_limit(struct ata_link *link, u32 spd_limit);
 extern int ata_down_xfermask_limit(struct ata_device *dev, unsigned int sel);
 extern unsigned int ata_dev_set_feature(struct ata_device *dev,
 					u8 enable, u8 feature);
-extern void ata_sg_clean(struct ata_queued_cmd *qc);
 extern void ata_qc_free(struct ata_queued_cmd *qc);
 extern void ata_qc_issue(struct ata_queued_cmd *qc);
 extern void __ata_qc_complete(struct ata_queued_cmd *qc);
@@ -136,6 +138,8 @@ extern void ata_acpi_associate(struct ata_host *host);
 extern const char *sata_spd_string(unsigned int spd);
 extern int ata_port_probe(struct ata_port *ap);
 extern void __ata_port_probe(struct ata_port *ap);
+extern unsigned int ata_read_log_page(struct ata_device *dev, u8 log,
+				      u8 page, void *buf, unsigned int sectors);
 
 #define to_ata_port(d) container_of(d, struct ata_port, tdev)
 
@@ -171,6 +175,11 @@ extern int ata_scsi_add_hosts(struct ata_host *host,
 			      struct scsi_host_template *sht);
 extern void ata_scsi_scan_host(struct ata_port *ap, int sync);
 extern int ata_scsi_offline_dev(struct ata_device *dev);
+extern void ata_scsi_set_sense(struct ata_device *dev,
+			       struct scsi_cmnd *cmd, u8 sk, u8 asc, u8 ascq);
+extern void ata_scsi_set_sense_information(struct ata_device *dev,
+					   struct scsi_cmnd *cmd,
+					   const struct ata_taskfile *tf);
 extern void ata_scsi_media_change_notify(struct ata_device *dev);
 extern void ata_scsi_hotplug(struct work_struct *work);
 extern void ata_schedule_scsi_eh(struct Scsi_Host *shost);
@@ -192,7 +201,6 @@ extern void ata_eh_fastdrain_timerfn(unsigned long arg);
 extern void ata_qc_schedule_eh(struct ata_queued_cmd *qc);
 extern void ata_eh_acquire(struct ata_port *ap);
 extern void ata_eh_release(struct ata_port *ap);
-extern enum blk_eh_timer_return ata_scsi_timed_out(struct scsi_cmnd *cmd);
 extern void ata_scsi_error(struct Scsi_Host *host);
 extern void ata_eh_fastdrain_timerfn(unsigned long arg);
 extern void ata_qc_schedule_eh(struct ata_queued_cmd *qc);

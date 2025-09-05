@@ -239,6 +239,9 @@ DECLARE_SNMP_STAT(struct dccp_mib, dccp_statistics);
 #define DCCP_ADD_STATS_USER(field, val)	\
 			SNMP_ADD_STATS_USER(dccp_statistics, field, val)
 #define DCCP_DEC_STATS(field)	    SNMP_DEC_STATS(dccp_statistics, field)
+#define DCCP_INC_STATS(field)	SNMP_INC_STATS(dccp_statistics, field)
+#define __DCCP_INC_STATS(field)	__SNMP_INC_STATS(dccp_statistics, field)
+#define DCCP_DEC_STATS(field)	SNMP_DEC_STATS(dccp_statistics, field)
 
 /*
  * 	Checksumming routines

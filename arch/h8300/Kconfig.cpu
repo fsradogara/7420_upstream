@@ -15,6 +15,7 @@ config H8300H_AKI3068NET
 	  AKI-H8/3068F / AKI-H8/3069F Flashmicom LAN Board Support
 	  More Information. (Japanese Only)
 	  <http://akizukidensi.com/catalog/h8.html>
+# SPDX-License-Identifier: GPL-2.0
 config CPU_H8300H
 	bool
 

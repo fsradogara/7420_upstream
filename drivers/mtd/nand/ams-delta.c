@@ -21,7 +21,7 @@
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <asm/io.h>
 #include <mach/hardware.h>
@@ -82,6 +82,8 @@ static void ams_delta_write_byte(struct mtd_info *mtd, u_char byte)
 	ams_delta_latch2_write(AMS_DELTA_LATCH2_NAND_NWE,
 			       AMS_DELTA_LATCH2_NAND_NWE);
 	void __iomem *io_base = this->priv;
+	struct nand_chip *this = mtd_to_nand(mtd);
+	void __iomem *io_base = (void __iomem *)nand_get_controller_data(this);
 
 	writew(0, io_base + OMAP_MPUIO_IO_CNTL);
 	writew(byte, this->IO_ADDR_W);
@@ -102,6 +104,8 @@ static u_char ams_delta_read_byte(struct mtd_info *mtd)
 	ams_delta_latch2_write(AMS_DELTA_LATCH2_NAND_NRE,
 			       AMS_DELTA_LATCH2_NAND_NRE);
 	void __iomem *io_base = this->priv;
+	struct nand_chip *this = mtd_to_nand(mtd);
+	void __iomem *io_base = (void __iomem *)nand_get_controller_data(this);
 
 	gpio_set_value(AMS_DELTA_GPIO_PIN_NAND_NRE, 0);
 	ndelay(40);
@@ -240,14 +244,14 @@ static int ams_delta_init(struct platform_device *pdev)
 		return -ENXIO;
 
 	/* Allocate memory for MTD device structure and private data */
-	ams_delta_mtd = kzalloc(sizeof(struct mtd_info) +
-				sizeof(struct nand_chip), GFP_KERNEL);
-	if (!ams_delta_mtd) {
+	this = kzalloc(sizeof(struct nand_chip), GFP_KERNEL);
+	if (!this) {
 		printk (KERN_WARNING "Unable to allocate E3 NAND MTD device structure.\n");
 		err = -ENOMEM;
 		goto out;
 	}
 
+	ams_delta_mtd = nand_to_mtd(this);
 	ams_delta_mtd->owner = THIS_MODULE;
 
 	/* Get pointer to private data */
@@ -285,7 +289,7 @@ static int ams_delta_init(struct platform_device *pdev)
 		goto out_free;
 	}
 
-	this->priv = io_base;
+	nand_set_controller_data(this, (void *)io_base);
 
 	/* Set address of NAND IO lines */
 	this->IO_ADDR_R = io_base + OMAP_MPUIO_INPUT_LATCH;
@@ -303,6 +307,7 @@ static int ams_delta_init(struct platform_device *pdev)
 	/* 25 us command delay time */
 	this->chip_delay = 30;
 	this->ecc.mode = NAND_ECC_SOFT;
+	this->ecc.algo = NAND_ECC_HAMMING;
 
 	/* Set chip enabled, but  */
 	ams_delta_latch2_write(NAND_MASK, AMS_DELTA_LATCH2_NAND_NRE |
@@ -319,10 +324,9 @@ static int ams_delta_init(struct platform_device *pdev)
 		goto out_gpio;
 
 	/* Scan to find existence of the device */
-	if (nand_scan(ams_delta_mtd, 1)) {
-		err = -ENXIO;
+	err = nand_scan(ams_delta_mtd, 1);
+	if (err)
 		goto out_mtd;
-	}
 
 	/* Register the partitions */
 	add_mtd_partitions(ams_delta_mtd, partition_info,
@@ -338,7 +342,7 @@ out_gpio:
 	gpio_free(AMS_DELTA_GPIO_PIN_NAND_RB);
 	iounmap(io_base);
 out_free:
-	kfree(ams_delta_mtd);
+	kfree(this);
  out:
 	return err;
 }
@@ -372,7 +376,7 @@ static int ams_delta_cleanup(struct platform_device *pdev)
 	iounmap(io_base);
 
 	/* Free the MTD device structure */
-	kfree(ams_delta_mtd);
+	kfree(mtd_to_nand(ams_delta_mtd));
 
 	return 0;
 }

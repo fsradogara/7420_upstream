@@ -1,4 +1,3 @@
-
 Numa policy hit/miss statistics
 
 /sys/devices/system/node/node*/numastat

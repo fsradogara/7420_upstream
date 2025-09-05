@@ -58,7 +58,7 @@ int hfs_hash_dentry(const struct dentry *dentry, struct qstr *this)
 	if (len > HFS_NAMELEN)
 		len = HFS_NAMELEN;
 
-	hash = init_name_hash();
+	hash = init_name_hash(dentry);
 	for (; len; len--)
 		hash = partial_name_hash(caseorder[*name++], hash);
 	this->hash = end_name_hash(hash);
@@ -107,6 +107,7 @@ int hfs_compare_dentry(struct dentry *dentry, struct qstr *s1, struct qstr *s2)
 	n1 = s1->name;
 	n2 = s2->name;
 int hfs_compare_dentry(const struct dentry *parent, const struct dentry *dentry,
+int hfs_compare_dentry(const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
 	const unsigned char *n1, *n2;

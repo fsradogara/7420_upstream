@@ -39,7 +39,7 @@
 #include <asm/hardware/dec21285.h>
 #include <asm/io.h>
 #include <asm/mach-types.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /*****************************************************************************/
 #include <asm/nwflash.h>
@@ -332,6 +332,7 @@ static loff_t flash_llseek(struct file *file, loff_t offset, int orig)
 		ret = -EINVAL;
 	}
 	unlock_kernel();
+	ret = no_seek_end_llseek_size(file, offset, orig, gbFlashSize);
 	mutex_unlock(&flash_mutex);
 	return ret;
 }

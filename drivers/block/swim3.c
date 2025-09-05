@@ -20,7 +20,7 @@
 
 #include <linux/stddef.h>
 #include <linux/kernel.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/timer.h>
 #include <linux/delay.h>
 #include <linux/fd.h>
@@ -36,7 +36,7 @@
 #include <asm/io.h>
 #include <asm/dbdma.h>
 #include <asm/prom.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/mediabay.h>
 #include <asm/machdep.h>
 #include <asm/pmac_feature.h>
@@ -288,7 +288,7 @@ static unsigned int floppy_check_events(struct gendisk *disk,
 					unsigned int clearing);
 static int floppy_revalidate(struct gendisk *disk);
 
-static bool swim3_end_request(struct floppy_state *fs, int err, unsigned int nr_bytes)
+static bool swim3_end_request(struct floppy_state *fs, blk_status_t err, unsigned int nr_bytes)
 {
 	struct request *req = fs->cur_req;
 	int rc;
@@ -398,7 +398,7 @@ static void start_request(struct floppy_state *fs)
 		if (fs->mdev->media_bay &&
 		    check_media_bay(fs->mdev->media_bay) != MB_FD) {
 			swim3_dbg("%s", "  media bay absent, dropping req\n");
-			swim3_end_request(fs, -ENODEV, 0);
+			swim3_end_request(fs, BLK_STS_IOERR, 0);
 			continue;
 		}
 
@@ -407,19 +407,19 @@ static void start_request(struct floppy_state *fs)
 			  req->rq_disk->disk_name, req->cmd,
 			  (long)blk_rq_pos(req), blk_rq_sectors(req),
 			  bio_data(req->bio));
-		swim3_dbg("           errors=%d current_nr_sectors=%u\n",
-			  req->errors, blk_rq_cur_sectors(req));
+		swim3_dbg("           current_nr_sectors=%u\n",
+			  blk_rq_cur_sectors(req));
 #endif
 
 		if (blk_rq_pos(req) >= fs->total_secs) {
 			swim3_dbg("  pos out of bounds (%ld, max is %ld)\n",
 				  (long)blk_rq_pos(req), (long)fs->total_secs);
-			swim3_end_request(fs, -EIO, 0);
+			swim3_end_request(fs, BLK_STS_IOERR, 0);
 			continue;
 		}
 		if (fs->ejected) {
 			swim3_dbg("%s", "  disk ejected\n");
-			swim3_end_request(fs, -EIO, 0);
+			swim3_end_request(fs, BLK_STS_IOERR, 0);
 			continue;
 		}
 
@@ -429,7 +429,7 @@ static void start_request(struct floppy_state *fs)
 			if (fs->write_prot) {
 				end_request(req, 0);
 				swim3_dbg("%s", "  try to write, disk write protected\n");
-				swim3_end_request(fs, -EIO, 0);
+				swim3_end_request(fs, BLK_STS_IOERR, 0);
 				continue;
 			}
 		}
@@ -657,7 +657,7 @@ static void act(struct floppy_state *fs)
 					end_request(fd_req, 0);
 					swim3_err("Wrong cylinder in transfer, want: %d got %d\n",
 						  fs->req_cyl, fs->cur_cyl);
-					swim3_end_request(fs, -EIO, 0);
+					swim3_end_request(fs, BLK_STS_IOERR, 0);
 					fs->state = idle;
 					return;
 				}
@@ -697,6 +697,7 @@ static void scan_timeout(unsigned long data)
 	if (fs->retries > 5) {
 		end_request(fd_req, 0);
 		swim3_end_request(fs, -EIO, 0);
+		swim3_end_request(fs, BLK_STS_IOERR, 0);
 		fs->state = idle;
 		start_request(fs);
 	} else {
@@ -725,7 +726,7 @@ static void seek_timeout(unsigned long data)
 	fs->state = idle;
 	start_request(fs);
 	swim3_err("%s", "Seek timeout\n");
-	swim3_end_request(fs, -EIO, 0);
+	swim3_end_request(fs, BLK_STS_IOERR, 0);
 	fs->state = idle;
 	start_request(fs);
 	spin_unlock_irqrestore(&swim3_lock, flags);
@@ -762,7 +763,7 @@ static void settle_timeout(unsigned long data)
 		goto unlock;
 	}
 	swim3_err("%s", "Seek settle timeout\n");
-	swim3_end_request(fs, -EIO, 0);
+	swim3_end_request(fs, BLK_STS_IOERR, 0);
 	fs->state = idle;
 	start_request(fs);
  unlock:
@@ -808,7 +809,7 @@ static void xfer_timeout(unsigned long data)
 	swim3_err("Timeout %sing sector %ld\n",
 	       (rq_data_dir(fs->cur_req)==WRITE? "writ": "read"),
 	       (long)blk_rq_pos(fs->cur_req));
-	swim3_end_request(fs, -EIO, 0);
+	swim3_end_request(fs, BLK_STS_IOERR, 0);
 	fs->state = idle;
 	start_request(fs);
 	spin_unlock_irqrestore(&swim3_lock, flags);
@@ -855,7 +856,7 @@ static irqreturn_t swim3_interrupt(int irq, void *dev_id)
 				swim3_err("%s", "Seen sector but cyl=ff?\n");
 				fs->cur_cyl = -1;
 				if (fs->retries > 5) {
-					swim3_end_request(fs, -EIO, 0);
+					swim3_end_request(fs, BLK_STS_IOERR, 0);
 					fs->state = idle;
 					start_request(fs);
 				} else {
@@ -953,7 +954,7 @@ static irqreturn_t swim3_interrupt(int irq, void *dev_id)
 				swim3_err("Error %sing block %ld (err=%x)\n",
 				       rq_data_dir(req) == WRITE? "writ": "read",
 				       (long)blk_rq_pos(req), err);
-				swim3_end_request(fs, -EIO, 0);
+				swim3_end_request(fs, BLK_STS_IOERR, 0);
 				fs->state = idle;
 			}
 		} else {
@@ -966,7 +967,7 @@ static irqreturn_t swim3_interrupt(int irq, void *dev_id)
 				swim3_err("fd dma error: stat=%x resid=%d\n", stat, resid);
 				swim3_err("  state=%d, dir=%x, intr=%x, err=%x\n",
 					  fs->state, rq_data_dir(req), intr, err);
-				swim3_end_request(fs, -EIO, 0);
+				swim3_end_request(fs, BLK_STS_IOERR, 0);
 				fs->state = idle;
 				start_request(fs);
 				break;
@@ -1532,6 +1533,7 @@ static int swim3_attach(struct macio_dev *mdev,
 		put_disk(disk);
 		return -ENOMEM;
 	}
+	blk_queue_bounce_limit(disk->queue, BLK_BOUNCE_HIGH);
 	disk->queue->queuedata = &floppy_states[index];
 
 	if (index == 0) {
@@ -1574,7 +1576,7 @@ static int swim3_attach(struct macio_dev *mdev,
 	return 0;
 }
 
-static struct of_device_id swim3_match[] =
+static const struct of_device_id swim3_match[] =
 {
 	{
 	.name		= "swim3",

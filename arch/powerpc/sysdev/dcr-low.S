@@ -14,6 +14,7 @@
 
 #define DCR_ACCESS_PROLOG(table) \
 #include <asm/bug.h>
+#include <asm/export.h>
 
 #define DCR_ACCESS_PROLOG(table) \
 	cmpli	cr0,r3,1024;	 \
@@ -32,9 +33,11 @@
 
 _GLOBAL(__mfdcr)
 	DCR_ACCESS_PROLOG(__mfdcr_table)
+EXPORT_SYMBOL(__mfdcr)
 
 _GLOBAL(__mtdcr)
 	DCR_ACCESS_PROLOG(__mtdcr_table)
+EXPORT_SYMBOL(__mtdcr)
 
 __mfdcr_table:
 	mfdcr  r3,0; blr

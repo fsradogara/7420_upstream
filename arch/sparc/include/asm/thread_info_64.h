@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* thread_info.h: sparc64 low-level thread information
  *
  * Copyright (C) 2002  David S. Miller (davem@redhat.com)
@@ -274,7 +275,7 @@ register struct thread_info *current_thread_info_reg asm("g6");
 /* flag bit 11 is available */
 /* flag bit 4 is available */
 #define TIF_UNALIGNED		5	/* allowed to do unaligned accesses */
-/* flag bit 6 is available */
+#define TIF_UPROBE		6	/* breakpointed or singlestepped */
 #define TIF_32BIT		7	/* 32-bit binary */
 #define TIF_NOHZ		8	/* in adaptive nohz mode */
 #define TIF_SECCOMP		9	/* secure computing */
@@ -301,6 +302,7 @@ register struct thread_info *current_thread_info_reg asm("g6");
 #define _TIF_SYSCALL_AUDIT	(1<<TIF_SYSCALL_AUDIT)
 #define _TIF_ABI_PENDING	(1<<TIF_ABI_PENDING)
 #define _TIF_UNALIGNED		(1<<TIF_UNALIGNED)
+#define _TIF_UPROBE		(1<<TIF_UPROBE)
 #define _TIF_32BIT		(1<<TIF_32BIT)
 #define _TIF_NOHZ		(1<<TIF_NOHZ)
 #define _TIF_SECCOMP		(1<<TIF_SECCOMP)
@@ -314,7 +316,8 @@ register struct thread_info *current_thread_info_reg asm("g6");
 #define _TIF_DO_NOTIFY_RESUME_MASK	(_TIF_NOTIFY_RESUME | _TIF_SIGPENDING)
 
 				 _TIF_NEED_RESCHED)
-#define _TIF_DO_NOTIFY_RESUME_MASK	(_TIF_NOTIFY_RESUME | _TIF_SIGPENDING)
+#define _TIF_DO_NOTIFY_RESUME_MASK	(_TIF_NOTIFY_RESUME | \
+					 _TIF_SIGPENDING | _TIF_UPROBE)
 
 #define is_32bit_task()	(test_thread_flag(TIF_32BIT))
 
@@ -327,7 +330,6 @@ register struct thread_info *current_thread_info_reg asm("g6");
  *
  * Note that there are only 8 bits available.
  */
-#define TS_RESTORE_SIGMASK	0x0001	/* restore signal mask in do_signal() */
 
 #ifndef __ASSEMBLY__
 #define HAVE_SET_RESTORE_SIGMASK	1

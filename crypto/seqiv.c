@@ -16,22 +16,15 @@
 #include <crypto/internal/aead.h>
 #include <crypto/internal/skcipher.h>
 #include <crypto/internal/geniv.h>
-#include <crypto/internal/skcipher.h>
-#include <crypto/rng.h>
 #include <crypto/scatterwalk.h>
+#include <crypto/skcipher.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/random.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
 #include <linux/string.h>
-
-struct seqiv_ctx {
-	spinlock_t lock;
-	u8 salt[] __attribute__ ((aligned(__alignof__(u32))));
-};
 
 static void seqiv_free(struct crypto_instance *inst);
 
@@ -214,12 +207,16 @@ static int seqiv_aead_encrypt(struct aead_request *req)
 	info = req->iv;
 
 	if (req->src != req->dst) {
-		struct blkcipher_desc desc = {
-			.tfm = ctx->null,
-		};
+		SKCIPHER_REQUEST_ON_STACK(nreq, ctx->sknull);
 
-		err = crypto_blkcipher_encrypt(&desc, req->dst, req->src,
-					       req->assoclen + req->cryptlen);
+		skcipher_request_set_tfm(nreq, ctx->sknull);
+		skcipher_request_set_callback(nreq, req->base.flags,
+					      NULL, NULL);
+		skcipher_request_set_crypt(nreq, req->src, req->dst,
+					   req->assoclen + req->cryptlen,
+					   NULL);
+
+		err = crypto_skcipher_encrypt(nreq);
 		if (err)
 			return err;
 	}
@@ -474,8 +471,6 @@ static int seqiv_aead_create(struct crypto_template *tmpl, struct rtattr **tb)
 	if (IS_ERR(inst))
 		return PTR_ERR(inst);
 
-	inst->alg.base.cra_alignmask |= __alignof__(u32) - 1;
-
 	spawn = aead_instance_ctx(inst);
 	alg = crypto_spawn_aead_alg(spawn);
 
@@ -507,18 +502,15 @@ free_inst:
 static int seqiv_create(struct crypto_template *tmpl, struct rtattr **tb)
 {
 	struct crypto_attr_type *algt;
-	int err;
 
 	algt = crypto_get_attr_type(tb);
 	if (IS_ERR(algt))
 		return PTR_ERR(algt);
 
 	if ((algt->type ^ CRYPTO_ALG_TYPE_AEAD) & CRYPTO_ALG_TYPE_MASK)
-		err = seqiv_ablkcipher_create(tmpl, tb);
-	else
-		err = seqiv_aead_create(tmpl, tb);
+		return -EINVAL;
 
-	return err;
+	return seqiv_aead_create(tmpl, tb);
 }
 
 static void seqiv_free(struct crypto_instance *inst)
@@ -528,6 +520,7 @@ static void seqiv_free(struct crypto_instance *inst)
 	else
 		aead_geniv_free(inst);
 		aead_geniv_free(aead_instance(inst));
+	aead_geniv_free(aead_instance(inst));
 }
 
 static struct crypto_template seqiv_tmpl = {

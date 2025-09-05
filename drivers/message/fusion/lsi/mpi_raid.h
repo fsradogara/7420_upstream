@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  Copyright (c) 2001-2007 LSI Corporation.
  *  Copyright (c) 2001-2008 LSI Corporation.

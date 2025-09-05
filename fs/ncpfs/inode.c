@@ -16,7 +16,7 @@
 
 #include <linux/module.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/byteorder.h>
 
 #include <linux/time.h>
@@ -43,6 +43,7 @@
 #include <linux/vfs.h>
 #include <linux/mount.h>
 #include <linux/seq_file.h>
+#include <linux/sched/signal.h>
 #include <linux/namei.h>
 
 #include <net/sock.h>
@@ -102,7 +103,7 @@ static int init_inodecache(void)
 	ncp_inode_cachep = kmem_cache_create("ncp_inode_cache",
 					     sizeof(struct ncp_inode_info),
 					     0, (SLAB_RECLAIM_ACCOUNT|
-						SLAB_MEM_SPREAD),
+						SLAB_MEM_SPREAD|SLAB_ACCOUNT),
 					     init_once);
 	if (ncp_inode_cachep == NULL)
 		return -ENOMEM;
@@ -278,9 +279,7 @@ static void ncp_set_attr(struct inode *inode, struct ncp_entry_info *nwinfo)
 
 #if defined(CONFIG_NCPFS_EXTRAS) || defined(CONFIG_NCPFS_NFS_NS)
 static const struct inode_operations ncp_symlink_inode_operations = {
-	.readlink	= generic_readlink,
-	.follow_link	= page_follow_link_light,
-	.put_link	= page_put_link,
+	.get_link	= page_get_link,
 	.setattr	= ncp_notify_change,
 };
 #endif
@@ -319,6 +318,7 @@ ncp_iget(struct super_block *sb, struct ncp_entry_info *info)
 #if defined(CONFIG_NCPFS_EXTRAS) || defined(CONFIG_NCPFS_NFS_NS)
 		} else if (S_ISLNK(inode->i_mode)) {
 			inode->i_op = &ncp_symlink_inode_operations;
+			inode_nohighmem(inode);
 			inode->i_data.a_ops = &ncp_symlink_aops;
 #endif
 		} else {
@@ -656,7 +656,6 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 	sb->s_magic = NCP_SUPER_MAGIC;
 	sb->s_op = &ncp_sops;
 	sb->s_d_op = &ncp_dentry_operations;
-	sb->s_bdi = &server->bdi;
 
 	server = NCP_SBP(sb);
 	memset(server, 0, sizeof(*server));
@@ -683,6 +682,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 			goto out_fput2;
 		server->info_sock = info_sock;
 	error = bdi_setup_and_register(&server->bdi, "ncpfs");
+	error = super_setup_bdi(sb);
 	if (error)
 		goto out_fput;
 
@@ -691,7 +691,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 	if (data.info_fd != -1) {
 		struct socket *info_sock = sockfd_lookup(data.info_fd, &error);
 		if (!info_sock)
-			goto out_bdi;
+			goto out_fput;
 		server->info_sock = info_sock;
 		error = -EBADFD;
 		if (info_sock->type != SOCK_STREAM)
@@ -902,8 +902,6 @@ out_fput:
 out_fput2:
 	if (server->info_sock)
 		sockfd_put(server->info_sock);
-out_bdi:
-	bdi_destroy(&server->bdi);
 out_fput:
 	sockfd_put(sock);
 out:
@@ -964,7 +962,6 @@ static void ncp_put_super(struct super_block *sb)
 	kill_pid(server->m.wdog_pid, SIGTERM, 1);
 	put_pid(server->m.wdog_pid);
 
-	bdi_destroy(&server->bdi);
 	kfree(server->priv.data);
 	kfree(server->auth.object_name);
 	vfree(server->rxbuf);
@@ -1068,7 +1065,7 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 	/* ageing the dentry to force validation */
 	ncp_age_dentry(server, dentry);
 
-	result = inode_change_ok(inode, attr);
+	result = setattr_prepare(dentry, attr);
 	if (result < 0)
 		goto out;
 

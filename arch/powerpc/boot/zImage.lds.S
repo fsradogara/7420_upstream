@@ -1,4 +1,5 @@
 OUTPUT_ARCH(powerpc:common)
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <asm-generic/vmlinux.lds.h>
 
 #ifdef CONFIG_PPC64_BOOT_WRAPPER
@@ -108,6 +109,7 @@ SECTIONS
   }
 
 #ifdef CONFIG_PPC64_BOOT_WRAPPER
+  . = ALIGN(256);
   .got :
   {
     __toc_start = .;

@@ -98,6 +98,8 @@ ebt_vlan_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	id = TCI & VLAN_VID_MASK;
 	prio = (TCI >> 13) & 0x7;
 	encap = fp->h_vlan_encapsulated_proto;
+	 * an unsigned binary number.
+	 */
 	id = TCI & VLAN_VID_MASK;
 	prio = (TCI >> 13) & 0x7;
 
@@ -152,7 +154,8 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 	}
 
 	/* Check for bitmask range
-	 * True if even one bit is out of mask */
+	 * True if even one bit is out of mask
+	 */
 	if (info->bitmask & ~EBT_VLAN_MASK) {
 		DEBUG_MSG("bitmask %2X is out of mask (%2X)\n",
 			  info->bitmask, EBT_VLAN_MASK);
@@ -183,6 +186,8 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 				    ("id %d is out of range (1-4096)\n",
 				     info->id);
 	 * if_vlan.h: VLAN_N_VID 4096. */
+	 * if_vlan.h: VLAN_N_VID 4096.
+	 */
 	if (GET_BITMASK(EBT_VLAN_ID)) {
 		if (!!info->id) { /* if id!=0 => check vid range */
 			if (info->id > VLAN_N_VID) {
@@ -193,7 +198,8 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 			/* Note: This is valid VLAN-tagged frame point.
 			 * Any value of user_priority are acceptable,
 			 * but should be ignored according to 802.1Q Std.
-			 * So we just drop the prio flag. */
+			 * So we just drop the prio flag.
+			 */
 			info->bitmask &= ~EBT_VLAN_PRIO;
 		}
 		/* Else, id=0 (null VLAN ID)  => user_priority range (any?) */
@@ -210,7 +216,8 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 	}
 	/* Check for encapsulated proto range - it is possible to be
 	 * any value for u_short range.
-	 * if_ether.h:  ETH_ZLEN        60   -  Min. octets in frame sans FCS */
+	 * if_ether.h:  ETH_ZLEN        60   -  Min. octets in frame sans FCS
+	 */
 	if (GET_BITMASK(EBT_VLAN_ENCAP)) {
 		if ((unsigned short) ntohs(info->encap) < ETH_ZLEN) {
 			DEBUG_MSG

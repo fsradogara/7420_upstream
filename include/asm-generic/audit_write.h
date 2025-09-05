@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <asm-generic/audit_dir_write.h>
 __NR_acct,
 __NR_swapon,

@@ -33,7 +33,9 @@
 #include <linux/mtd/map.h>
 #include <linux/mtd/partitions.h>
 
-struct footer_struct {
+#define AFSV1_FOOTER_MAGIC 0xA0FFFF9F
+
+struct footer_v1 {
 	u32 image_info_base;	/* Address of first word of ImageFooter  */
 	u32 image_start;	/* Start of area reserved by this footer */
 	u32 signature;		/* 'Magic' number proves it's a footer   */
@@ -41,7 +43,7 @@ struct footer_struct {
 	u32 checksum;		/* Just this structure                   */
 };
 
-struct image_info_struct {
+struct image_info_v1 {
 	u32 bootFlags;		/* Boot flags, compression etc.          */
 	u32 imageNumber;	/* Unique number, selects for boot etc.  */
 	u32 loadAddress;	/* Address program should be loaded to   */
@@ -66,10 +68,10 @@ static u32 word_sum(void *words, int num)
 }
 
 static int
-afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
-		u_int off, u_int mask)
+afs_read_footer_v1(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
+		   u_int off, u_int mask)
 {
-	struct footer_struct fs;
+	struct footer_v1 fs;
 	u_int ptr = off + mtd->erasesize - sizeof(fs);
 	size_t sz;
 	int ret;
@@ -85,25 +87,23 @@ afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
 		return ret;
 	}
 
-	ret = 1;
-
 	/*
 	 * Does it contain the magic number?
 	 */
-	if (fs.signature != 0xa0ffff9f)
-		ret = 0;
+	if (fs.signature != AFSV1_FOOTER_MAGIC)
+		return 0;
 
 	/*
 	 * Check the checksum.
 	 */
 	if (word_sum(&fs, sizeof(fs) / sizeof(u32)) != 0xffffffff)
-		ret = 0;
+		return 0;
 
 	/*
 	 * Don't touch the SIB.
 	 */
 	if (fs.type == 2)
-		ret = 0;
+		return 0;
 
 	*iis_start = fs.image_info_base & mask;
 	*img_start = fs.image_start & mask;
@@ -113,20 +113,20 @@ afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
 	 * be located after the footer structure.
 	 */
 	if (*iis_start >= ptr)
-		ret = 0;
+		return 0;
 
 	/*
 	 * Check the start of this image.  The image
 	 * data can not be located after this block.
 	 */
 	if (*img_start > off)
-		ret = 0;
+		return 0;
 
-	return ret;
+	return 1;
 }
 
 static int
-afs_read_iis(struct mtd_info *mtd, struct image_info_struct *iis, u_int ptr)
+afs_read_iis_v1(struct mtd_info *mtd, struct image_info_v1 *iis, u_int ptr)
 {
 	size_t sz;
 	int ret, i;
@@ -166,6 +166,7 @@ static int parse_afs_partitions(struct mtd_info *mtd,
                          struct mtd_partition **pparts,
                          unsigned long origin)
 				struct mtd_partition **pparts,
+				const struct mtd_partition **pparts,
 				struct mtd_part_parser_data *data)
 {
 	struct mtd_partition *parts;
@@ -185,24 +186,23 @@ static int parse_afs_partitions(struct mtd_info *mtd,
 	 * the strings.
 	 */
 	for (idx = off = sz = 0; off < mtd->size; off += mtd->erasesize) {
-		struct image_info_struct iis;
+		struct image_info_v1 iis;
 		u_int iis_ptr, img_ptr;
 
-		ret = afs_read_footer(mtd, &img_ptr, &iis_ptr, off, mask);
+		ret = afs_read_footer_v1(mtd, &img_ptr, &iis_ptr, off, mask);
 		if (ret < 0)
 			break;
-		if (ret == 0)
-			continue;
+		if (ret) {
+			ret = afs_read_iis_v1(mtd, &iis, iis_ptr);
+			if (ret < 0)
+				break;
+			if (ret == 0)
+				continue;
 
-		ret = afs_read_iis(mtd, &iis, iis_ptr);
-		if (ret < 0)
-			break;
-		if (ret == 0)
-			continue;
-
-		sz += sizeof(struct mtd_partition);
-		sz += strlen(iis.name) + 1;
-		idx += 1;
+			sz += sizeof(struct mtd_partition);
+			sz += strlen(iis.name) + 1;
+			idx += 1;
+		}
 	}
 
 	if (!sz)
@@ -218,18 +218,18 @@ static int parse_afs_partitions(struct mtd_info *mtd,
 	 * Identify the partitions
 	 */
 	for (idx = off = 0; off < mtd->size; off += mtd->erasesize) {
-		struct image_info_struct iis;
+		struct image_info_v1 iis;
 		u_int iis_ptr, img_ptr;
 
 		/* Read the footer. */
-		ret = afs_read_footer(mtd, &img_ptr, &iis_ptr, off, mask);
+		ret = afs_read_footer_v1(mtd, &img_ptr, &iis_ptr, off, mask);
 		if (ret < 0)
 			break;
 		if (ret == 0)
 			continue;
 
 		/* Read the image info block */
-		ret = afs_read_iis(mtd, &iis, iis_ptr);
+		ret = afs_read_iis_v1(mtd, &iis, iis_ptr);
 		if (ret < 0)
 			break;
 		if (ret == 0)
@@ -261,7 +261,6 @@ static int parse_afs_partitions(struct mtd_info *mtd,
 }
 
 static struct mtd_part_parser afs_parser = {
-	.owner = THIS_MODULE,
 	.parse_fn = parse_afs_partitions,
 	.name = "afs",
 };
@@ -281,6 +280,7 @@ static void __exit afs_parser_exit(void)
 module_init(afs_parser_init);
 module_exit(afs_parser_exit);
 
+module_mtd_part_parser(afs_parser);
 
 MODULE_AUTHOR("ARM Ltd");
 MODULE_DESCRIPTION("ARM Firmware Suite partition parser");

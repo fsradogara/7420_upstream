@@ -30,6 +30,8 @@
  
 #include <linux/errno.h>
 
+#include <asm/ptrace.h>
+
 #include "event_buffer.h"
 #include "cpu_buffer.h"
 #include "buffer_sync.h"

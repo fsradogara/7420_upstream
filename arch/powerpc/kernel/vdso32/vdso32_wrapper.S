@@ -2,6 +2,7 @@
 #include <asm/page.h>
 
 	.section ".data.page_aligned"
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/linkage.h>
 #include <asm/page.h>
 

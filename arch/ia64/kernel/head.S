@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Here is where the ball gets rolling as far as the kernel is concerned.
  * When control is transferred to _start, the bootload has already
@@ -37,6 +38,7 @@
 #include <asm/mca_asm.h>
 #include <linux/init.h>
 #include <linux/linkage.h>
+#include <asm/export.h>
 
 #ifdef CONFIG_HOTPLUG_CPU
 #define SAL_PSR_BITS_TO_SET				\
@@ -174,6 +176,7 @@ RestRR:											\
 	__PAGE_ALIGNED_DATA
 
 	.global empty_zero_page
+EXPORT_DATA_SYMBOL_GPL(empty_zero_page)
 empty_zero_page:
 	.skip PAGE_SIZE
 
@@ -1083,7 +1086,7 @@ GLOBAL_ENTRY(cycle_to_cputime)
 END(ia64_native_sched_clock)
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
-GLOBAL_ENTRY(cycle_to_cputime)
+GLOBAL_ENTRY(cycle_to_nsec)
 	alloc r16=ar.pfs,1,0,0,0
 	addl r8=THIS_CPU(ia64_cpu_info) + IA64_CPUINFO_NSEC_PER_CYC_OFFSET,r0
 	;;
@@ -1114,6 +1117,7 @@ GLOBAL_ENTRY(start_kernel_thread)
 	br.call.sptk.many rp = sys_exit;;
 1:	br.sptk.few 1b				// not reached
 END(start_kernel_thread)
+END(cycle_to_nsec)
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 #ifdef CONFIG_IA64_BRL_EMU

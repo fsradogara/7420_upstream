@@ -18,8 +18,6 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/pagemap.h>
-#include <linux/highmem.h>
 #include <linux/scatterlist.h>
 
 static inline void memcpy_dir(void *buf, void *sgdata, size_t nbytes, int out)
@@ -99,6 +97,11 @@ void scatterwalk_copychunks(void *buf, struct scatter_walk *walk,
 		vaddr = scatterwalk_map(walk);
 		memcpy_dir(buf, vaddr, len_this_page, out);
 		scatterwalk_unmap(vaddr);
+		if (out != 2) {
+			vaddr = scatterwalk_map(walk);
+			memcpy_dir(buf, vaddr, len_this_page, out);
+			scatterwalk_unmap(vaddr);
+		}
 
 		scatterwalk_advance(walk, len_this_page);
 
@@ -108,7 +111,7 @@ void scatterwalk_copychunks(void *buf, struct scatter_walk *walk,
 		buf += len_this_page;
 		nbytes -= len_this_page;
 
-		scatterwalk_pagedone(walk, out, 1);
+		scatterwalk_pagedone(walk, out & 1, 1);
 	}
 }
 EXPORT_SYMBOL_GPL(scatterwalk_copychunks);
@@ -136,37 +139,11 @@ void scatterwalk_map_and_copy(void *buf, struct scatterlist *sg,
 	scatterwalk_advance(&walk, start - offset);
 	sg = scatterwalk_ffwd(tmp, sg, start);
 
-	if (sg_page(sg) == virt_to_page(buf) &&
-	    sg->offset == offset_in_page(buf))
-		return;
-
 	scatterwalk_start(&walk, sg);
 	scatterwalk_copychunks(buf, &walk, nbytes, out);
 	scatterwalk_done(&walk, out, 0);
 }
 EXPORT_SYMBOL_GPL(scatterwalk_map_and_copy);
-
-int scatterwalk_bytes_sglen(struct scatterlist *sg, int num_bytes)
-{
-	int offset = 0, n = 0;
-
-	/* num_bytes is too small */
-	if (num_bytes < sg->length)
-		return -1;
-
-	do {
-		offset += sg->length;
-		n++;
-		sg = sg_next(sg);
-
-		/* num_bytes is too large */
-		if (unlikely(!sg && (num_bytes < offset)))
-			return -1;
-	} while (sg && (num_bytes > offset));
-
-	return n;
-}
-EXPORT_SYMBOL_GPL(scatterwalk_bytes_sglen);
 
 struct scatterlist *scatterwalk_ffwd(struct scatterlist dst[2],
 				     struct scatterlist *src,

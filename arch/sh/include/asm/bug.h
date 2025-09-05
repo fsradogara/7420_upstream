@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_SH_BUG_H
 #define __ASM_SH_BUG_H
 
@@ -25,14 +26,14 @@
  */
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 #define _EMIT_BUG_ENTRY				\
-	"\t.pushsection __bug_table,\"a\"\n"	\
+	"\t.pushsection __bug_table,\"aw\"\n"	\
 	"2:\t.long 1b, %O1\n"			\
 	"\t.short %O2, %O3\n"			\
 	"\t.org 2b+%O4\n"			\
 	"\t.popsection\n"
 #else
 #define _EMIT_BUG_ENTRY				\
-	"\t.pushsection __bug_table,\"a\"\n"	\
+	"\t.pushsection __bug_table,\"aw\"\n"	\
 	"2:\t.long 1b\n"			\
 	"\t.short %O3\n"			\
 	"\t.org 2b+%O4\n"			\
@@ -49,10 +50,12 @@ do {							\
 		   "i" (__FILE__),			\
 		   "i" (__LINE__), "i" (0),		\
 		   "i" (sizeof(struct bug_entry)));	\
+	unreachable();					\
 } while (0)
 
 #define __WARN()					\
 #define __WARN_TAINT(taint)				\
+#define __WARN_FLAGS(flags)				\
 do {							\
 	__asm__ __volatile__ (				\
 		"1:\t.short %O0\n"			\
@@ -63,6 +66,7 @@ do {							\
 		   "i" (__LINE__),			\
 		   "i" (BUGFLAG_WARNING),		\
 		   "i" (BUGFLAG_TAINT(taint)),		\
+		   "i" (BUGFLAG_WARNING|(flags)),	\
 		   "i" (sizeof(struct bug_entry)));	\
 } while (0)
 

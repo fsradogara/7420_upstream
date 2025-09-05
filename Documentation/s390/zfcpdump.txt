@@ -89,6 +89,15 @@ dump kernel when preparing a SCSI dump disk.
 If you use a ramdisk copy it to "/usr/share/zfcpdump/zfcpdump.rd".
 Since kernel version 3.12 also the /proc/vmcore file can also be used to access
 the dump.
+The user space dump tool accesses the memory of the crashed system by means
+of the /proc/vmcore interface. This interface exports the crashed system's
+memory and registers in ELF core dump format. To access the memory which has
+been saved by the hardware SCLP requests will be created at the time the data
+is needed by /proc/vmcore. The tail part of the crashed systems memory which
+has not been stashed by hardware can just be copied from real memory.
+
+To build a dump enabled kernel the kernel config option CONFIG_CRASH_DUMP
+has to be set.
 
 To get a valid zfcpdump kernel configuration use "make zfcpdump_defconfig".
 

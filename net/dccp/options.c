@@ -350,6 +350,7 @@ out_invalid_option:
 	DCCP_INC_STATS_BH(DCCP_MIB_INVALIDOPT);
 	DCCP_SKB_CB(skb)->dccpd_reset_code = DCCP_RESET_CODE_OPTION_ERROR;
 	DCCP_WARN("DCCP(%p): invalid option %d, len=%d", sk, opt, len);
+	DCCP_INC_STATS(DCCP_MIB_INVALIDOPT);
 	rc = DCCP_RESET_CODE_OPTION_ERROR;
 out_featneg_failed:
 	DCCP_WARN("DCCP(%p): Option %d (len=%d) error=%u\n", sk, opt, len, rc);
@@ -713,7 +714,7 @@ int dccp_insert_option_mandatory(struct sk_buff *skb)
 		return -1;
 
 	DCCP_SKB_CB(skb)->dccpd_opt_len++;
-	*skb_push(skb, 1) = DCCPO_MANDATORY;
+	*(u8 *)skb_push(skb, 1) = DCCPO_MANDATORY;
 	return 0;
 }
 

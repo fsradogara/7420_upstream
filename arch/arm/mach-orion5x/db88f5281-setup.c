@@ -17,7 +17,7 @@
 #include <linux/pci.h>
 #include <linux/irq.h>
 #include <linux/mtd/physmap.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/timer.h>
 #include <linux/mv643xx_eth.h>
 #include <linux/i2c.h>
@@ -29,10 +29,10 @@
 #include <plat/orion_nand.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/pci.h>
-#include <mach/orion5x.h>
 #include <linux/platform_data/mtd-orion_nand.h>
 #include "common.h"
 #include "mpp.h"
+#include "orion5x.h"
 
 /*****************************************************************************
  * DB-88F5281 on board devices
@@ -424,6 +424,7 @@ MACHINE_START(DB88F5281, "Marvell Orion-2 Development Board")
 	.init_irq	= orion5x_init_irq,
 	.timer		= &orion5x_timer,
 	.atag_offset	= 0x100,
+	.nr_irqs	= ORION5X_NR_IRQS,
 	.init_machine	= db88f5281_init,
 	.map_io		= orion5x_map_io,
 	.init_early	= orion5x_init_early,

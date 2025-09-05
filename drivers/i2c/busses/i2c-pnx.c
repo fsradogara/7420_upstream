@@ -773,7 +773,7 @@ static u32 i2c_pnx_func(struct i2c_adapter *adapter)
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
 }
 
-static struct i2c_algorithm pnx_algorithm = {
+static const struct i2c_algorithm pnx_algorithm = {
 	.master_xfer = i2c_pnx_xfer,
 	.functionality = i2c_pnx_func,
 };
@@ -1002,10 +1002,8 @@ static int __devexit i2c_pnx_remove(struct platform_device *pdev)
 	release_region(alg_data->base, I2C_PNX_REGION_SIZE);
 	platform_set_drvdata(pdev, NULL);
 	ret = i2c_add_numbered_adapter(&alg_data->adapter);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "I2C: Failed to add bus\n");
+	if (ret < 0)
 		goto out_clock;
-	}
 
 	dev_dbg(&pdev->dev, "%s: Master at %#8x, irq %d.\n",
 		alg_data->adapter.name, res->start, alg_data->irq);

@@ -191,10 +191,7 @@ static void ocores_process(struct ocores_i2c *i2c)
 		if (i2c->nmsgs) {	/* end? */
 			/* send start? */
 			if (!(msg->flags & I2C_M_NOSTART)) {
-				u8 addr = (msg->addr << 1);
-
-				if (msg->flags & I2C_M_RD)
-					addr |= 1;
+				u8 addr = i2c_8bit_addr_from_msg(msg);
 
 				i2c->state = STATE_START;
 
@@ -354,7 +351,7 @@ static int __devinit ocores_i2c_probe(struct platform_device *pdev)
 	.functionality = ocores_func,
 };
 
-static struct i2c_adapter ocores_adapter = {
+static const struct i2c_adapter ocores_adapter = {
 	.owner = THIS_MODULE,
 	.name = "i2c-ocores",
 	.class = I2C_CLASS_DEPRECATED,
@@ -457,6 +454,7 @@ static int ocores_i2c_of_probe(struct platform_device *pdev,
 			if (!clock_frequency_present) {
 				dev_err(&pdev->dev,
 					"Missing required parameter 'opencores,ip-clock-frequency'\n");
+				clk_disable_unprepare(i2c->clk);
 				return -ENODEV;
 			}
 			i2c->ip_clock_khz = clock_frequency / 1000;
@@ -545,20 +543,21 @@ static int ocores_i2c_probe(struct platform_device *pdev)
 		default:
 			dev_err(&pdev->dev, "Unsupported I/O width (%d)\n",
 				i2c->reg_io_width);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto err_clk;
 		}
 	}
 
 	ret = ocores_init(&pdev->dev, i2c);
 	if (ret)
-		return ret;
+		goto err_clk;
 
 	init_waitqueue_head(&i2c->wait);
 	ret = devm_request_irq(&pdev->dev, irq, ocores_isr, 0,
 			       pdev->name, i2c);
 	if (ret) {
 		dev_err(&pdev->dev, "Cannot claim IRQ\n");
-		return ret;
+		goto err_clk;
 	}
 
 	/* hook up driver to tree */
@@ -595,6 +594,8 @@ static int __devexit ocores_i2c_remove(struct platform_device* pdev)
 	struct resource *res;
 		return ret;
 	}
+	if (ret)
+		goto err_clk;
 
 	/* add in known devices to the bus */
 	if (pdata) {
@@ -603,6 +604,10 @@ static int __devexit ocores_i2c_remove(struct platform_device* pdev)
 	}
 
 	return 0;
+
+err_clk:
+	clk_disable_unprepare(i2c->clk);
+	return ret;
 }
 
 static int ocores_i2c_remove(struct platform_device *pdev)

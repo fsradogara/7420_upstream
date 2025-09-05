@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
   Generic support for BUG()
 
@@ -45,8 +46,9 @@
 #include <linux/kernel.h>
 #include <linux/bug.h>
 #include <linux/sched.h>
+#include <linux/rculist.h>
 
-extern const struct bug_entry __start___bug_table[], __stop___bug_table[];
+extern struct bug_entry __start___bug_table[], __stop___bug_table[];
 
 #ifdef CONFIG_MODULES
 static inline unsigned long bug_addr(const struct bug_entry *bug)
@@ -62,7 +64,7 @@ static inline unsigned long bug_addr(const struct bug_entry *bug)
 /* Updates are protected by module mutex */
 static LIST_HEAD(module_bug_list);
 
-static const struct bug_entry *module_find_bug(unsigned long bugaddr)
+static struct bug_entry *module_find_bug(unsigned long bugaddr)
 {
 	struct module *mod;
 
@@ -80,6 +82,7 @@ static const struct bug_entry *module_find_bug(unsigned long bugaddr)
 int module_bug_finalize(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
 			struct module *mod)
 	const struct bug_entry *bug = NULL;
+	struct bug_entry *bug = NULL;
 
 	rcu_read_lock_sched();
 	list_for_each_entry_rcu(mod, &module_bug_list, bug_list) {
@@ -141,15 +144,15 @@ void module_bug_cleanup(struct module *mod)
 
 #else
 
-static inline const struct bug_entry *module_find_bug(unsigned long bugaddr)
+static inline struct bug_entry *module_find_bug(unsigned long bugaddr)
 {
 	return NULL;
 }
 #endif
 
-const struct bug_entry *find_bug(unsigned long bugaddr)
+struct bug_entry *find_bug(unsigned long bugaddr)
 {
-	const struct bug_entry *bug;
+	struct bug_entry *bug;
 
 	for (bug = __start___bug_table; bug < __stop___bug_table; ++bug)
 		if (bugaddr == bug->bug_addr)
@@ -161,9 +164,9 @@ const struct bug_entry *find_bug(unsigned long bugaddr)
 
 enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 {
-	const struct bug_entry *bug;
+	struct bug_entry *bug;
 	const char *file;
-	unsigned line, warning;
+	unsigned line, warning, once, done;
 
 	if (!is_valid_bugaddr(bugaddr))
 		return BUG_TRAP_TYPE_NONE;
@@ -187,6 +190,18 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 		line = bug->line;
 #endif
 		warning = (bug->flags & BUGFLAG_WARNING) != 0;
+		once = (bug->flags & BUGFLAG_ONCE) != 0;
+		done = (bug->flags & BUGFLAG_DONE) != 0;
+
+		if (warning && once) {
+			if (done)
+				return BUG_TRAP_TYPE_WARN;
+
+			/*
+			 * Since this is the only store, concurrency is not an issue.
+			 */
+			bug->flags |= BUGFLAG_DONE;
+		}
 	}
 
 	if (warning) {
@@ -224,6 +239,8 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 		print_oops_end_marker();
 		/* Just a warning, don't kill lockdep. */
 		add_taint(BUG_GET_TAINT(bug), LOCKDEP_STILL_OK);
+		__warn(file, line, (void *)bugaddr, BUG_GET_TAINT(bug), regs,
+		       NULL);
 		return BUG_TRAP_TYPE_WARN;
 	}
 

@@ -31,8 +31,9 @@
 #include <linux/init.h>
 #include <linux/coredump.h>
 #include <linux/slab.h>
+#include <linux/sched/task_stack.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/cacheflush.h>
 #include <asm/a.out-core.h>
 
@@ -145,6 +146,8 @@ static int set_brk(unsigned long start, unsigned long end)
 		if (BAD_ADDR(addr))
 			return addr;
 	}
+	if (end > start)
+		return vm_brk(start, end - start);
 	return 0;
 }
 
@@ -487,7 +490,7 @@ static int load_aout_binary(struct linux_binprm * bprm)
 			 
 		flush_icache_range(text_addr, text_addr+ex.a_text+ex.a_data);
 		error = vm_brk(text_addr & PAGE_MASK, map_size);
-		if (error != (text_addr & PAGE_MASK))
+		if (error)
 			return error;
 
 		error = read_code(bprm->file, text_addr, pos,
@@ -549,7 +552,10 @@ static int load_aout_binary(struct linux_binprm * bprm)
 		}
 
 		if (!bprm->file->f_op->mmap||((fd_offset & ~PAGE_MASK) != 0)) {
-			vm_brk(N_TXTADDR(ex), ex.a_text+ex.a_data);
+			error = vm_brk(N_TXTADDR(ex), ex.a_text+ex.a_data);
+			if (error)
+				return error;
+
 			read_code(bprm->file, N_TXTADDR(ex), fd_offset,
 				  ex.a_text + ex.a_data);
 			goto beyond_if;
@@ -604,12 +610,13 @@ static int load_aout_library(struct file *file)
 	unsigned long error;
 	int retval;
 	struct exec ex;
+	loff_t pos = 0;
 
 	inode = file->f_path.dentry->d_inode;
 	inode = file_inode(file);
 
 	retval = -ENOEXEC;
-	error = kernel_read(file, 0, (char *) &ex, sizeof(ex));
+	error = kernel_read(file, &ex, sizeof(ex), &pos);
 	if (error != sizeof(ex))
 		goto out;
 
@@ -660,8 +667,10 @@ static int load_aout_library(struct file *file)
 			       "N_TXTOFF is not page aligned. Please convert library: %pD\n",
 			       file);
 		}
-		vm_brk(start_addr, ex.a_text + ex.a_data + ex.a_bss);
-		
+		retval = vm_brk(start_addr, ex.a_text + ex.a_data + ex.a_bss);
+		if (retval)
+			goto out;
+
 		read_code(file, start_addr, N_TXTOFF(ex),
 			  ex.a_text + ex.a_data);
 		retval = 0;
@@ -691,6 +700,8 @@ static int load_aout_library(struct file *file)
 		error = vm_brk(start_addr + len, bss - len);
 		retval = error;
 		if (error != start_addr + len)
+		retval = vm_brk(start_addr + len, bss - len);
+		if (retval)
 			goto out;
 	}
 	retval = 0;

@@ -420,12 +420,7 @@
 
 #define __ARCH_WANT_IPC_PARSE_VERSION
 #include <uapi/asm/unistd.h>
-
-/*
- * This may need to be greater than __NR_last_syscall+1 in order to
- * account for the padding in the syscall table
- */
-#define __NR_syscalls  (392)
+#include <asm/unistd-nr.h>
 
 #define __ARCH_WANT_STAT64
 #define __ARCH_WANT_SYS_GETHOSTNAME
@@ -472,5 +467,24 @@
 #endif /* __KERNEL__ */
 #define __IGNORE_fadvise64_64
 #define __IGNORE_migrate_pages
+
+#ifdef __ARM_EABI__
+/*
+ * The following syscalls are obsolete and no longer available for EABI:
+ *  __NR_time
+ *  __NR_umount
+ *  __NR_stime
+ *  __NR_alarm
+ *  __NR_utime
+ *  __NR_getrlimit
+ *  __NR_select
+ *  __NR_readdir
+ *  __NR_mmap
+ *  __NR_socketcall
+ *  __NR_syscall
+ *  __NR_ipc
+ */
+#define __IGNORE_getrlimit
+#endif
 
 #endif /* __ASM_ARM_UNISTD_H */

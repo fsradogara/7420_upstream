@@ -284,3 +284,8 @@ EXPORT_SYMBOL(do_BUG);
 EXPORT_SYMBOL(pm_idle);
 
 EXPORT_SYMBOL(empty_zero_page);
+#include <linux/init.h>
+#include <linux/export.h>
+
+/* This is needed only for drivers/sbus/char/openprom.c */
+EXPORT_SYMBOL(saved_command_line);

@@ -45,8 +45,6 @@ static int mga_driver_device_is_agp(struct drm_device * dev);
 
 #include <drm/drm_pciids.h>
 
-static int mga_driver_device_is_agp(struct drm_device *dev);
-
 static struct pci_device_id pciidlist[] = {
 	mga_PCI_IDS
 };
@@ -71,7 +69,7 @@ static const struct file_operations mga_driver_fops = {
 
 static struct drm_driver driver = {
 	.driver_features =
-	    DRIVER_USE_AGP | DRIVER_PCI_DMA |
+	    DRIVER_USE_AGP | DRIVER_PCI_DMA | DRIVER_LEGACY |
 	    DRIVER_HAVE_DMA | DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED,
 	.dev_priv_size = sizeof(drm_mga_buf_priv_t),
 	.load = mga_driver_load,
@@ -82,7 +80,6 @@ static struct drm_driver driver = {
 	.vblank_wait = mga_driver_vblank_wait,
 	.set_busid = drm_pci_set_busid,
 	.dma_quiescent = mga_driver_dma_quiescent,
-	.device_is_agp = mga_driver_device_is_agp,
 	.get_vblank_counter = mga_get_vblank_counter,
 	.enable_vblank = mga_enable_vblank,
 	.disable_vblank = mga_disable_vblank,
@@ -135,13 +132,14 @@ static struct pci_driver mga_pci_driver = {
 static int __init mga_init(void)
 {
 	driver.num_ioctls = mga_max_ioctl;
-	return drm_pci_init(&driver, &mga_pci_driver);
+	return drm_legacy_pci_init(&driver, &mga_pci_driver);
 }
 
 static void __exit mga_exit(void)
 {
 	drm_exit(&driver);
 	drm_pci_exit(&driver, &mga_pci_driver);
+	drm_legacy_pci_exit(&driver, &mga_pci_driver);
 }
 
 module_init(mga_init);

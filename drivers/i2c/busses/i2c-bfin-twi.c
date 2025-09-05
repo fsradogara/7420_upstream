@@ -27,7 +27,6 @@
 
 #define POLL_TIMEOUT       (2 * HZ)
 #include <linux/delay.h>
-#include <linux/i2c/bfin_twi.h>
 
 #include <asm/irq.h>
 #include <asm/portmux.h>
@@ -802,7 +801,7 @@ static u32 bfin_twi_functionality(struct i2c_adapter *adap)
 	       I2C_FUNC_I2C | I2C_FUNC_SMBUS_I2C_BLOCK;
 }
 
-static struct i2c_algorithm bfin_twi_algorithm = {
+static const struct i2c_algorithm bfin_twi_algorithm = {
 	.master_xfer   = bfin_twi_master_xfer,
 	.smbus_xfer    = bfin_twi_smbus_xfer,
 	.functionality = bfin_twi_functionality,
@@ -993,8 +992,8 @@ static int i2c_bfin_twi_probe(struct platform_device *pdev)
 	if (rc < 0) {
 		dev_err(&pdev->dev, "Can't add i2c adapter!\n");
 		goto out_error_add_adapter;
+	if (rc < 0)
 		goto out_error;
-	}
 
 	platform_set_drvdata(pdev, iface);
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ARCH_ORION5X_COMMON_H
 #define __ARCH_ORION5X_COMMON_H
 
@@ -6,7 +7,7 @@ struct mv_sata_platform_data;
 
 #include <linux/reboot.h>
 
-struct dsa_platform_data;
+struct dsa_chip_data;
 struct mv643xx_eth_platform_data;
 struct mv_sata_platform_data;
 
@@ -66,6 +67,7 @@ void orion5x_uart0_init(void);
 void orion5x_uart1_init(void);
 void orion5x_xor_init(void);
 void orion5x_eth_switch_init(struct dsa_platform_data *d, int irq);
+void orion5x_eth_switch_init(struct dsa_chip_data *d);
 void orion5x_i2c_init(void);
 void orion5x_sata_init(struct mv_sata_platform_data *sata_data);
 void orion5x_spi_init(void);
@@ -78,6 +80,7 @@ void orion5x_restart(enum reboot_mode, const char *);
  * PCIe/PCI functions.
  */
 struct pci_bus;
+struct pci_host_bridge;
 struct pci_sys_data;
 struct pci_dev;
 
@@ -101,6 +104,7 @@ struct tag;
 extern void __init tag_fixup_mem32(struct machine_desc *, struct tag *,
 				   char **, struct meminfo *);
 
+int orion5x_pci_sys_scan_bus(int nr, struct pci_host_bridge *bridge);
 int orion5x_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 
 struct tag;

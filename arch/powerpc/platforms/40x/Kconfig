@@ -13,6 +13,7 @@
 #	select 405GP
 #	help
 #	  This option enables support for the CPCI405 board.
+# SPDX-License-Identifier: GPL-2.0
 config ACADIA
 	bool "Acadia"
 	depends on 40x
@@ -107,6 +108,7 @@ config XILINX_VIRTEX_GENERIC_BOARD
 	default n
 	select XILINX_VIRTEX_II_PRO
 	select XILINX_VIRTEX_4_FX
+	select XILINX_INTC
 	help
 	  This option enables generic support for Xilinx Virtex based boards.
 
@@ -165,17 +167,18 @@ config 405GPR
 config XILINX_VIRTEX
 	bool
 	select IBM_EMAC_ZMII
+	select IBM_EMAC_ZMII if IBM_EMAC
 
 config 405EX
 	bool
-	select IBM_EMAC_EMAC4
-	select IBM_EMAC_RGMII
+	select IBM_EMAC_EMAC4 if IBM_EMAC
+	select IBM_EMAC_RGMII if IBM_EMAC
 
 config 405EZ
 	bool
-	select IBM_EMAC_NO_FLOW_CTRL
-	select IBM_EMAC_MAL_CLR_ICINTSTAT
-	select IBM_EMAC_MAL_COMMON_ERR
+	select IBM_EMAC_NO_FLOW_CTRL if IBM_EMAC
+	select IBM_EMAC_MAL_CLR_ICINTSTAT if IBM_EMAC
+	select IBM_EMAC_MAL_COMMON_ERR if IBM_EMAC
 
 config XILINX_VIRTEX
 	bool
@@ -199,7 +202,7 @@ config STB03xxx
 config PPC4xx_GPIO
 	bool "PPC4xx GPIO support"
 	depends on 40x
-	select ARCH_REQUIRE_GPIOLIB
+	select GPIOLIB
 	help
 	  Enable gpiolib support for ppc40x based boards
 

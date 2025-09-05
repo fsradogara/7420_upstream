@@ -49,6 +49,7 @@
 #include <asm/setup.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/atarihw.h>
 #include <asm/atarikb.h>
 #include <asm/atariints.h>

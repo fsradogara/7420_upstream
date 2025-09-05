@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * SHA transform algorithm, originally taken from code written by
  * Peter Gutmann, and placed in the public domain.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/ext2/acl.c
  *
@@ -264,6 +265,11 @@ ext2_set_acl(struct inode *inode, int type, struct posix_acl *acl)
 	struct ext2_inode_info *ei = EXT2_I(inode);
 int
 ext2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+	return acl;
+}
+
+static int
+__ext2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 {
 	int name_index;
 	void *value = NULL;
@@ -353,6 +359,31 @@ ext2_permission(struct inode *inode, int mask)
 
 	if (!error)
 		set_cached_acl(inode, type, acl);
+	return error;
+}
+
+/*
+ * inode->i_mutex: down
+ */
+int
+ext2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+{
+	int error;
+	int update_mode = 0;
+	umode_t mode = inode->i_mode;
+
+	if (type == ACL_TYPE_ACCESS && acl) {
+		error = posix_acl_update_mode(inode, &mode, &acl);
+		if (error)
+			return error;
+		update_mode = 1;
+	}
+	error = __ext2_set_acl(inode, acl, type);
+	if (!error && update_mode) {
+		inode->i_mode = mode;
+		inode->i_ctime = current_time(inode);
+		mark_inode_dirty(inode);
+	}
 	return error;
 }
 
@@ -582,12 +613,12 @@ struct xattr_handler ext2_xattr_acl_default_handler = {
 		return error;
 
 	if (default_acl) {
-		error = ext2_set_acl(inode, default_acl, ACL_TYPE_DEFAULT);
+		error = __ext2_set_acl(inode, default_acl, ACL_TYPE_DEFAULT);
 		posix_acl_release(default_acl);
 	}
 	if (acl) {
 		if (!error)
-			error = ext2_set_acl(inode, acl, ACL_TYPE_ACCESS);
+			error = __ext2_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		posix_acl_release(acl);
 	}
 	return error;

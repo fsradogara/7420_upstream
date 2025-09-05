@@ -40,7 +40,9 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <asm/io.h>
-#include <asm/cacheflush.h>
+#ifdef CONFIG_X86
+#include <asm/set_memory.h>
+#endif
 #include <asm/pgtable.h>
 #include "agp.h"
 
@@ -111,6 +113,7 @@ void agp_alloc_page_array(size_t size, struct agp_memory *mem)
 	if (mem->pages == NULL) {
 		mem->pages = vmalloc(size);
 	}
+	mem->pages = kvmalloc(size, GFP_KERNEL);
 }
 EXPORT_SYMBOL(agp_alloc_page_array);
 

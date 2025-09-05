@@ -50,14 +50,15 @@
 #ifdef CONFIG_KGDB
 #include <linux/kgdb.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
 #include <linux/syscore_ops.h>
+#include <linux/gpio.h>
 #include <asm/delay.h>
 #ifdef CONFIG_IPIPE
 #include <linux/ipipe.h>
 #endif
 #include <asm/traps.h>
 #include <asm/blackfin.h>
-#include <asm/gpio.h>
 #include <asm/irq_handler.h>
 
 #ifdef BF537_FAMILY

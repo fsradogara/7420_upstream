@@ -22,9 +22,12 @@
 #include <linux/sched.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/smp.h>
-#include <linux/irq_work.h>
-#include <linux/tick.h>
+#include <linux/cpu.h>
+#include <linux/slab.h>
+#include <linux/cpumask.h>
+#include <linux/percpu.h>
 
 #include <asm/paravirt.h>
 #include <asm/desc.h>
@@ -74,26 +77,15 @@ static irqreturn_t xen_reschedule_interrupt(int irq, void *dev_id)
 
 #include <xen/hvc-console.h>
 #include "xen-ops.h"
-#include "mmu.h"
 #include "smp.h"
-#include "pmu.h"
 
-cpumask_var_t xen_cpu_initialized_map;
-
-struct xen_common_irq {
-	int irq;
-	char *name;
-};
 static DEFINE_PER_CPU(struct xen_common_irq, xen_resched_irq) = { .irq = -1 };
 static DEFINE_PER_CPU(struct xen_common_irq, xen_callfunc_irq) = { .irq = -1 };
 static DEFINE_PER_CPU(struct xen_common_irq, xen_callfuncsingle_irq) = { .irq = -1 };
-static DEFINE_PER_CPU(struct xen_common_irq, xen_irq_work) = { .irq = -1 };
 static DEFINE_PER_CPU(struct xen_common_irq, xen_debug_irq) = { .irq = -1 };
-static DEFINE_PER_CPU(struct xen_common_irq, xen_pmu_irq) = { .irq = -1 };
 
 static irqreturn_t xen_call_function_interrupt(int irq, void *dev_id);
 static irqreturn_t xen_call_function_single_interrupt(int irq, void *dev_id);
-static irqreturn_t xen_irq_work_interrupt(int irq, void *dev_id);
 
 /*
  * Reschedule call back.
@@ -178,6 +170,7 @@ asmlinkage __visible void cpu_bringup_and_idle(int cpu)
 }
 
 static void xen_smp_intr_free(unsigned int cpu)
+void xen_smp_intr_free(unsigned int cpu)
 {
 	if (per_cpu(xen_resched_irq, cpu).irq >= 0) {
 		unbind_from_irqhandler(per_cpu(xen_resched_irq, cpu).irq, NULL);
@@ -204,27 +197,12 @@ static void xen_smp_intr_free(unsigned int cpu)
 		kfree(per_cpu(xen_callfuncsingle_irq, cpu).name);
 		per_cpu(xen_callfuncsingle_irq, cpu).name = NULL;
 	}
-	if (xen_hvm_domain())
-		return;
+}
 
-	if (per_cpu(xen_irq_work, cpu).irq >= 0) {
-		unbind_from_irqhandler(per_cpu(xen_irq_work, cpu).irq, NULL);
-		per_cpu(xen_irq_work, cpu).irq = -1;
-		kfree(per_cpu(xen_irq_work, cpu).name);
-		per_cpu(xen_irq_work, cpu).name = NULL;
-	}
-
-	if (per_cpu(xen_pmu_irq, cpu).irq >= 0) {
-		unbind_from_irqhandler(per_cpu(xen_pmu_irq, cpu).irq, NULL);
-		per_cpu(xen_pmu_irq, cpu).irq = -1;
-		kfree(per_cpu(xen_pmu_irq, cpu).name);
-		per_cpu(xen_pmu_irq, cpu).name = NULL;
-	}
-};
-static int xen_smp_intr_init(unsigned int cpu)
+int xen_smp_intr_init(unsigned int cpu)
 {
 	int rc;
-	char *resched_name, *callfunc_name, *debug_name, *pmu_name;
+	char *resched_name, *callfunc_name, *debug_name;
 
 	resched_name = kasprintf(GFP_KERNEL, "resched%d", cpu);
 	rc = bind_ipi_to_irqhandler(XEN_RESCHEDULE_VECTOR,
@@ -285,37 +263,6 @@ static int xen_smp_intr_init(unsigned int cpu)
 	per_cpu(xen_callfuncsingle_irq, cpu).irq = rc;
 	per_cpu(xen_callfuncsingle_irq, cpu).name = callfunc_name;
 
-	/*
-	 * The IRQ worker on PVHVM goes through the native path and uses the
-	 * IPI mechanism.
-	 */
-	if (xen_hvm_domain())
-		return 0;
-
-	callfunc_name = kasprintf(GFP_KERNEL, "irqwork%d", cpu);
-	rc = bind_ipi_to_irqhandler(XEN_IRQ_WORK_VECTOR,
-				    cpu,
-				    xen_irq_work_interrupt,
-				    IRQF_PERCPU|IRQF_NOBALANCING,
-				    callfunc_name,
-				    NULL);
-	if (rc < 0)
-		goto fail;
-	per_cpu(xen_irq_work, cpu).irq = rc;
-	per_cpu(xen_irq_work, cpu).name = callfunc_name;
-
-	if (is_xen_pmu(cpu)) {
-		pmu_name = kasprintf(GFP_KERNEL, "pmu%d", cpu);
-		rc = bind_virq_to_irqhandler(VIRQ_XENPMU, cpu,
-					     xen_pmu_irq_handler,
-					     IRQF_PERCPU|IRQF_NOBALANCING,
-					     pmu_name, NULL);
-		if (rc < 0)
-			goto fail;
-		per_cpu(xen_pmu_irq, cpu).irq = rc;
-		per_cpu(xen_pmu_irq, cpu).name = pmu_name;
-	}
-
 	return 0;
 
  fail:
@@ -332,9 +279,9 @@ static int xen_smp_intr_init(unsigned int cpu)
 	return rc;
 }
 
-static void __init xen_fill_possible_map(void)
+void __init xen_smp_cpus_done(unsigned int max_cpus)
 {
-	int i, rc;
+	int cpu, rc, count = 0;
 
 	for (i = 0; i < NR_CPUS; i++) {
 		rc = HYPERVISOR_vcpu_op(VCPUOP_is_up, i, NULL);
@@ -501,12 +448,30 @@ static __cpuinit int
 	/* Restrict the possible_map according to max_cpus. */
 	while ((num_possible_cpus() > 1) && (num_possible_cpus() > max_cpus)) {
 		for (cpu = nr_cpu_ids - 1; !cpu_possible(cpu); cpu--)
-			continue;
-		set_cpu_possible(cpu, false);
-	}
+	if (xen_hvm_domain())
+		native_smp_cpus_done(max_cpus);
 
-	for_each_possible_cpu(cpu)
-		set_cpu_present(cpu, true);
+	if (xen_have_vcpu_info_placement)
+		return;
+
+	for_each_online_cpu(cpu) {
+		if (xen_vcpu_nr(cpu) < MAX_VIRT_CPUS)
+			continue;
+
+		rc = cpu_down(cpu);
+
+		if (rc == 0) {
+			/*
+			 * Reset vcpu_info so this cpu cannot be onlined again.
+			 */
+			xen_vcpu_info_reset(cpu);
+			count++;
+		} else {
+			pr_warn("%s: failed to bring CPU %d down, error %d\n",
+				__func__, cpu, rc);
+		}
+	}
+	WARN(count, "%s: brought %d CPUs offline\n", __func__, count);
 }
 
 static int
@@ -797,6 +762,7 @@ static void xen_stop_other_cpus(int wait)
 }
 
 static void xen_smp_send_reschedule(int cpu)
+void xen_smp_send_reschedule(int cpu)
 {
 	xen_send_IPI_one(cpu, XEN_RESCHEDULE_VECTOR);
 }
@@ -830,7 +796,7 @@ static void __xen_send_IPI_mask(const struct cpumask *mask,
 		xen_send_IPI_one(cpu, vector);
 }
 
-static void xen_smp_send_call_function_ipi(const struct cpumask *mask)
+void xen_smp_send_call_function_ipi(const struct cpumask *mask)
 {
 	int cpu;
 
@@ -845,7 +811,7 @@ static void xen_smp_send_call_function_ipi(const struct cpumask *mask)
 	}
 }
 
-static void xen_smp_send_call_function_single_ipi(int cpu)
+void xen_smp_send_call_function_single_ipi(int cpu)
 {
 	xen_send_IPI_mask(cpumask_of_cpu(cpu), XEN_CALL_FUNCTION_SINGLE_VECTOR);
 	__xen_send_IPI_mask(cpumask_of(cpu),

@@ -28,7 +28,7 @@
 static struct pxa3xx_mfp_addr_map pxa300_mfp_addr_map[] __initdata = {
 #include <linux/io.h>
 
-#include <mach/pxa300.h>
+#include "pxa300.h"
 
 #include "generic.h"
 #include "devices.h"

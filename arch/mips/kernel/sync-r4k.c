@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Count register synchronisation.
  *
@@ -40,13 +41,12 @@ void __init synchronise_count_master(void)
 #include <asm/barrier.h>
 #include <asm/mipsregs.h>
 
-static atomic_t count_start_flag = ATOMIC_INIT(0);
+static unsigned int initcount = 0;
 static atomic_t count_count_start = ATOMIC_INIT(0);
 static atomic_t count_count_stop = ATOMIC_INIT(0);
-static atomic_t count_reference = ATOMIC_INIT(0);
 
 #define COUNTON 100
-#define NR_LOOPS 5
+#define NR_LOOPS 3
 
 void synchronise_count_master(int cpu)
 {
@@ -66,7 +66,7 @@ void synchronise_count_master(int cpu)
 	pr_info("Checking COUNT synchronization across %u CPUs: ",
 		num_online_cpus());
 
-	printk(KERN_INFO "Synchronize counters for CPU %u: ", cpu);
+	pr_info("Synchronize counters for CPU %u: ", cpu);
 
 	local_irq_save(flags);
 
@@ -107,8 +107,12 @@ void synchronise_count_master(int cpu)
 		atomic_set(&count_count_stop, 0);
 		smp_wmb();
 
-		/* this lets the slaves write their count register */
+		/* Let the slave writes its count register */
 		atomic_inc(&count_count_start);
+
+		/* Count will be initialised to current timer */
+		if (i == 1)
+			initcount = read_c0_count();
 
 		/*
 		 * Everyone initialises count in the last loop:
@@ -117,7 +121,7 @@ void synchronise_count_master(int cpu)
 			write_c0_count(initcount);
 
 		/*
-		 * Wait for all slaves to leave the synchronization point:
+		 * Wait for slave to leave the synchronization point:
 		 */
 		while (atomic_read(&count_count_stop) != nslaves)
 		while (atomic_read(&count_count_stop) != 1)
@@ -128,7 +132,6 @@ void synchronise_count_master(int cpu)
 	}
 	/* Arrange for an interrupt in a short while */
 	write_c0_compare(read_c0_count() + COUNTON);
-	atomic_set(&count_start_flag, 0);
 
 	local_irq_restore(flags);
 
@@ -137,7 +140,7 @@ void synchronise_count_master(int cpu)
 	 * count registers were almost certainly out of sync
 	 * so no point in alarming people
 	 */
-	printk("done.\n");
+	pr_cont("done.\n");
 }
 
 void __init synchronise_count_slave(void)
@@ -159,7 +162,6 @@ void __init synchronise_count_slave(void)
 void synchronise_count_slave(int cpu)
 {
 	int i;
-	unsigned int initcount;
 
 	/*
 	 * Not every cpu is online at the time this gets called,

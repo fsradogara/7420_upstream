@@ -11,3 +11,4 @@ obj-$(CONFIG_INFINIBAND_SRP)		+= ulp/srp/
 obj-$(CONFIG_INFINIBAND_ISER)		+= ulp/iser/
 obj-$(CONFIG_INFINIBAND)		+= hw/
 obj-$(CONFIG_INFINIBAND)		+= ulp/
+obj-$(CONFIG_INFINIBAND)		+= sw/

@@ -139,6 +139,15 @@ $pgt_fill_loop:
 	/* And the stack pointer too */
 	ldo             THREAD_SZ_ALGN(%r6),%sp
 
+#if defined(CONFIG_64BIT) && defined(CONFIG_FUNCTION_TRACER)
+	.import _mcount,data
+	/* initialize mcount FPTR */
+	/* Get the global data pointer */
+	loadgp
+	load32		PA(_mcount), %r10
+	std		%dp,0x18(%r10)
+#endif
+
 #ifdef CONFIG_SMP
 	/* Set the smp rendevous address into page zero.
 	/* Set the smp rendezvous address into page zero.

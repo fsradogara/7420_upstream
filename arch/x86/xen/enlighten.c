@@ -1,16 +1,3 @@
-/*
- * Core of Xen paravirt_ops implementation.
- *
- * This file contains the xen_paravirt_ops structure itself, and the
- * implementations for:
- * - privileged instructions
- * - interrupt flags
- * - segment operations
- * - booting and setup
- *
- * Jeremy Fitzhardinge <jeremy@xensource.com>, XenSource Inc, 2007
- */
-
 #include <linux/cpu.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -46,27 +33,10 @@
 
 #ifdef CONFIG_KEXEC_CORE
 #include <linux/kexec.h>
-#endif
 
-#include <xen/xen.h>
-#include <xen/events.h>
-#include <xen/interface/xen.h>
-#include <xen/interface/version.h>
-#include <xen/interface/physdev.h>
-#include <xen/interface/vcpu.h>
-#include <xen/interface/memory.h>
-#include <xen/interface/nmi.h>
-#include <xen/interface/xen-mca.h>
 #include <xen/features.h>
 #include <xen/page.h>
-#include <xen/hvm.h>
-#include <xen/hvc-console.h>
-#include <xen/acpi.h>
 
-#include <asm/paravirt.h>
-#include <asm/apic.h>
-#include <asm/page.h>
-#include <asm/xen/pci.h>
 #include <asm/xen/hypercall.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/fixmap.h>
@@ -131,19 +101,10 @@ DEFINE_PER_CPU(unsigned long, xen_current_cr3);	 /* actual vcpu cr3 */
 #include <asm/pci_x86.h>
 #include <asm/pat.h>
 #include <asm/cpu.h>
-
-#ifdef CONFIG_ACPI
-#include <linux/acpi.h>
-#include <asm/acpi.h>
-#include <acpi/pdc_intel.h>
-#include <acpi/processor.h>
-#include <xen/interface/platform.h>
-#endif
+#include <asm/e820/api.h> 
 
 #include "xen-ops.h"
-#include "mmu.h"
 #include "smp.h"
-#include "multicalls.h"
 #include "pmu.h"
 
 EXPORT_SYMBOL_GPL(hypercall_page);
@@ -173,6 +134,10 @@ DEFINE_PER_CPU(struct vcpu_info *, xen_vcpu);
  */
 DEFINE_PER_CPU(struct vcpu_info, xen_vcpu_info);
 
+/* Linux <-> Xen vCPU id mapping */
+DEFINE_PER_CPU(uint32_t, xen_vcpu_id);
+EXPORT_PER_CPU_SYMBOL(xen_vcpu_id);
+
 enum xen_domain_type xen_domain_type = XEN_NATIVE;
 EXPORT_SYMBOL_GPL(xen_domain_type);
 
@@ -186,9 +151,6 @@ EXPORT_SYMBOL_GPL(xen_start_info);
 
 struct shared_info xen_dummy_shared_info;
 
-void *xen_initial_gdt;
-
-RESERVE_BRK(shared_info_page_brk, PAGE_SIZE);
 __read_mostly int xen_have_vector_callback;
 EXPORT_SYMBOL_GPL(xen_have_vector_callback);
 
@@ -212,34 +174,18 @@ struct shared_info *HYPERVISOR_shared_info = &xen_dummy_shared_info;
  *
  * 0: not available, 1: available
  */
-static int have_vcpu_info_placement = 1;
+int xen_have_vcpu_info_placement = 1;
 
-struct tls_descs {
-	struct desc_struct desc[3];
-};
-
-/*
- * Updating the 3 TLS descriptors in the GDT on every task switch is
- * surprisingly expensive so we avoid updating them if they haven't
- * changed.  Since Xen writes different descriptors than the one
- * passed in the update_descriptor hypercall we keep shadow copies to
- * compare against.
- */
-static DEFINE_PER_CPU(struct tls_descs, shadow_tls_desc);
-
-static void clamp_max_cpus(void)
+static int xen_cpu_up_online(unsigned int cpu)
 {
-#ifdef CONFIG_SMP
-	if (setup_max_cpus > MAX_VIRT_CPUS)
-		setup_max_cpus = MAX_VIRT_CPUS;
-#endif
+	xen_init_lock_cpu(cpu);
+	return 0;
 }
 
-static void xen_vcpu_setup(int cpu)
+int xen_cpuhp_setup(int (*cpu_up_prepare_cb)(unsigned int),
+		    int (*cpu_dead_cb)(unsigned int))
 {
-	struct vcpu_register_vcpu_info info;
-	int err;
-	struct vcpu_info *vcpup;
+	int rc;
 
 	BUG_ON(HYPERVISOR_shared_info == &xen_dummy_shared_info);
 	per_cpu(xen_vcpu, cpu) = &HYPERVISOR_shared_info->vcpu_info[cpu];
@@ -258,29 +204,34 @@ static void xen_vcpu_setup(int cpu)
 	/* Check to see if the hypervisor will put the vcpu_info
 	   structure where we want it, which allows direct access via
 	   a percpu-variable. */
+	rc = cpuhp_setup_state_nocalls(CPUHP_XEN_PREPARE,
+				       "x86/xen/guest:prepare",
+				       cpu_up_prepare_cb, cpu_dead_cb);
+	if (rc >= 0) {
+		rc = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN,
+					       "x86/xen/guest:online",
+					       xen_cpu_up_online, NULL);
+		if (rc < 0)
+			cpuhp_remove_state_nocalls(CPUHP_XEN_PREPARE);
+	}
+
+	return rc >= 0 ? 0 : rc;
+}
+
+static int xen_vcpu_setup_restore(int cpu)
+{
+	int rc = 0;
+
+	/* Any per_cpu(xen_vcpu) is stale, so reset it */
+	xen_vcpu_info_reset(cpu);
 
 	/*
-	 * This path is called twice on PVHVM - first during bootup via
-	 * smp_init -> xen_hvm_cpu_notify, and then if the VCPU is being
-	 * hotplugged: cpu_up -> xen_hvm_cpu_notify.
-	 * As we can only do the VCPUOP_register_vcpu_info once lets
-	 * not over-write its result.
-	 *
-	 * For PV it is called during restore (xen_vcpu_restore) and bootup
-	 * (xen_setup_vcpu_info_placement). The hotplug mechanism does not
-	 * use this function.
+	 * For PVH and PVHVM, setup online VCPUs only. The rest will
+	 * be handled by hotplug.
 	 */
-	if (xen_hvm_domain()) {
-		if (per_cpu(xen_vcpu, cpu) == &per_cpu(xen_vcpu_info, cpu))
-			return;
-	}
-	if (cpu < MAX_VIRT_CPUS)
-		per_cpu(xen_vcpu,cpu) = &HYPERVISOR_shared_info->vcpu_info[cpu];
-
-	if (!have_vcpu_info_placement) {
-		if (cpu >= MAX_VIRT_CPUS)
-			clamp_max_cpus();
-		return;
+	if (xen_pv_domain() ||
+	    (xen_hvm_domain() && cpu_online(cpu))) {
+		rc = xen_vcpu_setup(cpu);
 	}
 
 	vcpup = &per_cpu(xen_vcpu_info, cpu);
@@ -309,6 +260,7 @@ static void xen_vcpu_setup(int cpu)
 		printk(KERN_DEBUG "cpu %d using vcpu_info at %p\n",
 		       cpu, vcpup);
 	}
+	return rc;
 }
 
 /*
@@ -337,27 +289,46 @@ void xen_vcpu_restore(void)
 
 		BUG_ON(!have_vcpu_info_placement);
 	int cpu;
+	int cpu, rc;
 
 	for_each_possible_cpu(cpu) {
 		bool other_cpu = (cpu != smp_processor_id());
-		bool is_up = HYPERVISOR_vcpu_op(VCPUOP_is_up, cpu, NULL);
+		bool is_up;
+
+		if (xen_vcpu_nr(cpu) == XEN_VCPU_ID_INVALID)
+			continue;
+
+		/* Only Xen 4.5 and higher support this. */
+		is_up = HYPERVISOR_vcpu_op(VCPUOP_is_up,
+					   xen_vcpu_nr(cpu), NULL) > 0;
 
 		if (other_cpu && is_up &&
-		    HYPERVISOR_vcpu_op(VCPUOP_down, cpu, NULL))
+		    HYPERVISOR_vcpu_op(VCPUOP_down, xen_vcpu_nr(cpu), NULL))
 			BUG();
 
-		xen_setup_runstate_info(cpu);
+		if (xen_pv_domain() || xen_feature(XENFEAT_hvm_safe_pvclock))
+			xen_setup_runstate_info(cpu);
 
-		if (have_vcpu_info_placement)
-			xen_vcpu_setup(cpu);
-
-		if (other_cpu && is_up &&
-		    HYPERVISOR_vcpu_op(VCPUOP_up, cpu, NULL))
+		rc = xen_vcpu_setup_restore(cpu);
+		if (rc)
+			pr_emerg_once("vcpu restore failed for cpu=%d err=%d. "
+					"System will hang.\n", cpu, rc);
+		/*
+		 * In case xen_vcpu_setup_restore() fails, do not bring up the
+		 * VCPU. This helps us avoid the resulting OOPS when the VCPU
+		 * accesses pvclock_vcpu_time via xen_vcpu (which is NULL.)
+		 * Note that this does not improve the situation much -- now the
+		 * VM hangs instead of OOPSing -- with the VCPUs that did not
+		 * fail, spinning in stop_machine(), waiting for the failed
+		 * VCPUs to come up.
+		 */
+		if (other_cpu && is_up && (rc == 0) &&
+		    HYPERVISOR_vcpu_op(VCPUOP_up, xen_vcpu_nr(cpu), NULL))
 			BUG();
 	}
 }
 
-static void __init xen_banner(void)
+void xen_vcpu_info_reset(int cpu)
 {
 	unsigned version = HYPERVISOR_xen_version(XENVER_version, NULL);
 	struct xen_extraversion extra;
@@ -456,30 +427,22 @@ static void xen_cpuid(unsigned int *ax, unsigned int *bx,
 	*cx |= setecx;
 	*dx &= maskedx;
 
+	if (xen_vcpu_nr(cpu) < MAX_VIRT_CPUS) {
+		per_cpu(xen_vcpu, cpu) =
+			&HYPERVISOR_shared_info->vcpu_info[xen_vcpu_nr(cpu)];
+	} else {
+		/* Set to NULL so that if somebody accesses it we get an OOPS */
+		per_cpu(xen_vcpu, cpu) = NULL;
+	}
 }
 
-static bool __init xen_check_mwait(void)
+int xen_vcpu_setup(int cpu)
 {
-#ifdef CONFIG_ACPI
-	struct xen_platform_op op = {
-		.cmd			= XENPF_set_processor_pminfo,
-		.u.set_pminfo.id	= -1,
-		.u.set_pminfo.type	= XEN_PM_PDC,
-	};
-	uint32_t buf[3];
-	unsigned int ax, bx, cx, dx;
-	unsigned int mwait_mask;
+	struct vcpu_register_vcpu_info info;
+	int err;
+	struct vcpu_info *vcpup;
 
-	/* We need to determine whether it is OK to expose the MWAIT
-	 * capability to the kernel to harvest deeper than C3 states from ACPI
-	 * _CST using the processor_harvest_xen.c module. For this to work, we
-	 * need to gather the MWAIT_LEAF values (which the cstate.c code
-	 * checks against). The hypervisor won't expose the MWAIT flag because
-	 * it would break backwards compatibility; so we will find out directly
-	 * from the hardware and hypercall.
-	 */
-	if (!xen_initial_domain())
-		return false;
+	BUG_ON(HYPERVISOR_shared_info == &xen_dummy_shared_info);
 
 	/*
 	 * When running under platform earlier than Xen4.2, do not expose
@@ -704,15 +667,15 @@ static void set_aliased_prot(void *v, pgprot_t prot)
 	 * entries between processes, so if we've switched mms since we
 	 * vmapped the target in the first place, we might not have the
 	 * top-level page table entry populated.
+	 * This path is called on PVHVM at bootup (xen_hvm_smp_prepare_boot_cpu)
+	 * and at restore (xen_vcpu_restore). Also called for hotplugged
+	 * VCPUs (cpu_init -> xen_hvm_cpu_prepare_hvm).
+	 * However, the hypercall can only be done once (see below) so if a VCPU
+	 * is offlined and comes back online then let's not redo the hypercall.
 	 *
-	 * We disable preemption because we want the same mm active when
-	 * we probe the target and when we issue the hypercall.  We'll
-	 * have the same nominal mm, but if we're a kernel thread, lazy
-	 * mm dropping could change our pgd.
-	 *
-	 * Out of an abundance of caution, this uses __get_user() to fault
-	 * in the target address just in case there's some obscure case
-	 * in which the target address isn't readable.
+	 * For PV it is called during restore (xen_vcpu_restore) and bootup
+	 * (xen_setup_vcpu_info_placement). The hotplug mechanism does not
+	 * use this function.
 	 */
 
 	preempt_disable();
@@ -1043,10 +1006,10 @@ static int cvt_gate_to_trap(int vector, const gate_desc *val,
 	else {
 		/* Some other trap using IST? */
 		if (WARN_ON(val->ist != 0))
+	if (xen_hvm_domain()) {
+		if (per_cpu(xen_vcpu, cpu) == &per_cpu(xen_vcpu_info, cpu))
 			return 0;
 	}
-#endif	/* CONFIG_X86_64 */
-	info->address = addr;
 
 	info->cs = gate_segment(*val);
 	info->flags = val->dpl;
@@ -1832,17 +1795,41 @@ static unsigned xen_patch(u8 type, u16 clobbers, void *insnbuf,
 			long delta = start - (char *)addr;
 
 			*relocp += delta;
-		}
-		break;
+	if (xen_have_vcpu_info_placement) {
+		vcpup = &per_cpu(xen_vcpu_info, cpu);
+		info.mfn = arbitrary_virt_to_mfn(vcpup);
+		info.offset = offset_in_page(vcpup);
 
-	default_patch:
-	default:
-		ret = paravirt_patch_default(type, clobbers, insnbuf,
-					     addr, len);
-		break;
+		/*
+		 * Check to see if the hypervisor will put the vcpu_info
+		 * structure where we want it, which allows direct access via
+		 * a percpu-variable.
+		 * N.B. This hypercall can _only_ be called once per CPU.
+		 * Subsequent calls will error out with -EINVAL. This is due to
+		 * the fact that hypervisor has no unregister variant and this
+		 * hypercall does not allow to over-write info.mfn and
+		 * info.offset.
+		 */
+		err = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info,
+					 xen_vcpu_nr(cpu), &info);
+
+		if (err) {
+			pr_warn_once("register_vcpu_info failed: cpu=%d err=%d\n",
+				     cpu, err);
+			xen_have_vcpu_info_placement = 0;
+		} else {
+			/*
+			 * This cpu is using the registered vcpu info, even if
+			 * later ones fail to.
+			 */
+			per_cpu(xen_vcpu, cpu) = vcpup;
+		}
 	}
 
-	return ret;
+	if (!xen_have_vcpu_info_placement)
+		xen_vcpu_info_reset(cpu);
+
+	return ((per_cpu(xen_vcpu, cpu) == NULL) ? -ENODEV : 0);
 }
 
 static void xen_set_fixmap(unsigned idx, unsigned long phys, pgprot_t prot)
@@ -2145,6 +2132,7 @@ static void xen_reboot(int reason)
 	smp_send_stop();
 #endif
 static void xen_reboot(int reason)
+void xen_reboot(int reason)
 {
 	struct sched_shutdown r = { .reason = reason };
 	int cpu;
@@ -2156,7 +2144,7 @@ static void xen_reboot(int reason)
 		BUG();
 }
 
-static void xen_restart(char *msg)
+void xen_emergency_restart(void)
 {
 	xen_reboot(SHUTDOWN_reboot);
 }
@@ -2190,12 +2178,13 @@ static const struct machine_ops __initdata xen_machine_ops = {
 static int
 xen_panic_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
-	xen_reboot(SHUTDOWN_crash);
+	if (!kexec_crash_loaded())
+		xen_reboot(SHUTDOWN_crash);
 	return NOTIFY_DONE;
 }
 
 static struct notifier_block xen_panic_block = {
-	.notifier_call= xen_panic_event,
+	.notifier_call = xen_panic_event,
 	.priority = INT_MIN
 };
 
@@ -2472,169 +2461,20 @@ asmlinkage void __init xen_start_kernel(void)
 {
 	pgd_t *pgd;
 static unsigned char xen_get_nmi_reason(void)
+void xen_pin_vcpu(int cpu)
 {
-	unsigned char reason = 0;
-
-	/* Construct a value which looks like it came from port 0x61. */
-	if (test_bit(_XEN_NMIREASON_io_error,
-		     &HYPERVISOR_shared_info->arch.nmi_reason))
-		reason |= NMI_REASON_IOCHK;
-	if (test_bit(_XEN_NMIREASON_pci_serr,
-		     &HYPERVISOR_shared_info->arch.nmi_reason))
-		reason |= NMI_REASON_SERR;
-
-	return reason;
-}
-
-static void __init xen_boot_params_init_edd(void)
-{
-#if IS_ENABLED(CONFIG_EDD)
-	struct xen_platform_op op;
-	struct edd_info *edd_info;
-	u32 *mbr_signature;
-	unsigned nr;
+	static bool disable_pinning;
+	struct sched_pin_override pin_override;
 	int ret;
 
-	edd_info = boot_params.eddbuf;
-	mbr_signature = boot_params.edd_mbr_sig_buffer;
-
-	op.cmd = XENPF_firmware_info;
-
-	op.u.firmware_info.type = XEN_FW_DISK_INFO;
-	for (nr = 0; nr < EDDMAXNR; nr++) {
-		struct edd_info *info = edd_info + nr;
-
-		op.u.firmware_info.index = nr;
-		info->params.length = sizeof(info->params);
-		set_xen_guest_handle(op.u.firmware_info.u.disk_info.edd_params,
-				     &info->params);
-		ret = HYPERVISOR_dom0_op(&op);
-		if (ret)
-			break;
-
-#define C(x) info->x = op.u.firmware_info.u.disk_info.x
-		C(device);
-		C(version);
-		C(interface_support);
-		C(legacy_max_cylinder);
-		C(legacy_max_head);
-		C(legacy_sectors_per_track);
-#undef C
-	}
-	boot_params.eddbuf_entries = nr;
-
-	op.u.firmware_info.type = XEN_FW_DISK_MBR_SIGNATURE;
-	for (nr = 0; nr < EDD_MBR_SIG_MAX; nr++) {
-		op.u.firmware_info.index = nr;
-		ret = HYPERVISOR_dom0_op(&op);
-		if (ret)
-			break;
-		mbr_signature[nr] = op.u.firmware_info.u.disk_mbr_signature.mbr_signature;
-	}
-	boot_params.edd_mbr_sig_buf_entries = nr;
-#endif
-}
-
-/*
- * Set up the GDT and segment registers for -fstack-protector.  Until
- * we do this, we have to be careful not to call any stack-protected
- * function, which is most of the kernel.
- *
- * Note, that it is __ref because the only caller of this after init
- * is PVH which is not going to use xen_load_gdt_boot or other
- * __init functions.
- */
-static void __ref xen_setup_gdt(int cpu)
-{
-	if (xen_feature(XENFEAT_auto_translated_physmap)) {
-#ifdef CONFIG_X86_64
-		unsigned long dummy;
-
-		load_percpu_segment(cpu); /* We need to access per-cpu area */
-		switch_to_new_gdt(cpu); /* GDT and GS set */
-
-		/* We are switching of the Xen provided GDT to our HVM mode
-		 * GDT. The new GDT has  __KERNEL_CS with CS.L = 1
-		 * and we are jumping to reload it.
-		 */
-		asm volatile ("pushq %0\n"
-			      "leaq 1f(%%rip),%0\n"
-			      "pushq %0\n"
-			      "lretq\n"
-			      "1:\n"
-			      : "=&r" (dummy) : "0" (__KERNEL_CS));
-
-		/*
-		 * While not needed, we also set the %es, %ds, and %fs
-		 * to zero. We don't care about %ss as it is NULL.
-		 * Strictly speaking this is not needed as Xen zeros those
-		 * out (and also MSR_FS_BASE, MSR_GS_BASE, MSR_KERNEL_GS_BASE)
-		 *
-		 * Linux zeros them in cpu_init() and in secondary_startup_64
-		 * (for BSP).
-		 */
-		loadsegment(es, 0);
-		loadsegment(ds, 0);
-		loadsegment(fs, 0);
-#else
-		/* PVH: TODO Implement. */
-		BUG();
-#endif
-		return; /* PVH does not need any PV GDT ops. */
-	}
-	pv_cpu_ops.write_gdt_entry = xen_write_gdt_entry_boot;
-	pv_cpu_ops.load_gdt = xen_load_gdt_boot;
-
-	setup_stack_canary_segment(0);
-	switch_to_new_gdt(0);
-
-	pv_cpu_ops.write_gdt_entry = xen_write_gdt_entry;
-	pv_cpu_ops.load_gdt = xen_load_gdt;
-}
-
-#ifdef CONFIG_XEN_PVH
-/*
- * A PV guest starts with default flags that are not set for PVH, set them
- * here asap.
- */
-static void xen_pvh_set_cr_flags(int cpu)
-{
-
-	/* Some of these are setup in 'secondary_startup_64'. The others:
-	 * X86_CR0_TS, X86_CR0_PE, X86_CR0_ET are set by Xen for HVM guests
-	 * (which PVH shared codepaths), while X86_CR0_PG is for PVH. */
-	write_cr0(read_cr0() | X86_CR0_MP | X86_CR0_NE | X86_CR0_WP | X86_CR0_AM);
-
-	if (!cpu)
-		return;
-	/*
-	 * For BSP, PSE PGE are set in probe_page_size_mask(), for APs
-	 * set them here. For all, OSFXSR OSXMMEXCPT are set in fpu__init_cpu().
-	*/
-	if (cpu_has_pse)
-		cr4_set_bits_and_update_boot(X86_CR4_PSE);
-
-	if (cpu_has_pge)
-		cr4_set_bits_and_update_boot(X86_CR4_PGE);
-}
-
-/*
- * Note, that it is ref - because the only caller of this after init
- * is PVH which is not going to use xen_load_gdt_boot or other
- * __init functions.
- */
-void __ref xen_pvh_secondary_vcpu_init(int cpu)
-{
-	xen_setup_gdt(cpu);
-	xen_pvh_set_cr_flags(cpu);
-}
-
-static void __init xen_pvh_early_guest_init(void)
-{
-	if (!xen_feature(XENFEAT_auto_translated_physmap))
+	if (disable_pinning)
 		return;
 
-	if (!xen_feature(XENFEAT_hvm_callback_vector))
+	pin_override.pcpu = cpu;
+	ret = HYPERVISOR_sched_op(SCHEDOP_pin_override, &pin_override);
+
+	/* Ignore errors when removing override. */
+	if (cpu < 0)
 		return;
 
 	xen_have_vector_callback = 1;
@@ -3016,106 +2856,28 @@ static int xen_hvm_cpu_notify(struct notifier_block *self, unsigned long action,
 			if (xen_feature(XENFEAT_hvm_safe_pvclock))
 				xen_setup_timer(cpu);
 		}
+	switch (ret) {
+	case -ENOSYS:
+		pr_warn("Unable to pin on physical cpu %d. In case of problems consider vcpu pinning.\n",
+			cpu);
+		disable_pinning = true;
+		break;
+	case -EPERM:
+		WARN(1, "Trying to pin vcpu without having privilege to do so\n");
+		disable_pinning = true;
+		break;
+	case -EINVAL:
+	case -EBUSY:
+		pr_warn("Physical cpu %d not available for pinning. Check Xen cpu configuration.\n",
+			cpu);
+		break;
+	case 0:
 		break;
 	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block xen_hvm_cpu_notifier = {
-	.notifier_call	= xen_hvm_cpu_notify,
-};
-
-#ifdef CONFIG_KEXEC_CORE
-static void xen_hvm_shutdown(void)
-{
-	native_machine_shutdown();
-	if (kexec_in_progress)
-		xen_reboot(SHUTDOWN_soft_reset);
-}
-
-static void xen_hvm_crash_shutdown(struct pt_regs *regs)
-{
-	native_machine_crash_shutdown(regs);
-	xen_reboot(SHUTDOWN_soft_reset);
-}
-#endif
-
-static void __init xen_hvm_guest_init(void)
-{
-	if (xen_pv_domain())
-		return;
-
-	init_hvm_pv_info();
-
-	xen_hvm_init_shared_info();
-
-	xen_panic_handler_init();
-
-	if (xen_feature(XENFEAT_hvm_callback_vector))
-		xen_have_vector_callback = 1;
-	xen_hvm_smp_init();
-	register_cpu_notifier(&xen_hvm_cpu_notifier);
-	xen_unplug_emulated_devices();
-	x86_init.irqs.intr_init = xen_init_IRQ;
-	xen_hvm_init_time_ops();
-	xen_hvm_init_mmu_ops();
-#ifdef CONFIG_KEXEC_CORE
-	machine_ops.shutdown = xen_hvm_shutdown;
-	machine_ops.crash_shutdown = xen_hvm_crash_shutdown;
-#endif
-}
-#endif
-
-static bool xen_nopv = false;
-static __init int xen_parse_nopv(char *arg)
-{
-       xen_nopv = true;
-       return 0;
-}
-early_param("xen_nopv", xen_parse_nopv);
-
-static uint32_t __init xen_platform(void)
-{
-	if (xen_nopv)
-		return 0;
-
-	return xen_cpuid_base();
-}
-
-bool xen_hvm_need_lapic(void)
-{
-	if (xen_nopv)
-		return false;
-	if (xen_pv_domain())
-		return false;
-	if (!xen_hvm_domain())
-		return false;
-	if (xen_feature(XENFEAT_hvm_pirqs) && xen_have_vector_callback)
-		return false;
-	return true;
-}
-EXPORT_SYMBOL_GPL(xen_hvm_need_lapic);
-
-static void xen_set_cpu_features(struct cpuinfo_x86 *c)
-{
-	if (xen_pv_domain()) {
-		clear_cpu_bug(c, X86_BUG_SYSRET_SS_ATTRS);
-		set_cpu_cap(c, X86_FEATURE_XENPV);
+		WARN(1, "rc %d while trying to pin vcpu\n", ret);
+		disable_pinning = true;
 	}
 }
-
-const struct hypervisor_x86 x86_hyper_xen = {
-	.name			= "Xen",
-	.detect			= xen_platform,
-#ifdef CONFIG_XEN_PVHVM
-	.init_platform		= xen_hvm_guest_init,
-#endif
-	.x2apic_available	= xen_x2apic_para_available,
-	.set_cpu_features       = xen_set_cpu_features,
-};
-EXPORT_SYMBOL(x86_hyper_xen);
 
 #ifdef CONFIG_HOTPLUG_CPU
 void xen_arch_register_cpu(int num)

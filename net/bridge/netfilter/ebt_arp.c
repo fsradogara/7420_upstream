@@ -46,14 +46,14 @@ ebt_arp_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	   ah->ar_pro, EBT_ARP_PTYPE))
 		return EBT_NOMATCH;
 		return false;
-	if (info->bitmask & EBT_ARP_OPCODE && FWINV(info->opcode !=
-	   ah->ar_op, EBT_ARP_OPCODE))
+	if ((info->bitmask & EBT_ARP_OPCODE) &&
+	    NF_INVF(info, EBT_ARP_OPCODE, info->opcode != ah->ar_op))
 		return false;
-	if (info->bitmask & EBT_ARP_HTYPE && FWINV(info->htype !=
-	   ah->ar_hrd, EBT_ARP_HTYPE))
+	if ((info->bitmask & EBT_ARP_HTYPE) &&
+	    NF_INVF(info, EBT_ARP_HTYPE, info->htype != ah->ar_hrd))
 		return false;
-	if (info->bitmask & EBT_ARP_PTYPE && FWINV(info->ptype !=
-	   ah->ar_pro, EBT_ARP_PTYPE))
+	if ((info->bitmask & EBT_ARP_PTYPE) &&
+	    NF_INVF(info, EBT_ARP_PTYPE, info->ptype != ah->ar_pro))
 		return false;
 
 	if (info->bitmask & (EBT_ARP_SRC_IP | EBT_ARP_DST_IP | EBT_ARP_GRAT)) {
@@ -84,21 +84,22 @@ ebt_arp_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		    FWINV(*dap != *sap, EBT_ARP_GRAT))
 			return EBT_NOMATCH;
 			return false;
-		if (info->bitmask & EBT_ARP_SRC_IP &&
-		    FWINV(info->saddr != (*sap & info->smsk), EBT_ARP_SRC_IP))
+		if ((info->bitmask & EBT_ARP_SRC_IP) &&
+		    NF_INVF(info, EBT_ARP_SRC_IP,
+			    info->saddr != (*sap & info->smsk)))
 			return false;
-		if (info->bitmask & EBT_ARP_DST_IP &&
-		    FWINV(info->daddr != (*dap & info->dmsk), EBT_ARP_DST_IP))
+		if ((info->bitmask & EBT_ARP_DST_IP) &&
+		    NF_INVF(info, EBT_ARP_DST_IP,
+			    info->daddr != (*dap & info->dmsk)))
 			return false;
-		if (info->bitmask & EBT_ARP_GRAT &&
-		    FWINV(*dap != *sap, EBT_ARP_GRAT))
+		if ((info->bitmask & EBT_ARP_GRAT) &&
+		    NF_INVF(info, EBT_ARP_GRAT, *dap != *sap))
 			return false;
 	}
 
 	if (info->bitmask & (EBT_ARP_SRC_MAC | EBT_ARP_DST_MAC)) {
 		const unsigned char *mp;
 		unsigned char _mac[ETH_ALEN];
-		uint8_t verdict, i;
 
 		if (ah->ar_hln != ETH_ALEN || ah->ar_hrd != htons(ARPHRD_ETHER))
 			return EBT_NOMATCH;
@@ -115,6 +116,9 @@ ebt_arp_mt(const struct sk_buff *skb, struct xt_action_param *par)
 				       info->smmsk[i];
 			if (FWINV(verdict != 0, EBT_ARP_SRC_MAC))
 				return EBT_NOMATCH;
+			if (NF_INVF(info, EBT_ARP_SRC_MAC,
+				    !ether_addr_equal_masked(mp, info->smaddr,
+							     info->smmsk)))
 				return false;
 		}
 
@@ -144,6 +148,9 @@ static int ebt_arp_check(const char *tablename, unsigned int hookmask,
 
 	if (datalen != EBT_ALIGN(sizeof(struct ebt_arp_info)))
 		return -EINVAL;
+			if (NF_INVF(info, EBT_ARP_DST_MAC,
+				    !ether_addr_equal_masked(mp, info->dmaddr,
+							     info->dmmsk)))
 				return false;
 		}
 	}

@@ -1,5 +1,6 @@
 .text
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * This may not use any stack, nor any variable that is not "NoSave":
  *

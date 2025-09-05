@@ -36,6 +36,7 @@
 #include <net/sock.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
+#include <linux/uaccess.h>
 
 /*
  * Create the HIPPI MAC header for an arbitrary protocol layer
@@ -49,7 +50,7 @@ static int hippi_header(struct sk_buff *skb, struct net_device *dev,
 			const void *daddr, const void *saddr, unsigned len)
 			const void *daddr, const void *saddr, unsigned int len)
 {
-	struct hippi_hdr *hip = (struct hippi_hdr *)skb_push(skb, HIPPI_HLEN);
+	struct hippi_hdr *hip = skb_push(skb, HIPPI_HLEN);
 	struct hippi_cb *hcb = (struct hippi_cb *) skb->cb;
 
 	if (!len){
@@ -224,6 +225,8 @@ static void hippi_setup(struct net_device *dev)
 	dev->type		= ARPHRD_HIPPI;
 	dev->hard_header_len 	= HIPPI_HLEN;
 	dev->mtu		= 65280;
+	dev->min_mtu		= 68;
+	dev->max_mtu		= 65280;
 	dev->addr_len		= HIPPI_ALEN;
 	dev->tx_queue_len	= 25 /* 5 */;
 	memset(dev->broadcast, 0xFF, HIPPI_ALEN);

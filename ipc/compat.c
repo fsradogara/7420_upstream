@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * 32 bit compatibility code for System V IPC
  *
@@ -226,17 +227,30 @@ static inline int get_compat_semid64_ds(struct semid64_ds *sem64,
 					struct compat_semid64_ds __user *up64)
 {
 	if (!access_ok(VERIFY_READ, up64, sizeof(*up64)))
+int get_compat_ipc64_perm(struct ipc64_perm *to,
+			  struct compat_ipc64_perm __user *from)
+{
+	struct compat_ipc64_perm v;
+	if (copy_from_user(&v, from, sizeof(v)))
 		return -EFAULT;
-	return __get_compat_ipc64_perm(&sem64->sem_perm, &up64->sem_perm);
+	to->uid = v.uid;
+	to->gid = v.gid;
+	to->mode = v.mode;
+	return 0;
 }
 
-static inline int get_compat_semid_ds(struct semid64_ds *s,
-				      struct compat_semid_ds __user *up)
+int get_compat_ipc_perm(struct ipc64_perm *to,
+			struct compat_ipc_perm __user *from)
 {
 	if (!access_ok (VERIFY_READ, up, sizeof(*up)))
 	if (!access_ok(VERIFY_READ, up, sizeof(*up)))
+	struct compat_ipc_perm v;
+	if (copy_from_user(&v, from, sizeof(v)))
 		return -EFAULT;
-	return __get_compat_ipc_perm(&s->sem_perm, &up->sem_perm);
+	to->uid = v.uid;
+	to->gid = v.gid;
+	to->mode = v.mode;
+	return 0;
 }
 
 static inline int put_compat_semid64_ds(struct semid64_ds *s64,
@@ -258,10 +272,18 @@ static inline int put_compat_semid64_ds(struct semid64_ds *sem64,
 	err |= __put_user(sem64->sem_ctime, &up64->sem_ctime);
 	err |= __put_user(sem64->sem_nsems, &up64->sem_nsems);
 	return err;
+void to_compat_ipc64_perm(struct compat_ipc64_perm *to, struct ipc64_perm *from)
+{
+	to->key = from->key;
+	to->uid = from->uid;
+	to->gid = from->gid;
+	to->cuid = from->cuid;
+	to->cgid = from->cgid;
+	to->mode = from->mode;
+	to->seq = from->seq;
 }
 
-static inline int put_compat_semid_ds(struct semid64_ds *s,
-				      struct compat_semid_ds __user *up)
+void to_compat_ipc_perm(struct compat_ipc_perm *to, struct ipc64_perm *from)
 {
 	int err;
 
@@ -945,4 +967,11 @@ COMPAT_SYSCALL_DEFINE4(semtimedop, int, semid, struct sembuf __user *, tsems,
 	if (compat_convert_timespec(&ts64, timeout))
 		return -EFAULT;
 	return sys_semtimedop(semid, tsems, nsops, ts64);
+	to->key = from->key;
+	SET_UID(to->uid, from->uid);
+	SET_GID(to->gid, from->gid);
+	SET_UID(to->cuid, from->cuid);
+	SET_GID(to->cgid, from->cgid);
+	to->mode = from->mode;
+	to->seq = from->seq;
 }

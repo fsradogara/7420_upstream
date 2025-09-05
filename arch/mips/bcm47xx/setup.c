@@ -48,6 +48,7 @@ static void bcm47xx_machine_restart(char *command)
 	ssb_chipco_watchdog_timer_set(&ssb_bcm47xx.chipco, 1);
 #include "bcm47xx_private.h"
 
+#include <linux/bcm47xx_sprom.h>
 #include <linux/export.h>
 #include <linux/types.h>
 #include <linux/ethtool.h>
@@ -220,8 +221,7 @@ static void __init bcm47xx_register_ssb(void)
 	char buf[100];
 	struct ssb_mipscore *mcore;
 
-	err = ssb_bus_ssbbus_register(&bcm47xx_bus.ssb, SSB_ENUM_BASE,
-				      bcm47xx_get_invariants);
+	err = ssb_bus_host_soc_register(&bcm47xx_bus.ssb, SSB_ENUM_BASE);
 	if (err)
 		panic("Failed to initialize SSB bus (err %d)", err);
 
@@ -265,7 +265,6 @@ void __init plat_mem_setup(void)
 		pr_info("Using bcma bus\n");
 #ifdef CONFIG_BCM47XX_BCMA
 		bcm47xx_bus_type = BCM47XX_BUS_TYPE_BCMA;
-		bcm47xx_sprom_register_fallbacks();
 		bcm47xx_register_bcma();
 		bcm47xx_set_system_type(bcm47xx_bus.bcma.bus.chipinfo.id);
 #ifdef CONFIG_HIGHMEM

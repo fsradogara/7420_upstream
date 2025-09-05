@@ -145,8 +145,12 @@ static inline u32 cm_clear_mod_reg_bits(u32 bits, s16 module, s16 idx)
 #define MAX_MODULE_READY_TIME		2000
 
 # ifndef __ASSEMBLER__
-extern void __iomem *cm_base;
-extern void __iomem *cm2_base;
+#include <linux/clk/ti.h>
+
+#include "prcm-common.h"
+
+extern struct omap_domain_base cm_base;
+extern struct omap_domain_base cm2_base;
 extern void omap2_set_globals_cm(void __iomem *cm, void __iomem *cm2);
 # endif
 
@@ -172,7 +176,7 @@ extern void omap2_set_globals_cm(void __iomem *cm, void __iomem *cm2);
  * @module_disable: ptr to the SoC CM-specific module_disable impl
  */
 struct cm_ll_data {
-	int (*split_idlest_reg)(void __iomem *idlest_reg, s16 *prcm_inst,
+	int (*split_idlest_reg)(struct clk_omap_reg *idlest_reg, s16 *prcm_inst,
 				u8 *idlest_reg_id);
 	int (*wait_module_ready)(u8 part, s16 prcm_mod, u16 idlest_reg,
 				 u8 idlest_shift);
@@ -182,7 +186,7 @@ struct cm_ll_data {
 	void (*module_disable)(u8 part, u16 inst, u16 clkctrl_offs);
 };
 
-extern int cm_split_idlest_reg(void __iomem *idlest_reg, s16 *prcm_inst,
+extern int cm_split_idlest_reg(struct clk_omap_reg *idlest_reg, s16 *prcm_inst,
 			       u8 *idlest_reg_id);
 int omap_cm_wait_module_ready(u8 part, s16 prcm_mod, u16 idlest_reg,
 			      u8 idlest_shift);

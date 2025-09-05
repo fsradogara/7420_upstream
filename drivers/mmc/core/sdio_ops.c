@@ -29,6 +29,9 @@ int mmc_send_io_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 
 	memset(&cmd, 0, sizeof(struct mmc_command));
 
+	struct mmc_command cmd = {};
+	int i, err = 0;
+
 	cmd.opcode = SD_IO_SEND_OP_COND;
 	cmd.arg = ocr;
 	cmd.flags = MMC_RSP_SPI_R4 | MMC_RSP_R4 | MMC_CMD_BCR;
@@ -81,11 +84,11 @@ int mmc_io_rw_direct(struct mmc_card *card, int write, unsigned fn,
 static int mmc_io_rw_direct_host(struct mmc_host *host, int write, unsigned fn,
 	unsigned addr, u8 in, u8 *out)
 {
-	struct mmc_command cmd = {0};
+	struct mmc_command cmd = {};
 	int err;
 
-	BUG_ON(!host);
-	BUG_ON(fn > 7);
+	if (fn > 7)
+		return -EINVAL;
 
 	/* sanity check */
 	if (addr & ~0x1FFFF)
@@ -150,23 +153,20 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 int mmc_io_rw_direct(struct mmc_card *card, int write, unsigned fn,
 	unsigned addr, u8 in, u8 *out)
 {
-	BUG_ON(!card);
 	return mmc_io_rw_direct_host(card->host, write, fn, addr, in, out);
 }
 
 int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	unsigned addr, int incr_addr, u8 *buf, unsigned blocks, unsigned blksz)
 {
-	struct mmc_request mrq = {NULL};
-	struct mmc_command cmd = {0};
-	struct mmc_data data = {0};
+	struct mmc_request mrq = {};
+	struct mmc_command cmd = {};
+	struct mmc_data data = {};
 	struct scatterlist sg, *sg_ptr;
 	struct sg_table sgtable;
 	unsigned int nents, left_size, i;
 	unsigned int seg_size = card->host->max_seg_size;
 
-	BUG_ON(!card);
-	BUG_ON(fn > 7);
 	WARN_ON(blksz == 0);
 
 	/* sanity check */
@@ -200,7 +200,7 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	data.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
 
 	left_size = data.blksz * data.blocks;
-	nents = (left_size - 1) / seg_size + 1;
+	nents = DIV_ROUND_UP(left_size, seg_size);
 	if (nents > 1) {
 		if (sg_alloc_table(&sgtable, nents, GFP_KERNEL))
 			return -ENOMEM;
@@ -209,10 +209,9 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 		data.sg_len = nents;
 
 		for_each_sg(data.sg, sg_ptr, data.sg_len, i) {
-			sg_set_page(sg_ptr, virt_to_page(buf + (i * seg_size)),
-					min(seg_size, left_size),
-					offset_in_page(buf + (i * seg_size)));
-			left_size = left_size - seg_size;
+			sg_set_buf(sg_ptr, buf + i * seg_size,
+				   min(seg_size, left_size));
+			left_size -= seg_size;
 		}
 	} else {
 		data.sg = &sg;
@@ -260,7 +259,6 @@ int sdio_reset(struct mmc_host *host)
 	else
 		abort |= 0x08;
 
-	ret = mmc_io_rw_direct_host(host, 1, 0, SDIO_CCCR_ABORT, abort, NULL);
-	return ret;
+	return mmc_io_rw_direct_host(host, 1, 0, SDIO_CCCR_ABORT, abort, NULL);
 }
 

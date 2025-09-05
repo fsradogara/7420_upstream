@@ -25,6 +25,7 @@
 #include <net/sock.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
+#include <linux/uaccess.h>
 #include <linux/fcntl.h>
 #include <linux/termios.h>	/* For TIOCINQ/OUTQ */
 #include <linux/mm.h>
@@ -246,6 +247,20 @@ netdev_tx_t ax25_ip_xmit(struct sk_buff *skb)
 }
 #endif
 
+static bool ax25_validate_header(const char *header, unsigned int len)
+{
+	ax25_digi digi;
+
+	if (!len)
+		return false;
+
+	if (header[0])
+		return true;
+
+	return ax25_addr_parse(header + 1, len - 1, NULL, NULL, &digi, NULL,
+			       NULL);
+}
+
 const struct header_ops ax25_header_ops = {
 	.create = ax25_hard_header,
 	.rebuild = ax25_rebuild_header,
@@ -254,6 +269,7 @@ const struct header_ops ax25_header_ops = {
 EXPORT_SYMBOL(ax25_hard_header);
 EXPORT_SYMBOL(ax25_rebuild_header);
 EXPORT_SYMBOL(ax25_header_ops);
+	.validate = ax25_validate_header,
 };
 
 EXPORT_SYMBOL(ax25_header_ops);

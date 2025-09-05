@@ -50,7 +50,7 @@
                         the slower the port i/o.  In some cases, setting
                         this to zero will speed up the device. (default -1)
                         
-            major       You may use this parameter to overide the
+            major       You may use this parameter to override the
                         default major number (46) that this driver
                         will use.  Be sure to change the device
                         name as well.
@@ -146,7 +146,7 @@ static DEFINE_SPINLOCK(pcd_lock);
 
 module_param(verbose, bool, 0644);
 #include <linux/mutex.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static DEFINE_MUTEX(pcd_mutex);
 static DEFINE_SPINLOCK(pcd_lock);
@@ -313,7 +313,7 @@ static const struct block_device_operations pcd_bdops = {
 	.check_events	= pcd_block_check_events,
 };
 
-static struct cdrom_device_ops pcd_dops = {
+static const struct cdrom_device_ops pcd_dops = {
 	.open		= pcd_open,
 	.release	= pcd_release,
 	.drive_status	= pcd_drive_status,
@@ -341,6 +341,12 @@ static void pcd_init_units(void)
 		struct gendisk *disk = alloc_disk(1);
 		if (!disk)
 			continue;
+		disk->queue = blk_init_queue(do_pcd_request, &pcd_lock);
+		if (!disk->queue) {
+			put_disk(disk);
+			continue;
+		}
+		blk_queue_bounce_limit(disk->queue, BLK_BOUNCE_HIGH);
 		cd->disk = disk;
 		cd->pi = &cd->pia;
 		cd->present = 0;
@@ -789,9 +795,30 @@ static int pcd_detect(void)
 }
 
 /* I/O request processing */
-static struct request_queue *pcd_queue;
+static int pcd_queue;
 
-static void do_pcd_request(struct request_queue * q)
+static int set_next_request(void)
+{
+	struct pcd_unit *cd;
+	struct request_queue *q;
+	int old_pos = pcd_queue;
+
+	do {
+		cd = &pcd[pcd_queue];
+		q = cd->present ? cd->disk->queue : NULL;
+		if (++pcd_queue == PCD_UNITS)
+			pcd_queue = 0;
+		if (q) {
+			pcd_req = blk_fetch_request(q);
+			if (pcd_req)
+				break;
+		}
+	} while (pcd_queue != old_pos);
+
+	return pcd_req != NULL;
+}
+
+static void pcd_request(void)
 {
 	if (pcd_busy)
 		return;
@@ -804,6 +831,8 @@ static void do_pcd_request(struct request_queue * q)
 			if (!pcd_req)
 				return;
 		}
+		if (!pcd_req && !set_next_request())
+			return;
 
 		if (rq_data_dir(pcd_req) == READ) {
 			struct pcd_unit *cd = pcd_req->rq_disk->private_data;
@@ -829,13 +858,18 @@ static inline void next_request(int success)
 			ps_set_intr(do_pcd_read, NULL, 0, nice);
 			return;
 		} else {
-			__blk_end_request_all(pcd_req, -EIO);
+			__blk_end_request_all(pcd_req, BLK_STS_IOERR);
 			pcd_req = NULL;
 		}
 	}
 }
 
-static inline void next_request(int err)
+static void do_pcd_request(struct request_queue *q)
+{
+	pcd_request();
+}
+
+static inline void next_request(blk_status_t err)
 {
 	unsigned long saved_flags;
 
@@ -844,7 +878,7 @@ static inline void next_request(int err)
 	if (!__blk_end_request_cur(pcd_req, err))
 		pcd_req = NULL;
 	pcd_busy = 0;
-	do_pcd_request(pcd_queue);
+	pcd_request();
 	spin_unlock_irqrestore(&pcd_lock, saved_flags);
 }
 
@@ -881,6 +915,7 @@ static void pcd_start(void)
 		pcd_bufblk = -1;
 		next_request(0);
 		next_request(-EIO);
+		next_request(BLK_STS_IOERR);
 		return;
 	}
 
@@ -917,12 +952,13 @@ static void do_pcd_read_drq(void)
 		pcd_bufblk = -1;
 		next_request(0);
 		next_request(-EIO);
+		next_request(BLK_STS_IOERR);
 		return;
 	}
 
 	do_pcd_read();
 	spin_lock_irqsave(&pcd_lock, saved_flags);
-	do_pcd_request(pcd_queue);
+	pcd_request();
 	spin_unlock_irqrestore(&pcd_lock, saved_flags);
 }
 
@@ -1030,19 +1066,10 @@ static int __init pcd_init(void)
 		return -EBUSY;
 	}
 
-	pcd_queue = blk_init_queue(do_pcd_request, &pcd_lock);
-	if (!pcd_queue) {
-		unregister_blkdev(major, name);
-		for (unit = 0, cd = pcd; unit < PCD_UNITS; unit++, cd++)
-			put_disk(cd->disk);
-		return -ENOMEM;
-	}
-
 	for (unit = 0, cd = pcd; unit < PCD_UNITS; unit++, cd++) {
 		if (cd->present) {
 			register_cdrom(&cd->info);
 			cd->disk->private_data = cd;
-			cd->disk->queue = pcd_queue;
 			add_disk(cd->disk);
 		}
 	}
@@ -1061,9 +1088,9 @@ static void __exit pcd_exit(void)
 			pi_release(cd->pi);
 			unregister_cdrom(&cd->info);
 		}
+		blk_cleanup_queue(cd->disk->queue);
 		put_disk(cd->disk);
 	}
-	blk_cleanup_queue(pcd_queue);
 	unregister_blkdev(major, name);
 	pi_unregister_driver(par_drv);
 }

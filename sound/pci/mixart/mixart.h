@@ -90,7 +90,7 @@ struct mixart_mgr {
 	u32 msg_fifo[MSG_FIFO_SIZE];
 	int msg_fifo_readptr;
 	int msg_fifo_writeptr;
-	atomic_t msg_processed;       /* number of messages to be processed in takslet */
+	atomic_t msg_processed;       /* number of messages to be processed in tasklet */
 
 	spinlock_t lock;              /* interrupt spinlock */
 	spinlock_t msg_lock;          /* mailbox spinlock */

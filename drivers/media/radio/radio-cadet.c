@@ -584,6 +584,7 @@ cadet_read(struct file *file, char __user *data, size_t count, loff_t *ppos)
 	init_timer(&dev->readtimer);
 	dev->readtimer.function = cadet_handler;
 	dev->readtimer.data = data;
+	setup_timer(&dev->readtimer, cadet_handler, data);
 	dev->readtimer.expires = jiffies + msecs_to_jiffies(50);
 	add_timer(&dev->readtimer);
 }
@@ -592,9 +593,7 @@ static void cadet_start_rds(struct cadet *dev)
 {
 	dev->rdsstat = 1;
 	outb(0x80, dev->io);        /* Select RDS fifo */
-	init_timer(&dev->readtimer);
-	dev->readtimer.function = cadet_handler;
-	dev->readtimer.data = (unsigned long)dev;
+	setup_timer(&dev->readtimer, cadet_handler, (unsigned long)dev);
 	dev->readtimer.expires = jiffies + msecs_to_jiffies(50);
 	add_timer(&dev->readtimer);
 }
@@ -986,7 +985,7 @@ static const struct v4l2_ctrl_ops cadet_ctrl_ops = {
 
 #ifdef CONFIG_PNP
 
-static struct pnp_device_id cadet_pnp_devices[] = {
+static const struct pnp_device_id cadet_pnp_devices[] = {
 	/* ADS Cadet AM/FM Radio Card */
 	{.id = "MSM0c24", .driver_data = 0},
 	{.id = ""}

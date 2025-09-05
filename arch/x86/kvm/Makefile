@@ -17,6 +17,7 @@ kvm-intel-objs = vmx.o
 obj-$(CONFIG_KVM_INTEL) += kvm-intel.o
 kvm-amd-objs = svm.o
 obj-$(CONFIG_KVM_AMD) += kvm-amd.o
+# SPDX-License-Identifier: GPL-2.0
 
 ccflags-y += -Iarch/x86/kvm
 
@@ -32,9 +33,8 @@ kvm-$(CONFIG_KVM_ASYNC_PF)	+= $(KVM)/async_pf.o
 
 kvm-y			+= x86.o mmu.o emulate.o i8259.o irq.o lapic.o \
 			   i8254.o ioapic.o irq_comm.o cpuid.o pmu.o mtrr.o \
-			   hyperv.o
+			   hyperv.o page_track.o debugfs.o
 
-kvm-$(CONFIG_KVM_DEVICE_ASSIGNMENT)	+= assigned-dev.o iommu.o
 kvm-intel-y		+= vmx.o pmu_intel.o
 kvm-amd-y		+= svm.o pmu_amd.o
 

@@ -1,9 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_NET_AFUNIX_H
 #define __LINUX_NET_AFUNIX_H
 
 #include <linux/socket.h>
 #include <linux/un.h>
 #include <linux/mutex.h>
+#include <linux/refcount.h>
 #include <net/sock.h>
 
 extern void unix_inflight(struct file *fp);
@@ -15,6 +17,8 @@ extern void unix_gc(void);
 extern unsigned int unix_tot_inflight;
 void unix_inflight(struct file *fp);
 void unix_notinflight(struct file *fp);
+void unix_inflight(struct user_struct *user, struct file *fp);
+void unix_notinflight(struct user_struct *user, struct file *fp);
 void unix_gc(void);
 void wait_for_unix_gc(void);
 struct sock *unix_get_socket(struct file *filp);
@@ -28,7 +32,7 @@ extern spinlock_t unix_table_lock;
 extern struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 
 struct unix_address {
-	atomic_t	refcnt;
+	refcount_t	refcnt;
 	int		len;
 	unsigned	hash;
 	unsigned int	hash;
@@ -50,7 +54,7 @@ struct unix_skb_parms {
 #define UNIXCREDS(skb)	(&UNIXCB((skb)).creds)
 #define UNIXSID(skb)	(&UNIXCB((skb)).secid)
 	u32			consumed;
-};
+} __randomize_layout;
 
 #define UNIXCB(skb) 	(*(struct unix_skb_parms *)&((skb)->cb))
 
@@ -84,17 +88,16 @@ extern int unix_sysctl_register(struct net *net);
 extern void unix_sysctl_unregister(struct net *net);
 	struct unix_address     *addr;
 	struct path		path;
-	struct mutex		readlock;
+	struct mutex		iolock, bindlock;
 	struct sock		*peer;
 	struct list_head	link;
 	atomic_long_t		inflight;
 	spinlock_t		lock;
-	unsigned char		recursion_level;
 	unsigned long		gc_flags;
 #define UNIX_GC_CANDIDATE	0
 #define UNIX_GC_MAYBE_CYCLE	1
 	struct socket_wq	peer_wq;
-	wait_queue_t		peer_wake;
+	wait_queue_entry_t		peer_wake;
 };
 
 static inline struct unix_sock *unix_sk(const struct sock *sk)

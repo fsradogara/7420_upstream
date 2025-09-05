@@ -60,6 +60,7 @@ __ashrdi3 (DItype u, word_type b)
     }
 
   return w.ll;
+// SPDX-License-Identifier: GPL-2.0
 #include "libgcc.h"
 
 DWtype __ashrdi3(DWtype u, word_type b)

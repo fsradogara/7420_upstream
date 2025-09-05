@@ -94,6 +94,8 @@ static int padded = CONFIG_USB_SERIAL_SAFE_PADDED;
 #define DRIVER_AUTHOR "sl@lineo.com, tbr@lineo.com"
 static bool safe = 1;
 static bool padded = CONFIG_USB_SERIAL_SAFE_PADDED;
+static bool safe = true;
+static bool padded = IS_ENABLED(CONFIG_USB_SERIAL_SAFE_PADDED);
 
 #define DRIVER_AUTHOR "sl@lineo.com, tbr@lineo.com, Johan Hovold <jhovold@gmail.com>"
 #define DRIVER_DESC "USB Safe Encapsulated Serial"
@@ -217,7 +219,7 @@ static const __u16 crc10_table[256] = {
  * Perform a memcpy and calculate fcs using ppp 10bit CRC algorithm. Return
  * new 10 bit FCS.
  */
-static __u16 __inline__ fcs_compute10(unsigned char *sp, int len, __u16 fcs)
+static inline __u16 fcs_compute10(unsigned char *sp, int len, __u16 fcs)
 {
 	for (; len-- > 0; fcs = CRC10_FCS(fcs, *sp++));
 	return fcs;
@@ -416,6 +418,11 @@ static void safe_process_read_urb(struct urb *urb)
 	if (!safe)
 		goto out;
 
+	if (length < 2) {
+		dev_err(&port->dev, "malformed packet\n");
+		return;
+	}
+
 	fcs = fcs_compute10(data, length, CRC10_INITFCS);
 	if (fcs) {
 		dev_err(&port->dev, "%s - bad CRC %x\n", __func__, fcs);
@@ -490,7 +497,7 @@ static int safe_startup(struct usb_serial *serial)
 	case LINEO_SAFESERIAL_CRC:
 		break;
 	case LINEO_SAFESERIAL_CRC_PADDED:
-		padded = 1;
+		padded = true;
 		break;
 	default:
 		return -EINVAL;

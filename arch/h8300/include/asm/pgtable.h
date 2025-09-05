@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _H8300_PGTABLE_H
 #define _H8300_PGTABLE_H
 
@@ -18,6 +19,7 @@
 #define pgd_offset_k(adrdress)  ((pgd_t *)0)
 #define pte_offset_kernel(dir, address) ((pte_t *)0)
 
+#define __ARCH_USE_5LEVEL_HACK
 #include <asm-generic/pgtable-nopud.h>
 #include <asm-generic/pgtable.h>
 #define pgtable_cache_init()   do { } while (0)

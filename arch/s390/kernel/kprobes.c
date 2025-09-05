@@ -274,12 +274,14 @@ static void __kprobes set_current_kprobe(struct kprobe *p, struct pt_regs *regs,
 void __kprobes arch_prepare_kretprobe(struct kretprobe_instance *ri,
 					struct pt_regs *regs)
 #include <linux/uaccess.h>
+#include <linux/extable.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/hardirq.h>
 #include <linux/ftrace.h>
-#include <asm/cacheflush.h>
+#include <asm/set_memory.h>
 #include <asm/sections.h>
+#include <linux/uaccess.h>
 #include <asm/dis.h>
 
 DEFINE_PER_CPU(struct kprobe *, current_kprobe);
@@ -291,11 +293,17 @@ DEFINE_INSN_CACHE_OPS(dmainsn);
 
 static void *alloc_dmainsn_page(void)
 {
-	return (void *)__get_free_page(GFP_KERNEL | GFP_DMA);
+	void *page;
+
+	page = (void *) __get_free_page(GFP_KERNEL | GFP_DMA);
+	if (page)
+		set_memory_x((unsigned long) page, 1);
+	return page;
 }
 
 static void free_dmainsn_page(void *page)
 {
+	set_memory_nx((unsigned long) page, 1);
 	free_page((unsigned long)page);
 }
 
@@ -436,7 +444,7 @@ void arch_arm_kprobe(struct kprobe *p)
 {
 	struct swap_insn_args args = {.p = p, .arm_kprobe = 1};
 
-	stop_machine(swap_instruction, &args, NULL);
+	stop_machine_cpuslocked(swap_instruction, &args, NULL);
 }
 NOKPROBE_SYMBOL(arch_arm_kprobe);
 
@@ -444,7 +452,7 @@ void arch_disarm_kprobe(struct kprobe *p)
 {
 	struct swap_insn_args args = {.p = p, .arm_kprobe = 0};
 
-	stop_machine(swap_instruction, &args, NULL);
+	stop_machine_cpuslocked(swap_instruction, &args, NULL);
 }
 NOKPROBE_SYMBOL(arch_disarm_kprobe);
 
@@ -474,7 +482,7 @@ static void enable_singlestep(struct kprobe_ctlblk *kcb,
 	__ctl_load(per_kprobe, 9, 11);
 	regs->psw.mask |= PSW_MASK_PER;
 	regs->psw.mask &= ~(PSW_MASK_IO | PSW_MASK_EXT);
-	regs->psw.addr = ip | PSW_ADDR_AMODE;
+	regs->psw.addr = ip;
 }
 NOKPROBE_SYMBOL(enable_singlestep);
 
@@ -486,7 +494,7 @@ static void disable_singlestep(struct kprobe_ctlblk *kcb,
 	__ctl_load(kcb->kprobe_saved_ctl, 9, 11);
 	regs->psw.mask &= ~PSW_MASK_PER;
 	regs->psw.mask |= kcb->kprobe_saved_imask;
-	regs->psw.addr = ip | PSW_ADDR_AMODE;
+	regs->psw.addr = ip;
 }
 NOKPROBE_SYMBOL(disable_singlestep);
 
@@ -632,7 +640,7 @@ static int kprobe_handler(struct pt_regs *regs)
 	 */
 	preempt_disable();
 	kcb = get_kprobe_ctlblk();
-	p = get_kprobe((void *)((regs->psw.addr & PSW_ADDR_INSN) - 2));
+	p = get_kprobe((void *)(regs->psw.addr - 2));
 
 	if (p) {
 		if (kprobe_running()) {
@@ -809,7 +817,7 @@ static int trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 			break;
 	}
 
-	regs->psw.addr = orig_ret_address | PSW_ADDR_AMODE;
+	regs->psw.addr = orig_ret_address;
 
 	pop_kprobe(get_kprobe_ctlblk());
 	kretprobe_hash_unlock(current, &flags);
@@ -891,7 +899,7 @@ out:
 static void resume_execution(struct kprobe *p, struct pt_regs *regs)
 {
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
-	unsigned long ip = regs->psw.addr & PSW_ADDR_INSN;
+	unsigned long ip = regs->psw.addr;
 	int fixup = probe_get_fixup_type(p->ainsn.insn);
 
 	/* Check if the kprobes location is an enabled ftrace caller */
@@ -1029,10 +1037,11 @@ static int kprobe_trap_handler(struct pt_regs *regs, int trapnr)
 		 * In case the user-specified fault handler returned
 		 * zero, try to fix up.
 		 */
-		entry = search_exception_tables(regs->psw.addr & PSW_ADDR_INSN);
+		entry = search_exception_tables(regs->psw.addr);
 		if (entry) {
 			regs->psw.addr = entry->fixup | PSW_ADDR_AMODE;
 			regs->psw.addr = extable_fixup(entry) | PSW_ADDR_AMODE;
+			regs->psw.addr = extable_fixup(entry);
 			return 1;
 		}
 
@@ -1166,12 +1175,22 @@ int __kprobes longjmp_break_handler(struct kprobe *p, struct pt_regs *regs)
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
 	unsigned long stack_addr = (unsigned long)(kcb->jprobe_saved_r15);
 	regs->psw.addr = (unsigned long) jp->entry | PSW_ADDR_AMODE;
+	regs->psw.addr = (unsigned long) jp->entry;
 	regs->psw.mask &= ~(PSW_MASK_IO | PSW_MASK_EXT);
 
 	/* r15 is the stack pointer */
 	stack = (unsigned long) regs->gprs[15];
 
 	memcpy(kcb->jprobes_stack, (void *) stack, MIN_STACK_SIZE(stack));
+
+	/*
+	 * jprobes use jprobe_return() which skips the normal return
+	 * path of the function, and this messes up the accounting of the
+	 * function graph tracer to get messed up.
+	 *
+	 * Pause function graph tracing while performing the jprobe function.
+	 */
+	pause_graph_tracing();
 	return 1;
 }
 NOKPROBE_SYMBOL(setjmp_pre_handler);
@@ -1186,6 +1205,9 @@ int longjmp_break_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
 	unsigned long stack;
+
+	/* It's OK to start function graph tracing again */
+	unpause_graph_tracing();
 
 	stack = (unsigned long) kcb->jprobe_saved_regs.gprs[15];
 

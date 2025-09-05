@@ -290,6 +290,8 @@ snd_pcm_sframes_t snd_pcm_plug_slave_size(struct snd_pcm_substream *plug, snd_pc
 
 static int snd_pcm_plug_formats(struct snd_mask *mask, int format)
 static int snd_pcm_plug_formats(struct snd_mask *mask, snd_pcm_format_t format)
+static int snd_pcm_plug_formats(const struct snd_mask *mask,
+				snd_pcm_format_t format)
 {
 	struct snd_mask formats = *mask;
 	u64 linfmts = (SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S8 |
@@ -345,7 +347,7 @@ int snd_pcm_plug_slave_format(int format, struct snd_mask *format_mask)
 	if (! snd_pcm_plug_formats(format_mask, format))
 		return -EINVAL;
 snd_pcm_format_t snd_pcm_plug_slave_format(snd_pcm_format_t format,
-					   struct snd_mask *format_mask)
+					   const struct snd_mask *format_mask)
 {
 	int i;
 

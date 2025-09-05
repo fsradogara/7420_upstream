@@ -25,7 +25,7 @@
 extern struct cache_detail ip_map_cache, unix_gid_cache;
 #include "netns.h"
 
-int sunrpc_net_id;
+unsigned int sunrpc_net_id;
 EXPORT_SYMBOL_GPL(sunrpc_net_id);
 
 static __net_init int sunrpc_init_net(struct net *net)
@@ -139,6 +139,7 @@ out:
 static void __exit
 cleanup_sunrpc(void)
 {
+	rpc_cleanup_clids();
 	rpcauth_remove_module();
 	cleanup_socket_xprt();
 	svc_cleanup_xprt_sock();

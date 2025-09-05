@@ -258,7 +258,7 @@ rpc_close_pipes(struct inode *inode)
 	int need_release;
 	LIST_HEAD(free_list);
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 	spin_lock(&pipe->lock);
 	need_release = pipe->nreaders != 0 || pipe->nwriters != 0;
 	pipe->nreaders = 0;
@@ -274,7 +274,7 @@ rpc_close_pipes(struct inode *inode)
 	cancel_delayed_work_sync(&pipe->queue_timeout);
 	rpc_inode_setowner(inode, NULL);
 	RPC_I(inode)->pipe = NULL;
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 }
 
 static struct inode *
@@ -322,7 +322,7 @@ rpc_pipe_open(struct inode *inode, struct file *filp)
 	int first_open;
 	int res = -ENXIO;
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 	pipe = RPC_I(inode)->pipe;
 	if (pipe == NULL)
 		goto out;
@@ -338,7 +338,7 @@ rpc_pipe_open(struct inode *inode, struct file *filp)
 		pipe->nwriters++;
 	res = 0;
 out:
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	return res;
 }
 
@@ -379,7 +379,7 @@ rpc_pipe_release(struct inode *inode, struct file *filp)
 	struct rpc_pipe_msg *msg;
 	int last_close;
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 	pipe = RPC_I(inode)->pipe;
 	if (pipe == NULL)
 		goto out;
@@ -409,7 +409,7 @@ rpc_pipe_release(struct inode *inode, struct file *filp)
 	if (last_close && pipe->ops->release_pipe)
 		pipe->ops->release_pipe(inode);
 out:
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	return 0;
 }
 
@@ -425,6 +425,7 @@ rpc_pipe_read(struct file *filp, char __user *buf, size_t len, loff_t *offset)
 
 	mutex_lock(&inode->i_mutex);
 	if (rpci->ops == NULL) {
+	inode_lock(inode);
 	pipe = RPC_I(inode)->pipe;
 	if (pipe == NULL) {
 		res = -EPIPE;
@@ -474,7 +475,7 @@ rpc_pipe_read(struct file *filp, char __user *buf, size_t len, loff_t *offset)
 		pipe->ops->destroy_msg(msg);
 	}
 out_unlock:
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	return res;
 }
 
@@ -486,13 +487,13 @@ rpc_pipe_write(struct file *filp, const char __user *buf, size_t len, loff_t *of
 	struct inode *inode = file_inode(filp);
 	int res;
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 	res = -EPIPE;
 	if (rpci->ops != NULL)
 		res = rpci->ops->downcall(filp, buf, len);
 	if (RPC_I(inode)->pipe != NULL)
 		res = RPC_I(inode)->pipe->ops->downcall(filp, buf, len);
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	return res;
 }
 
@@ -524,12 +525,12 @@ rpc_pipe_ioctl(struct inode *ino, struct file *filp,
 
 	poll_wait(filp, &rpci->waitq, wait);
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 	if (rpci->pipe == NULL)
 		mask |= POLLERR | POLLHUP;
 	else if (filp->private_data || !list_empty(&rpci->pipe->pipe))
 		mask |= POLLIN | POLLRDNORM;
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	return mask;
 }
 
@@ -551,9 +552,10 @@ rpc_pipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			len += msg->len - msg->copied;
 		}
 		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		pipe = RPC_I(inode)->pipe;
 		if (pipe == NULL) {
-			mutex_unlock(&inode->i_mutex);
+			inode_unlock(inode);
 			return -EPIPE;
 		}
 		spin_lock(&pipe->lock);
@@ -564,7 +566,7 @@ rpc_pipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			len += msg->len - msg->copied;
 		}
 		spin_unlock(&pipe->lock);
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 		return put_user(len, (int __user *)arg);
 	default:
 		return -EINVAL;
@@ -678,7 +680,7 @@ rpc_get_inode(struct super_block *sb, umode_t mode)
 		return NULL;
 	inode->i_ino = get_next_ino();
 	inode->i_mode = mode;
-	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
 	switch (mode & S_IFMT) {
 	case S_IFDIR:
 		inode->i_fop = &simple_dir_operations;
@@ -818,9 +820,9 @@ int rpc_rmdir(struct dentry *dentry)
 
 	parent = dget_parent(dentry);
 	dir = d_inode(parent);
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 	error = __rpc_rmdir(dir, dentry);
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	dput(parent);
 	return error;
 }
@@ -902,9 +904,9 @@ static void rpc_depopulate(struct dentry *parent,
 {
 	struct inode *dir = d_inode(parent);
 
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_CHILD);
+	inode_lock_nested(dir, I_MUTEX_CHILD);
 	__rpc_depopulate(parent, files, start, eof);
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 }
 
 static int rpc_populate(struct dentry *parent,
@@ -916,7 +918,7 @@ static int rpc_populate(struct dentry *parent,
 	struct dentry *dentry;
 	int i, err;
 
-	mutex_lock(&dir->i_mutex);
+	inode_lock(dir);
 	for (i = start; i < eof; i++) {
 		dentry = __rpc_lookup_create_exclusive(parent, files[i].name);
 		err = PTR_ERR(dentry);
@@ -940,11 +942,11 @@ static int rpc_populate(struct dentry *parent,
 		if (err != 0)
 			goto out_bad;
 	}
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	return 0;
 out_bad:
 	__rpc_depopulate(parent, files, start, eof);
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	printk(KERN_WARNING "%s: %s failed to populate directory %pd\n",
 			__FILE__, __func__, parent);
 	return err;
@@ -958,7 +960,7 @@ static struct dentry *rpc_mkdir_populate(struct dentry *parent,
 	struct inode *dir = d_inode(parent);
 	int error;
 
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 	dentry = __rpc_lookup_create_exclusive(parent, name);
 	if (IS_ERR(dentry))
 		goto out;
@@ -971,7 +973,7 @@ static struct dentry *rpc_mkdir_populate(struct dentry *parent,
 			goto err_rmdir;
 	}
 out:
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	return dentry;
 err_rmdir:
 	__rpc_rmdir(dir, dentry);
@@ -989,11 +991,11 @@ static int rpc_rmdir_depopulate(struct dentry *dentry,
 
 	parent = dget_parent(dentry);
 	dir = d_inode(parent);
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 	if (depopulate != NULL)
 		depopulate(dentry);
 	error = __rpc_rmdir(dir, dentry);
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	dput(parent);
 	return error;
 }
@@ -1029,7 +1031,7 @@ struct dentry *rpc_mkpipe_dentry(struct dentry *parent, const char *name,
 	if (pipe->ops->downcall == NULL)
 		umode &= ~S_IWUGO;
 
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 	dentry = __rpc_lookup_create_exclusive(parent, name);
 	if (IS_ERR(dentry))
 		goto out;
@@ -1038,7 +1040,7 @@ struct dentry *rpc_mkpipe_dentry(struct dentry *parent, const char *name,
 	if (err)
 		goto out_err;
 out:
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	return dentry;
 out_err:
 	dentry = ERR_PTR(err);
@@ -1066,9 +1068,9 @@ rpc_unlink(struct dentry *dentry)
 
 	parent = dget_parent(dentry);
 	dir = d_inode(parent);
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 	error = __rpc_rmpipe(dir, dentry);
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	dput(parent);
 	return error;
 }
@@ -2020,12 +2022,12 @@ rpc_fill_super(struct super_block *sb, void *data, int silent)
 	struct inode *inode;
 	struct dentry *root;
 	struct dentry *root, *gssd_dentry;
-	struct net *net = data;
+	struct net *net = get_net(sb->s_fs_info);
 	struct sunrpc_net *sn = net_generic(net, sunrpc_net_id);
 	int err;
 
-	sb->s_blocksize = PAGE_CACHE_SIZE;
-	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
+	sb->s_blocksize = PAGE_SIZE;
+	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = RPCAUTH_GSSMAGIC;
 	sb->s_op = &s_ops;
 	sb->s_time_gran = 1;
@@ -2078,7 +2080,6 @@ rpc_get_sb(struct file_system_type *fs_type,
 					   sb);
 	if (err)
 		goto err_depopulate;
-	sb->s_fs_info = get_net(net);
 	mutex_unlock(&sn->pipefs_sb_lock);
 	return 0;
 
@@ -2107,7 +2108,8 @@ static struct dentry *
 rpc_mount(struct file_system_type *fs_type,
 		int flags, const char *dev_name, void *data)
 {
-	return mount_ns(fs_type, flags, current->nsproxy->net_ns, rpc_fill_super);
+	struct net *net = current->nsproxy->net_ns;
+	return mount_ns(fs_type, flags, data, net, net->user_ns, rpc_fill_super);
 }
 
 static void rpc_kill_sb(struct super_block *sb)
@@ -2127,9 +2129,9 @@ static void rpc_kill_sb(struct super_block *sb)
 					   RPC_PIPEFS_UMOUNT,
 					   sb);
 	mutex_unlock(&sn->pipefs_sb_lock);
-	put_net(net);
 out:
 	kill_litter_super(sb);
+	put_net(net);
 }
 
 static struct file_system_type rpc_pipe_fs_type = {
@@ -2172,7 +2174,7 @@ int register_rpc_pipefs(void)
 	rpc_inode_cachep = kmem_cache_create("rpc_inode_cache",
 				sizeof(struct rpc_inode),
 				0, (SLAB_HWCACHE_ALIGN|SLAB_RECLAIM_ACCOUNT|
-						SLAB_MEM_SPREAD),
+						SLAB_MEM_SPREAD|SLAB_ACCOUNT),
 				init_once);
 	if (!rpc_inode_cachep)
 		return -ENOMEM;

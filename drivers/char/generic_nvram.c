@@ -22,7 +22,8 @@
 #include <linux/init.h>
 #include <linux/smp_lock.h>
 #include <linux/mutex.h>
-#include <asm/uaccess.h>
+#include <linux/pagemap.h>
+#include <linux/uaccess.h>
 #include <asm/nvram.h>
 #ifdef CONFIG_PPC_PMAC
 #include <asm/machdep.h>
@@ -66,6 +67,8 @@ static loff_t nvram_llseek(struct file *file, loff_t offset, int origin)
 	file->f_pos = offset;
 
 	return file->f_pos;
+	return generic_file_llseek_size(file, offset, origin,
+					MAX_LFS_FILESIZE, nvram_len);
 }
 
 static ssize_t read_nvram(struct file *file, char __user *buf,

@@ -181,6 +181,7 @@ struct rdac_controller {
 	struct work_struct	ms_work;
 	struct scsi_device	*ms_sdev;
 	struct list_head	ms_head;
+	struct list_head	dh_list;
 };
 
 struct c2_inquiry {
@@ -197,7 +198,9 @@ struct c2_inquiry {
 };
 
 struct rdac_dh_data {
+	struct list_head	node;
 	struct rdac_controller	*ctlr;
+	struct scsi_device	*sdev;
 #define UNINITIALIZED_LUN	(1 << 8)
 	unsigned		lun;
 
@@ -220,7 +223,6 @@ struct rdac_dh_data {
 #define RDAC_NON_PREFERRED	1
 	char			preferred;
 
-	unsigned char		sense[SCSI_SENSE_BUFFERSIZE];
 	union			{
 		struct c2_inquiry c2;
 		struct c4_inquiry c4;
@@ -285,8 +287,9 @@ do { \
 		sdev_printk(KERN_INFO, sdev, RDAC_NAME ": " f "\n", ## arg); \
 } while (0);
 
-static struct request *get_rdac_req(struct scsi_device *sdev,
-			void *buffer, unsigned buflen, int rw)
+static unsigned int rdac_failover_get(struct rdac_controller *ctlr,
+				      struct list_head *list,
+				      unsigned char *cdb)
 {
 	struct request *rq;
 	struct request_queue *q = sdev->request_queue;
@@ -330,11 +333,11 @@ static struct request *rdac_failover_get(struct scsi_device *sdev,
 	struct rdac_queue_data *qdata;
 	u8 *lun_table;
 
-	if (h->ctlr->use_ms10) {
+	if (ctlr->use_ms10) {
 		struct rdac_pg_expanded *rdac_pg;
 
 		data_size = sizeof(struct rdac_pg_expanded);
-		rdac_pg = &h->ctlr->mode_select.expanded;
+		rdac_pg = &ctlr->mode_select.expanded;
 		memset(rdac_pg, 0, data_size);
 		common = &rdac_pg->common;
 		rdac_pg->page_code = RDAC_PAGE_CODE_REDUNDANT_CONTROLLER + 0x40;
@@ -347,7 +350,7 @@ static struct request *rdac_failover_get(struct scsi_device *sdev,
 		struct rdac_pg_legacy *rdac_pg;
 
 		data_size = sizeof(struct rdac_pg_legacy);
-		rdac_pg = &h->ctlr->mode_select.legacy;
+		rdac_pg = &ctlr->mode_select.legacy;
 		memset(rdac_pg, 0, data_size);
 		common = &rdac_pg->common;
 		rdac_pg->page_code = RDAC_PAGE_CODE_REDUNDANT_CONTROLLER;
@@ -363,27 +366,17 @@ static struct request *rdac_failover_get(struct scsi_device *sdev,
 		lun_table[qdata->h->lun] = 0x81;
 	}
 
-	/* get request for block layer packet command */
-	rq = get_rdac_req(sdev, &h->ctlr->mode_select, data_size, WRITE);
-	if (!rq)
-		return NULL;
-
 	/* Prepare the command. */
-	if (h->ctlr->use_ms10) {
-		rq->cmd[0] = MODE_SELECT_10;
-		rq->cmd[7] = data_size >> 8;
-		rq->cmd[8] = data_size & 0xff;
+	if (ctlr->use_ms10) {
+		cdb[0] = MODE_SELECT_10;
+		cdb[7] = data_size >> 8;
+		cdb[8] = data_size & 0xff;
 	} else {
-		rq->cmd[0] = MODE_SELECT;
-		rq->cmd[4] = data_size;
+		cdb[0] = MODE_SELECT;
+		cdb[4] = data_size;
 	}
-	rq->cmd_len = COMMAND_SIZE(rq->cmd[0]);
 
-	rq->sense = h->sense;
-	memset(rq->sense, 0, SCSI_SENSE_BUFFERSIZE);
-	rq->sense_len = 0;
-
-	return rq;
+	return data_size;
 }
 
 static void release_controller(struct kref *kref)
@@ -453,6 +446,7 @@ done:
 	INIT_WORK(&ctlr->ms_work, send_mode_select);
 	INIT_LIST_HEAD(&ctlr->ms_head);
 	list_add(&ctlr->node, &ctlr_list);
+	INIT_LIST_HEAD(&ctlr->dh_list);
 
 	return ctlr;
 }
@@ -494,12 +488,11 @@ static int get_lun(struct scsi_device *sdev, struct rdac_dh_data *h)
 static int get_lun_info(struct scsi_device *sdev, struct rdac_dh_data *h,
 			char *array_name, u8 *array_id)
 {
-	int err, i;
-	struct c8_inquiry *inqp;
+	int err = SCSI_DH_IO, i;
+	struct c8_inquiry *inqp = &h->inq.c8;
 
-	err = submit_inquiry(sdev, 0xC8, sizeof(struct c8_inquiry), h);
-	if (err == SCSI_DH_OK) {
-		inqp = &h->inq.c8;
+	if (!scsi_get_vpd_page(sdev, 0xC8, (unsigned char *)inqp,
+			       sizeof(struct c8_inquiry))) {
 		if (inqp->page_code != 0xc8)
 			return SCSI_DH_NOSYS;
 		if (inqp->page_id[0] != 'e' || inqp->page_id[1] != 'd' ||
@@ -513,14 +506,16 @@ static int get_lun_info(struct scsi_device *sdev, struct rdac_dh_data *h,
 		*(array_name+ARRAY_LABEL_LEN-1) = '\0';
 		memset(array_id, 0, UNIQUE_ID_LEN);
 		memcpy(array_id, inqp->array_unique_id, inqp->array_uniq_id_len);
+		err = SCSI_DH_OK;
 	}
 	return err;
 }
 
 static int check_ownership(struct scsi_device *sdev, struct rdac_dh_data *h)
 {
-	int err;
-	struct c9_inquiry *inqp;
+	int err = SCSI_DH_IO, access_state;
+	struct rdac_dh_data *tmp;
+	struct c9_inquiry *inqp = &h->inq.c9;
 
 	h->lun_state = RDAC_LUN_UNOWNED;
 	err = submit_inquiry(sdev, 0xC9, sizeof(struct c9_inquiry), h);
@@ -537,9 +532,8 @@ static int check_ownership(struct scsi_device *sdev, struct rdac_dh_data *h)
 			h->lun_state = RDAC_LUN_OWNED;
 		}
 	h->state = RDAC_STATE_ACTIVE;
-	err = submit_inquiry(sdev, 0xC9, sizeof(struct c9_inquiry), h);
-	if (err == SCSI_DH_OK) {
-		inqp = &h->inq.c9;
+	if (!scsi_get_vpd_page(sdev, 0xC9, (unsigned char *)inqp,
+			       sizeof(struct c9_inquiry))) {
 		/* detect the operating mode */
 		if ((inqp->avte_cvp >> 5) & 0x1)
 			h->mode = RDAC_MODE_IOSHIP; /* LUN in IOSHIP mode */
@@ -549,19 +543,32 @@ static int check_ownership(struct scsi_device *sdev, struct rdac_dh_data *h)
 			h->mode = RDAC_MODE; /* LUN in RDAC mode */
 
 		/* Update ownership */
-		if (inqp->avte_cvp & 0x1)
+		if (inqp->avte_cvp & 0x1) {
 			h->lun_state = RDAC_LUN_OWNED;
-		else {
+			access_state = SCSI_ACCESS_STATE_OPTIMAL;
+		} else {
 			h->lun_state = RDAC_LUN_UNOWNED;
-			if (h->mode == RDAC_MODE)
+			if (h->mode == RDAC_MODE) {
 				h->state = RDAC_STATE_PASSIVE;
+				access_state = SCSI_ACCESS_STATE_STANDBY;
+			} else
+				access_state = SCSI_ACCESS_STATE_ACTIVE;
 		}
 
 		/* Update path prio*/
-		if (inqp->path_prio & 0x1)
+		if (inqp->path_prio & 0x1) {
 			h->preferred = RDAC_PREFERRED;
-		else
+			access_state |= SCSI_ACCESS_STATE_PREFERRED;
+		} else
 			h->preferred = RDAC_NON_PREFERRED;
+		rcu_read_lock();
+		list_for_each_entry_rcu(tmp, &h->ctlr->dh_list, node) {
+			/* h->sdev should always be valid */
+			BUG_ON(!tmp->sdev);
+			tmp->sdev->access_state = access_state;
+		}
+		rcu_read_unlock();
+		err = SCSI_DH_OK;
 	}
 
 	return err;
@@ -573,8 +580,8 @@ static int initialize_controller(struct scsi_device *sdev,
 	int err;
 		struct rdac_dh_data *h, char *array_name, u8 *array_id)
 {
-	int err, index;
-	struct c4_inquiry *inqp;
+	int err = SCSI_DH_IO, index;
+	struct c4_inquiry *inqp = &h->inq.c4;
 
 	err = submit_inquiry(sdev, 0xC4, sizeof(struct c4_inquiry), h);
 	if (err == SCSI_DH_OK) {
@@ -582,6 +589,8 @@ static int initialize_controller(struct scsi_device *sdev,
 		h->ctlr = get_controller(inqp->subsys_id, inqp->slot_id);
 		if (!h->ctlr)
 			err = SCSI_DH_RES_TEMP_UNAVAIL;
+	if (!scsi_get_vpd_page(sdev, 0xC4, (unsigned char *)inqp,
+			       sizeof(struct c4_inquiry))) {
 		/* get the controller index */
 		if (inqp->slot_id[1] == 0x31)
 			index = 0;
@@ -592,19 +601,23 @@ static int initialize_controller(struct scsi_device *sdev,
 		h->ctlr = get_controller(index, array_name, array_id, sdev);
 		if (!h->ctlr)
 			err = SCSI_DH_RES_TEMP_UNAVAIL;
+		else {
+			list_add_rcu(&h->node, &h->ctlr->dh_list);
+			h->sdev = sdev;
+		}
 		spin_unlock(&list_lock);
+		err = SCSI_DH_OK;
 	}
 	return err;
 }
 
 static int set_mode_select(struct scsi_device *sdev, struct rdac_dh_data *h)
 {
-	int err;
-	struct c2_inquiry *inqp;
+	int err = SCSI_DH_IO;
+	struct c2_inquiry *inqp = &h->inq.c2;
 
-	err = submit_inquiry(sdev, 0xC2, sizeof(struct c2_inquiry), h);
-	if (err == SCSI_DH_OK) {
-		inqp = &h->inq.c2;
+	if (!scsi_get_vpd_page(sdev, 0xC2, (unsigned char *)inqp,
+			       sizeof(struct c2_inquiry))) {
 		/*
 		 * If more than MODE6_MAX_LUN luns are supported, use
 		 * mode select 10
@@ -613,6 +626,7 @@ static int set_mode_select(struct scsi_device *sdev, struct rdac_dh_data *h)
 			h->ctlr->use_ms10 = 1;
 		else
 			h->ctlr->use_ms10 = 0;
+		err = SCSI_DH_OK;
 	}
 	return err;
 }
@@ -623,13 +637,12 @@ static int mode_select_handle_sense(struct scsi_device *sdev,
 	struct scsi_sense_hdr sense_hdr;
 	int sense, err = SCSI_DH_IO, ret;
 					unsigned char *sensebuf)
+				    struct scsi_sense_hdr *sense_hdr)
 {
-	struct scsi_sense_hdr sense_hdr;
-	int err = SCSI_DH_IO, ret;
+	int err = SCSI_DH_IO;
 	struct rdac_dh_data *h = sdev->handler_data;
 
-	ret = scsi_normalize_sense(sensebuf, SCSI_SENSE_BUFFERSIZE, &sense_hdr);
-	if (!ret)
+	if (!scsi_sense_valid(sense_hdr))
 		goto done;
 
 	err = SCSI_DH_OK;
@@ -649,24 +662,25 @@ static int mode_select_handle_sense(struct scsi_device *sdev,
 		sdev_printk(KERN_INFO, sdev,
 			"MODE_SELECT failed with sense 0x%x.\n", sense);
 	switch (sense_hdr.sense_key) {
+	switch (sense_hdr->sense_key) {
 	case NO_SENSE:
 	case ABORTED_COMMAND:
 	case UNIT_ATTENTION:
 		err = SCSI_DH_RETRY;
 		break;
 	case NOT_READY:
-		if (sense_hdr.asc == 0x04 && sense_hdr.ascq == 0x01)
+		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x01)
 			/* LUN Not Ready and is in the Process of Becoming
 			 * Ready
 			 */
 			err = SCSI_DH_RETRY;
 		break;
 	case ILLEGAL_REQUEST:
-		if (sense_hdr.asc == 0x91 && sense_hdr.ascq == 0x36)
+		if (sense_hdr->asc == 0x91 && sense_hdr->ascq == 0x36)
 			/*
 			 * Command Lock contention
 			 */
-			err = SCSI_DH_RETRY;
+			err = SCSI_DH_IMM_RETRY;
 		break;
 	default:
 		break;
@@ -675,7 +689,7 @@ static int mode_select_handle_sense(struct scsi_device *sdev,
 	RDAC_LOG(RDAC_LOG_FAILOVER, sdev, "array %s, ctlr %d, "
 		"MODE_SELECT returned with sense %02x/%02x/%02x",
 		(char *) h->ctlr->array_name, h->ctlr->index,
-		sense_hdr.sense_key, sense_hdr.asc, sense_hdr.ascq);
+		sense_hdr->sense_key, sense_hdr->asc, sense_hdr->ascq);
 
 done:
 	return err;
@@ -712,13 +726,16 @@ static void send_mode_select(struct work_struct *work)
 {
 	struct rdac_controller *ctlr =
 		container_of(work, struct rdac_controller, ms_work);
-	struct request *rq;
 	struct scsi_device *sdev = ctlr->ms_sdev;
 	struct rdac_dh_data *h = sdev->handler_data;
-	struct request_queue *q = sdev->request_queue;
-	int err, retry_cnt = RDAC_RETRY_COUNT;
+	int err = SCSI_DH_OK, retry_cnt = RDAC_RETRY_COUNT;
 	struct rdac_queue_data *tmp, *qdata;
 	LIST_HEAD(list);
+	unsigned char cdb[COMMAND_SIZE(MODE_SELECT_10)];
+	struct scsi_sense_hdr sshdr;
+	unsigned int data_size;
+	u64 req_flags = REQ_FAILFAST_DEV | REQ_FAILFAST_TRANSPORT |
+		REQ_FAILFAST_DRIVER;
 
 	spin_lock(&ctlr->ms_lock);
 	list_splice_init(&ctlr->ms_head, &list);
@@ -726,22 +743,21 @@ static void send_mode_select(struct work_struct *work)
 	ctlr->ms_sdev = NULL;
 	spin_unlock(&ctlr->ms_lock);
 
-retry:
-	err = SCSI_DH_RES_TEMP_UNAVAIL;
-	rq = rdac_failover_get(sdev, h, &list);
-	if (!rq)
-		goto done;
+ retry:
+	data_size = rdac_failover_get(ctlr, &list, cdb);
 
 	RDAC_LOG(RDAC_LOG_FAILOVER, sdev, "array %s, ctlr %d, "
 		"%s MODE_SELECT command",
 		(char *) h->ctlr->array_name, h->ctlr->index,
 		(retry_cnt == RDAC_RETRY_COUNT) ? "queueing" : "retrying");
 
-	err = blk_execute_rq(q, NULL, rq, 1);
-	blk_put_request(rq);
-	if (err != SCSI_DH_OK) {
-		err = mode_select_handle_sense(sdev, h->sense);
+	if (scsi_execute(sdev, cdb, DMA_TO_DEVICE, &h->ctlr->mode_select,
+			data_size, NULL, &sshdr, RDAC_TIMEOUT * HZ,
+			RDAC_RETRIES, req_flags, 0, NULL)) {
+		err = mode_select_handle_sense(sdev, &sshdr);
 		if (err == SCSI_DH_RETRY && retry_cnt--)
+			goto retry;
+		if (err == SCSI_DH_IMM_RETRY)
 			goto retry;
 	}
 	if (err == SCSI_DH_OK) {
@@ -751,7 +767,6 @@ retry:
 				(char *) h->ctlr->array_name, h->ctlr->index);
 	}
 
-done:
 	list_for_each_entry_safe(qdata, tmp, &list, entry) {
 		list_del(&qdata->entry);
 		if (err == SCSI_DH_OK)
@@ -848,7 +863,7 @@ static int rdac_prep_fn(struct scsi_device *sdev, struct request *req)
 
 	if (h->state != RDAC_STATE_ACTIVE) {
 		ret = BLKPREP_KILL;
-		req->cmd_flags |= REQ_QUIET;
+		req->rq_flags |= RQF_QUIET;
 	}
 	return ret;
 
@@ -997,8 +1012,11 @@ static void rdac_bus_detach( struct scsi_device *sdev )
 		flush_workqueue(kmpath_rdacd);
 
 	spin_lock(&list_lock);
-	if (h->ctlr)
+	if (h->ctlr) {
+		list_del_rcu(&h->node);
+		h->sdev = NULL;
 		kref_put(&h->ctlr->kref, release_controller);
+	}
 	spin_unlock(&list_lock);
 	sdev->handler_data = NULL;
 	kfree(h);

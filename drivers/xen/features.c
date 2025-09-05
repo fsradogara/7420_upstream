@@ -9,6 +9,7 @@
 #include <linux/cache.h>
 #include <linux/module.h>
 #include <asm/xen/hypervisor.h>
+#include <linux/export.h>
 
 #include <asm/xen/hypercall.h>
 

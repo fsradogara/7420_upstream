@@ -296,6 +296,11 @@ conntrack_mt(const struct sk_buff *skb, struct xt_action_param *par,
 		else
 			statebit = XT_CONNTRACK_STATE_BIT(ctinfo);
 	} else
+	if (ct)
+		statebit = XT_CONNTRACK_STATE_BIT(ctinfo);
+	else if (ctinfo == IP_CT_UNTRACKED)
+		statebit = XT_CONNTRACK_STATE_UNTRACKED;
+	else
 		statebit = XT_CONNTRACK_STATE_INVALID;
 
 	if (info->match_flags & XT_CONNTRACK_STATE) {
@@ -324,19 +329,21 @@ conntrack_mt(const struct sk_buff *skb, struct xt_action_param *par,
 		return false;
 
 	if (info->match_flags & XT_CONNTRACK_ORIGSRC)
-		if (conntrack_mt_origsrc(ct, info, par->family) ^
+		if (conntrack_mt_origsrc(ct, info, xt_family(par)) ^
 		    !(info->invert_flags & XT_CONNTRACK_ORIGSRC))
 			return false;
 
 	if (info->match_flags & XT_CONNTRACK_ORIGDST)
 		if (conntrack_mt_origdst(ct, info, match->family) ^
 		if (conntrack_mt_origdst(ct, info, par->family) ^
+		if (conntrack_mt_origdst(ct, info, xt_family(par)) ^
 		    !(info->invert_flags & XT_CONNTRACK_ORIGDST))
 			return false;
 
 	if (info->match_flags & XT_CONNTRACK_REPLSRC)
 		if (conntrack_mt_replsrc(ct, info, match->family) ^
 		if (conntrack_mt_replsrc(ct, info, par->family) ^
+		if (conntrack_mt_replsrc(ct, info, xt_family(par)) ^
 		    !(info->invert_flags & XT_CONNTRACK_REPLSRC))
 			return false;
 
@@ -351,6 +358,7 @@ conntrack_mt(const struct sk_buff *skb, struct xt_action_param *par,
 	if ((info->match_flags & XT_CONNTRACK_STATUS) &&
 	    (!!(info->status_mask & ct->status) ^
 		if (conntrack_mt_repldst(ct, info, par->family) ^
+		if (conntrack_mt_repldst(ct, info, xt_family(par)) ^
 		    !(info->invert_flags & XT_CONNTRACK_REPLDST))
 			return false;
 
@@ -368,10 +376,8 @@ conntrack_mt(const struct sk_buff *skb, struct xt_action_param *par,
 		return false;
 
 	if (info->match_flags & XT_CONNTRACK_EXPIRES) {
-		unsigned long expires = 0;
+		unsigned long expires = nf_ct_expires(ct) / HZ;
 
-		if (timer_pending(&ct->timeout))
-			expires = (ct->timeout.expires - jiffies) / HZ;
 		if ((expires >= info->expires_min &&
 		    expires <= info->expires_max) ^
 		    !(info->invert_flags & XT_CONNTRACK_EXPIRES))
@@ -474,7 +480,7 @@ static int conntrack_mt_check(const struct xt_mtchk_param *par)
 {
 	int ret;
 
-	ret = nf_ct_l3proto_try_module_get(par->family);
+	ret = nf_ct_netns_get(par->net, par->family);
 	if (ret < 0)
 		pr_info("cannot load conntrack support for proto=%u\n",
 			par->family);
@@ -483,7 +489,7 @@ static int conntrack_mt_check(const struct xt_mtchk_param *par)
 
 static void conntrack_mt_destroy(const struct xt_mtdtor_param *par)
 {
-	nf_ct_l3proto_module_put(par->family);
+	nf_ct_netns_put(par->net, par->family);
 }
 
 static struct xt_match conntrack_mt_reg[] __read_mostly = {

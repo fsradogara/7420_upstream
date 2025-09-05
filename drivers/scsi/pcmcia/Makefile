@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 
 EXTRA_CFLAGS		+= -Idrivers/scsi
 ccflags-y		:= -Idrivers/scsi

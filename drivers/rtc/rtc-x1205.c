@@ -25,8 +25,6 @@
 #include <linux/module.h>
 #include <linux/bitops.h>
 
-#define DRV_VERSION "1.0.8"
-
 /* offsets into CCR area */
 
 #define CCR_SEC			0

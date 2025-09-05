@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_SHM_H_
 #define _LINUX_SHM_H_
 
@@ -98,9 +99,9 @@ struct shmid_kernel /* private to the kernel */
 	struct file		*shm_file;
 	unsigned long		shm_nattch;
 	unsigned long		shm_segsz;
-	time_t			shm_atim;
-	time_t			shm_dtim;
-	time_t			shm_ctim;
+	time64_t		shm_atim;
+	time64_t		shm_dtim;
+	time64_t		shm_ctim;
 	pid_t			shm_cprid;
 	pid_t			shm_lprid;
 	struct user_struct	*mlock_user;
@@ -108,7 +109,7 @@ struct shmid_kernel /* private to the kernel */
 	/* The task created the shm object.  NULL if the task is dead. */
 	struct task_struct	*shm_creator;
 	struct list_head	shm_clist;	/* list by creator */
-};
+} __randomize_layout;
 
 /* shm_mode upper byte flags */
 #define	SHM_DEST	01000	/* segment will be destroyed on last detach */
@@ -144,7 +145,7 @@ struct sysv_shm {
 
 long do_shmat(int shmid, char __user *shmaddr, int shmflg, unsigned long *addr,
 	      unsigned long shmlba);
-int is_file_shm_hugepages(struct file *file);
+bool is_file_shm_hugepages(struct file *file);
 void exit_shm(struct task_struct *task);
 #define shm_init_task(task) INIT_LIST_HEAD(&(task)->sysvshm.shm_clist)
 #else
@@ -158,9 +159,9 @@ static inline long do_shmat(int shmid, char __user *shmaddr,
 {
 	return -ENOSYS;
 }
-static inline int is_file_shm_hugepages(struct file *file)
+static inline bool is_file_shm_hugepages(struct file *file)
 {
-	return 0;
+	return false;
 }
 #endif
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/ext2/xattr_user.c
  * Handler for extended user attributes.
@@ -30,13 +31,17 @@ ext2_xattr_user_list(const struct xattr_handler *handler,
 		list[prefix_len + name_len] = '\0';
 	}
 	return total_len;
+static bool
+ext2_xattr_user_list(struct dentry *dentry)
+{
+	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
 static int
 ext2_xattr_user_get(struct inode *inode, const char *name,
 ext2_xattr_user_get(const struct xattr_handler *handler,
-		    struct dentry *dentry, const char *name,
-		    void *buffer, size_t size)
+		    struct dentry *unused, struct inode *inode,
+		    const char *name, void *buffer, size_t size)
 {
 	if (strcmp(name, "") == 0)
 		return -EINVAL;
@@ -48,15 +53,17 @@ ext2_xattr_user_get(const struct xattr_handler *handler,
 static int
 ext2_xattr_user_set(struct inode *inode, const char *name,
 	if (!test_opt(dentry->d_sb, XATTR_USER))
+	if (!test_opt(inode->i_sb, XATTR_USER))
 		return -EOPNOTSUPP;
-	return ext2_xattr_get(d_inode(dentry), EXT2_XATTR_INDEX_USER,
+	return ext2_xattr_get(inode, EXT2_XATTR_INDEX_USER,
 			      name, buffer, size);
 }
 
 static int
 ext2_xattr_user_set(const struct xattr_handler *handler,
-		    struct dentry *dentry, const char *name,
-		    const void *value, size_t size, int flags)
+		    struct dentry *unused, struct inode *inode,
+		    const char *name, const void *value,
+		    size_t size, int flags)
 {
 	if (strcmp(name, "") == 0)
 		return -EINVAL;
@@ -69,9 +76,10 @@ ext2_xattr_user_set(const struct xattr_handler *handler,
 
 struct xattr_handler ext2_xattr_user_handler = {
 	if (!test_opt(dentry->d_sb, XATTR_USER))
+	if (!test_opt(inode->i_sb, XATTR_USER))
 		return -EOPNOTSUPP;
 
-	return ext2_xattr_set(d_inode(dentry), EXT2_XATTR_INDEX_USER,
+	return ext2_xattr_set(inode, EXT2_XATTR_INDEX_USER,
 			      name, value, size, flags);
 }
 

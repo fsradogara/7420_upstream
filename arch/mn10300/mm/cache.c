@@ -20,6 +20,7 @@
 #include <asm/uaccess.h>
 
 EXPORT_SYMBOL(mn10300_icache_inv);
+#include <linux/uaccess.h>
 #include <asm/smp.h>
 #include "cache-smp.h"
 

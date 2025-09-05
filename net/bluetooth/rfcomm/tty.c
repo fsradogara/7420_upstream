@@ -266,7 +266,7 @@ static void rfcomm_reparent_device(struct rfcomm_dev *dev)
 	struct hci_dev *hdev;
 	struct hci_conn *conn;
 
-	hdev = hci_get_route(&dev->dst, &dev->src);
+	hdev = hci_get_route(&dev->dst, &dev->src, BDADDR_BREDR);
 	if (!hdev)
 		return NULL;
 
@@ -1168,7 +1168,7 @@ static int rfcomm_tty_write(struct tty_struct *tty, const unsigned char *buf, in
 
 		skb_reserve(skb, RFCOMM_SKB_HEAD_RESERVE);
 
-		memcpy(skb_put(skb, size), buf + sent, size);
+		skb_put_data(skb, buf + sent, size);
 
 		if ((err = rfcomm_dlc_send(dlc, skb)) < 0) {
 			kfree_skb(skb);

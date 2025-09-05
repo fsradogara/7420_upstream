@@ -8,6 +8,7 @@ obj-$(CONFIG_CBE_THERM)			+= cbe_thermal.o
 obj-$(CONFIG_CBE_CPUFREQ_PMI)		+= cbe_cpufreq_pmi.o
 obj-$(CONFIG_CBE_CPUFREQ)		+= cbe-cpufreq.o
 cbe-cpufreq-y				+= cbe_cpufreq_pervasive.o cbe_cpufreq.o
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_PPC_CELL_COMMON)		+= cbe_regs.o interrupt.o pervasive.o
 
 obj-$(CONFIG_PPC_CELL_NATIVE)		+= iommu.o setup.o spider-pic.o \
@@ -65,6 +66,3 @@ obj-$(CONFIG_SERIAL_TXX9)		+= celleb_scc_sio.o
 obj-$(CONFIG_SPU_BASE)			+= beat_spu_priv1.o
 endif
 obj-$(CONFIG_AXON_MSI)			+= axon_msi.o
-
-# qpace setup
-obj-$(CONFIG_PPC_CELL_QPACE)		+= qpace_setup.o

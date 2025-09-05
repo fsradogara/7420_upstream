@@ -6,6 +6,7 @@
 #include <asm/signal_32.h>
 #endif
 #endif
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __SPARC_SIGNAL_H
 #define __SPARC_SIGNAL_H
 

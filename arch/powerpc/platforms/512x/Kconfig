@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 config PPC_MPC512x
 	bool
 	select FSL_SOC
@@ -35,7 +36,6 @@ config MPC5121_GENERIC
 	select IPIC
 	select PPC_PCI_CHOICE
 	select FSL_PCI if PCI
-	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select USB_EHCI_BIG_ENDIAN_MMIO if USB_EHCI_HCD
 	select USB_EHCI_BIG_ENDIAN_DESC if USB_EHCI_HCD
 

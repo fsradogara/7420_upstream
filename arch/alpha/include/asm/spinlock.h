@@ -1,9 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ALPHA_SPINLOCK_H
 #define _ALPHA_SPINLOCK_H
 
 #include <asm/system.h>
 #include <linux/kernel.h>
 #include <asm/current.h>
+#include <asm/barrier.h>
+#include <asm/processor.h>
 
 /*
  * Simple spin lock operations.  There are two variants, one clears IRQ's
@@ -20,8 +23,6 @@
 static inline void __raw_spin_unlock(raw_spinlock_t * lock)
 #define arch_spin_lock_flags(lock, flags) arch_spin_lock(lock)
 #define arch_spin_is_locked(x)	((x)->lock != 0)
-#define arch_spin_unlock_wait(x) \
-		do { cpu_relax(); } while ((x)->lock)
 
 static inline int arch_spin_value_unlocked(arch_spinlock_t lock)
 {

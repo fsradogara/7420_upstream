@@ -15,6 +15,8 @@
 #include <linux/init.h>
 #include <linux/completion.h>
 #include <linux/sched.h>
+#include <linux/random.h>
+#define CREATE_TRACE_POINTS
 #include "internal.h"
 
 MODULE_DESCRIPTION("AFS Client File System");
@@ -100,9 +102,7 @@ static int __init afs_init(void)
 
 	printk(KERN_INFO "kAFS: Red Hat AFS client v0.1 registering.\n");
 
-	ret = afs_get_client_UUID();
-	if (ret < 0)
-		return ret;
+	generate_random_uuid((unsigned char *)&afs_uuid);
 
 	/* register the /proc stuff */
 	ret = afs_proc_init();

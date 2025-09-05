@@ -1415,8 +1415,7 @@ static const struct file_operations proc_palinfo_fops = {
 	.release	= single_release,
 };
 
-static void
-create_palinfo_proc_entries(unsigned int cpu)
+static int palinfo_add_proc(unsigned int cpu)
 {
 	pal_func_cpu_u_t f;
 	struct proc_dir_entry *cpu_dir;
@@ -1426,7 +1425,7 @@ create_palinfo_proc_entries(unsigned int cpu)
 
 	cpu_dir = proc_mkdir(cpustr, palinfo_dir);
 	if (!cpu_dir)
-		return;
+		return -EINVAL;
 
 	f.req_cpu = cpu;
 
@@ -1435,10 +1434,10 @@ create_palinfo_proc_entries(unsigned int cpu)
 		proc_create_data(palinfo_entries[j].name, 0, cpu_dir,
 				 &proc_palinfo_fops, (void *)f.value);
 	}
+	return 0;
 }
 
-static void
-remove_palinfo_proc_entries(unsigned int hcpu)
+static int palinfo_del_proc(unsigned int hcpu)
 {
 	int j;
 	struct proc_dir_entry *cpu_dir, **pdir;
@@ -1460,36 +1459,15 @@ remove_palinfo_proc_entries(unsigned int hcpu)
 
 static int __cpuinit palinfo_cpu_callback(struct notifier_block *nfb,
 	char cpustr[3+4+1];	/* cpu numbers are up to 4095 on itanic */
+
 	sprintf(cpustr, "cpu%d", hcpu);
 	remove_proc_subtree(cpustr, palinfo_dir);
+	return 0;
 }
 
-static int palinfo_cpu_callback(struct notifier_block *nfb,
-					unsigned long action, void *hcpu)
-{
-	unsigned int hotcpu = (unsigned long)hcpu;
+static enum cpuhp_state hp_online;
 
-	switch (action) {
-	case CPU_ONLINE:
-	case CPU_ONLINE_FROZEN:
-		create_palinfo_proc_entries(hotcpu);
-		break;
-	case CPU_DEAD:
-	case CPU_DEAD_FROZEN:
-		remove_palinfo_proc_entries(hotcpu);
-		break;
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block __refdata palinfo_cpu_notifier =
-{
-	.notifier_call = palinfo_cpu_callback,
-	.priority = 0,
-};
-
-static int __init
-palinfo_init(void)
+static int __init palinfo_init(void)
 {
 	int i = 0;
 
@@ -1498,11 +1476,11 @@ palinfo_init(void)
 	if (!palinfo_dir)
 		return -ENOMEM;
 
-	cpu_notifier_register_begin();
-
-	/* Create palinfo dirs in /proc for all online cpus */
-	for_each_online_cpu(i) {
-		create_palinfo_proc_entries(i);
+	i = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "ia64/palinfo:online",
+			      palinfo_add_proc, palinfo_del_proc);
+	if (i < 0) {
+		remove_proc_subtree("pal", NULL);
+		return i;
 	}
 
 	/* Register for future delivery via notify registration */
@@ -1511,11 +1489,11 @@ palinfo_init(void)
 
 	cpu_notifier_register_done();
 
+	hp_online = i;
 	return 0;
 }
 
-static void __exit
-palinfo_exit(void)
+static void __exit palinfo_exit(void)
 {
 	int i = 0;
 
@@ -1534,6 +1512,7 @@ palinfo_exit(void)
 	 */
 	unregister_hotcpu_notifier(&palinfo_cpu_notifier);
 	unregister_hotcpu_notifier(&palinfo_cpu_notifier);
+	cpuhp_remove_state(hp_online);
 	remove_proc_subtree("pal", NULL);
 }
 

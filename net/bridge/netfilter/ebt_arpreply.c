@@ -65,6 +65,8 @@ ebt_arpreply_tg(struct sk_buff *skb, const struct xt_action_param *par)
 
 	arp_send(ARPOP_REPLY, ETH_P_ARP, *siptr, (struct net_device *)in,
 	arp_send(ARPOP_REPLY, ETH_P_ARP, *siptr, (struct net_device *)par->in,
+	arp_send(ARPOP_REPLY, ETH_P_ARP, *siptr,
+		 (struct net_device *)xt_in(par),
 		 *diptr, shp, info->mac, shp);
 
 	return info->target;
@@ -97,6 +99,9 @@ static struct ebt_target reply_target __read_mostly = {
 	.name		= EBT_ARPREPLY_TARGET,
 	.target		= ebt_target_reply,
 	.check		= ebt_target_reply_check,
+	if (ebt_invalid_target(info->target))
+		return -EINVAL;
+
 	return 0;
 }
 

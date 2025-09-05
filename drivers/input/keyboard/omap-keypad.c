@@ -205,7 +205,6 @@ static void omap_kp_tasklet(unsigned long data)
 	unsigned int row_shift = get_count_order(omap_kp_data->cols);
 	unsigned char new_state[8], changed, key_down = 0;
 	int col, row;
-	int spurious = 0;
 
 	/* check for any changes */
 	omap_kp_scan_keypad(omap_kp_data, new_state);
@@ -228,14 +227,6 @@ static void omap_kp_tasklet(unsigned long data)
 #else
 			key = omap_kp_find_key(col, row);
 			key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
-			if (key < 0) {
-				printk(KERN_WARNING
-				      "omap-keypad: Spurious key event %d-%d\n",
-				       col, row);
-				/* We scan again after a couple of seconds */
-				spurious = 1;
-				continue;
-			}
 
 			if (!(kp_cur_group == (key & GROUP_MASK) ||
 			      kp_cur_group == -1))
@@ -255,12 +246,9 @@ static void omap_kp_tasklet(unsigned long data)
 	memcpy(keypad_state, new_state, sizeof(keypad_state));
 
 	if (key_down) {
-		int delay = HZ / 20;
 		/* some key is pressed - keep irq disabled and use timer
 		 * to poll the keypad */
-		if (spurious)
-			delay = 2 * HZ;
-		mod_timer(&omap_kp_data->timer, jiffies + delay);
+		mod_timer(&omap_kp_data->timer, jiffies + HZ / 20);
 	} else {
 		/* enable interrupts */
 		if (cpu_is_omap24xx()) {
@@ -425,8 +413,8 @@ static int omap_kp_probe(struct platform_device *pdev)
 	setup_timer(&omap_kp->timer, omap_kp_timer, (unsigned long)omap_kp);
 
 	/* get the irq and init timer*/
-	tasklet_enable(&kp_tasklet);
 	kp_tasklet.data = (unsigned long) omap_kp;
+	tasklet_enable(&kp_tasklet);
 
 	ret = device_create_file(&pdev->dev, &dev_attr_enable);
 	if (ret < 0)
@@ -557,8 +545,6 @@ static int omap_kp_remove(struct platform_device *pdev)
 static struct platform_driver omap_kp_driver = {
 	.probe		= omap_kp_probe,
 	.remove		= omap_kp_remove,
-	.suspend	= omap_kp_suspend,
-	.resume		= omap_kp_resume,
 	.driver		= {
 		.name	= "omap-keypad",
 		.owner	= THIS_MODULE,

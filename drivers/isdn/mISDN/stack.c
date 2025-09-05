@@ -21,6 +21,9 @@
 #include <linux/mISDNif.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
+#include <linux/sched/cputime.h>
+#include <linux/signal.h>
+
 #include "core.h"
 
 static u_int	*debug;
@@ -78,7 +81,7 @@ send_socklist(struct mISDN_sock_list *sl, struct sk_buff *skb)
 		if (sk->sk_state != MISDN_BOUND)
 			continue;
 		if (!cskb)
-			cskb = skb_copy(skb, GFP_KERNEL);
+			cskb = skb_copy(skb, GFP_ATOMIC);
 		if (!cskb) {
 			printk(KERN_WARNING "%s no skb\n", __func__);
 			break;
@@ -236,7 +239,7 @@ mISDNStackd(void *data)
 	if (*debug & DEBUG_MSG_THREAD)
 		printk(KERN_DEBUG "mISDNStackd %s started\n", st->dev->name);
 #ifdef MISDN_MSG_STATS
-	cputime_t utime, stime;
+	u64 utime, stime;
 #endif
 	int err = 0;
 
@@ -368,7 +371,7 @@ mISDNStackd(void *data)
 	       st->stopped_cnt);
 	task_cputime(st->thread, &utime, &stime);
 	printk(KERN_DEBUG
-	       "mISDNStackd daemon for %s utime(%ld) stime(%ld)\n",
+	       "mISDNStackd daemon for %s utime(%llu) stime(%llu)\n",
 	       dev_name(&st->dev->dev), utime, stime);
 	printk(KERN_DEBUG
 	       "mISDNStackd daemon for %s nvcsw(%ld) nivcsw(%ld)\n",

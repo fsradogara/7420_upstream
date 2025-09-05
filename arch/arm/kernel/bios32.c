@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/arm/kernel/bios32.c
  *
@@ -602,6 +603,8 @@ static int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 
 static void __init pcibios_init_hw(struct hw_pci *hw)
 static int pcibios_init_resources(int busnr, struct pci_sys_data *sys)
+static int pcibios_init_resource(int busnr, struct pci_sys_data *sys,
+				 int io_optional)
 {
 	int ret;
 	struct resource_entry *window;
@@ -610,6 +613,14 @@ static int pcibios_init_resources(int busnr, struct pci_sys_data *sys)
 		pci_add_resource_offset(&sys->resources,
 			 &iomem_resource, sys->mem_offset);
 	}
+
+	/*
+	 * If a platform says I/O port support is optional, we don't add
+	 * the default I/O space.  The platform is responsible for adding
+	 * any I/O space it needs.
+	 */
+	if (io_optional)
+		return 0;
 
 	resource_list_for_each_entry(window, &sys->resources)
 		if (resource_type(window->res) == IORESOURCE_IO)
@@ -651,7 +662,13 @@ static void pcibios_init_hw(struct device *parent, struct hw_pci *hw,
 		sys->resource[0] = &ioport_resource;
 		sys->resource[1] = &iomem_resource;
 		if (WARN(!sys, "PCI: unable to allocate sys data!"))
+		struct pci_host_bridge *bridge;
+
+		bridge = pci_alloc_host_bridge(sizeof(struct pci_sys_data));
+		if (WARN(!bridge, "PCI: unable to allocate bridge!"))
 			break;
+
+		sys = pci_host_bridge_priv(bridge);
 
 		sys->busnr   = busnr;
 		sys->swizzle = hw->swizzle;
@@ -674,32 +691,43 @@ static void pcibios_init_hw(struct device *parent, struct hw_pci *hw,
 			list_add(&sys->node, &hw->buses);
 			struct pci_host_bridge *host_bridge;
 
-			ret = pcibios_init_resources(nr, sys);
+			ret = pcibios_init_resource(nr, sys, hw->io_optional);
 			if (ret)  {
-				kfree(sys);
+				pci_free_host_bridge(bridge);
 				break;
 			}
+
+			bridge->map_irq = pcibios_map_irq;
+			bridge->swizzle_irq = pcibios_swizzle;
 
 			if (hw->scan)
-				sys->bus = hw->scan(nr, sys);
-			else
-				sys->bus = pci_scan_root_bus_msi(parent,
-					sys->busnr, hw->ops, sys,
-					&sys->resources, hw->msi_ctrl);
+				ret = hw->scan(nr, bridge);
+			else {
+				list_splice_init(&sys->resources,
+						 &bridge->windows);
+				bridge->dev.parent = parent;
+				bridge->sysdata = sys;
+				bridge->busnr = sys->busnr;
+				bridge->ops = hw->ops;
+				bridge->msi = hw->msi_ctrl;
+				bridge->align_resource =
+						hw->align_resource;
 
-			if (WARN(!sys->bus, "PCI: unable to scan bus!")) {
-				kfree(sys);
+				ret = pci_scan_root_bus_bridge(bridge);
+			}
+
+			if (WARN(ret < 0, "PCI: unable to scan bus!")) {
+				pci_free_host_bridge(bridge);
 				break;
 			}
+
+			sys->bus = bridge->bus;
 
 			busnr = sys->bus->busn_res.end + 1;
 
 			list_add(&sys->node, head);
-
-			host_bridge = pci_find_host_bridge(sys->bus);
-			host_bridge->align_resource = hw->align_resource;
 		} else {
-			kfree(sys);
+			pci_free_host_bridge(bridge);
 			if (ret < 0)
 				break;
 		}
@@ -736,17 +764,17 @@ void pci_common_init_dev(struct device *parent, struct hw_pci *hw)
 	list_for_each_entry(sys, &head, node) {
 		struct pci_bus *bus = sys->bus;
 
-		if (!pci_has_flag(PCI_PROBE_ONLY)) {
+		/*
+		 * We insert PCI resources into the iomem_resource and
+		 * ioport_resource trees in either pci_bus_claim_resources()
+		 * or pci_bus_assign_resources().
+		 */
+		if (pci_has_flag(PCI_PROBE_ONLY)) {
+			pci_bus_claim_resources(bus);
+		} else {
 			struct pci_bus *child;
 
-			/*
-			 * Size the bridge windows.
-			 */
 			pci_bus_size_bridges(bus);
-
-			/*
-			 * Assign resources.
-			 */
 			pci_bus_assign_resources(bus);
 		}
 
@@ -754,9 +782,7 @@ void pci_common_init_dev(struct device *parent, struct hw_pci *hw)
 			list_for_each_entry(child, &bus->children, node)
 				pcie_bus_configure_settings(child);
 		}
-		/*
-		 * Tell drivers about devices found.
-		 */
+
 		pci_bus_add_devices(bus);
 	}
 }

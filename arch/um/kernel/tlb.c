@@ -13,7 +13,8 @@
 #include "skas.h"
 #include "tlb.h"
 #include <linux/module.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
+
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <as-layout.h>

@@ -15,10 +15,6 @@
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <linux/kernel.h>
 #include <linux/acpi.h>
@@ -239,8 +235,8 @@ static int vendor_resource_matches(struct pnp_dev *dev,
 	    uuid_len == sizeof(match->data) &&
 	    memcmp(uuid, match->data, uuid_len) == 0) {
 		if (expected_len && expected_len != actual_len) {
-			dev_err(&dev->dev, "wrong vendor descriptor size; "
-				"expected %d, found %d bytes\n",
+			dev_err(&dev->dev,
+				"wrong vendor descriptor size; expected %d, found %d bytes\n",
 				expected_len, actual_len);
 			return 0;
 		}
@@ -341,6 +337,7 @@ static acpi_status pnpacpi_allocated_resource(struct acpi_resource *res,
 
 	struct acpi_resource_dma *dma;
 	struct acpi_resource_vendor_typed *vendor_typed;
+	struct acpi_resource_gpio *gpio;
 	struct resource_win win = {{0}, 0};
 	struct resource *r = &win.res;
 	int i, flags;
@@ -365,9 +362,8 @@ static acpi_status pnpacpi_allocated_resource(struct acpi_resource *res,
 			 */
 			if (pnp_can_write(dev) && irq->interrupt_count > 1) {
 			if (pnp_can_write(dev)) {
-				dev_warn(&dev->dev, "multiple interrupts in "
-					 "_CRS descriptor; configuration can't "
-					 "be changed\n");
+				dev_warn(&dev->dev,
+					 "multiple interrupts in _CRS descriptor; configuration can't be changed\n");
 				dev->capabilities &= ~PNP_WRITE;
 			}
 		}
@@ -377,6 +373,21 @@ static acpi_status pnpacpi_allocated_resource(struct acpi_resource *res,
 		dma = &res->data.dma;
 		if (dma->channel_count > 0 && dma->channels[0] != (u8) -1)
 			flags = dma_flags(dma->type, dma->bus_master,
+		return AE_OK;
+	} else if (acpi_gpio_get_irq_resource(res, &gpio)) {
+		/*
+		 * If the resource is GpioInt() type then extract the IRQ
+		 * from GPIO resource and fill it into IRQ resource type.
+		 */
+		i = acpi_dev_gpio_irq_get(dev->data, 0);
+		if (i >= 0) {
+			flags = acpi_dev_irq_flags(gpio->triggering,
+						   gpio->polarity,
+						   gpio->sharable);
+		} else {
+			flags = IORESOURCE_DISABLED;
+		}
+		pnp_add_irq_resource(dev, i, flags);
 		return AE_OK;
 	} else if (r->flags & IORESOURCE_DISABLED) {
 		pnp_add_irq_resource(dev, 0, IORESOURCE_DISABLED);
@@ -497,6 +508,10 @@ static acpi_status pnpacpi_allocated_resource(struct acpi_resource *res,
 	case ACPI_RESOURCE_TYPE_GENERIC_REGISTER:
 		break;
 
+	case ACPI_RESOURCE_TYPE_SERIAL_BUS:
+		/* serial bus connections (I2C/SPI/UART) are not pnp */
+		break;
+
 	default:
 		dev_warn(&dev->dev, "unknown resource type %d in _CRS\n",
 			 res->type);
@@ -590,8 +605,8 @@ static __init void pnpacpi_parse_ext_irq_option(struct pnp_dev *dev,
 			if (p->interrupts[i] < PNP_IRQ_NR)
 				__set_bit(p->interrupts[i], map.bits);
 			else
-				dev_err(&dev->dev, "ignoring IRQ %d option "
-					"(too large for %d entry bitmap)\n",
+				dev_err(&dev->dev,
+					"ignoring IRQ %d option (too large for %d entry bitmap)\n",
 					p->interrupts[i], PNP_IRQ_NR);
 		}
 	}
@@ -1251,8 +1266,9 @@ int pnpacpi_encode_resources(struct pnp_dev *dev, struct acpi_buffer *buffer)
 		case ACPI_RESOURCE_TYPE_EXTENDED_ADDRESS64:
 		case ACPI_RESOURCE_TYPE_GENERIC_REGISTER:
 		default:	/* other type */
-			dev_warn(&dev->dev, "can't encode unknown resource "
-				 "type %d\n", resource->type);
+			dev_warn(&dev->dev,
+				 "can't encode unknown resource type %d\n",
+				 resource->type);
 			return -EINVAL;
 		}
 		resource++;

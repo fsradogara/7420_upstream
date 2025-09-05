@@ -1,25 +1,10 @@
 /*
-	kmod, the new module loader (replaces kerneld)
-	Kirk Petersen
-
-	Reorganized not to be a daemon by Adam Richter, with guidance
-	from Greg Zornetzer.
-
-	Modified to avoid chroot and file sharing problems.
-	Mikael Pettersson
-
-	Limit the concurrent number of kmod modprobes to catch loops from
-	"modprobe needs a service that is in a module".
-	Keith Owens <kaos@ocs.com.au> December 1999
-
-	Unblock all signals when we exec a usermode process.
-	Shuu Yamaguchi <shuu@wondernetworkresources.com> December 2000
-
-	call_usermodehelper wait flag, and remove exec_usermodehelper.
-	Rusty Russell <rusty@rustcorp.com.au>  Jan 2003
-*/
+ * kmod - the kernel module loader
+ */
 #include <linux/module.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
+#include <linux/binfmts.h>
 #include <linux/syscalls.h>
 #include <linux/unistd.h>
 #include <linux/kmod.h>
@@ -46,21 +31,37 @@ static struct workqueue_struct *khelper_wq;
 #include <linux/rwsem.h>
 #include <linux/ptrace.h>
 #include <linux/async.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <trace/events/module.h>
 
-extern int max_threads;
+/*
+ * Assuming:
+ *
+ * threads = div64_u64((u64) totalram_pages * (u64) PAGE_SIZE,
+ *		       (u64) THREAD_SIZE * 8UL);
+ *
+ * If you need less than 50 threads would mean we're dealing with systems
+ * smaller than 3200 pages. This assuems you are capable of having ~13M memory,
+ * and this would only be an be an upper limit, after which the OOM killer
+ * would take effect. Systems like these are very unlikely if modules are
+ * enabled.
+ */
+#define MAX_KMOD_CONCURRENT 50
+static atomic_t kmod_concurrent_max = ATOMIC_INIT(MAX_KMOD_CONCURRENT);
+static DECLARE_WAIT_QUEUE_HEAD(kmod_wq);
 
-#define CAP_BSET	(void *)1
-#define CAP_PI		(void *)2
-
-static kernel_cap_t usermodehelper_bset = CAP_FULL_SET;
-static kernel_cap_t usermodehelper_inheritable = CAP_FULL_SET;
-static DEFINE_SPINLOCK(umh_sysctl_lock);
-static DECLARE_RWSEM(umhelper_sem);
-
-#ifdef CONFIG_MODULES
+/*
+ * This is a restriction on having *all* MAX_KMOD_CONCURRENT threads
+ * running at the same time without returning. When this happens we
+ * believe you've somehow ended up with a recursive module dependency
+ * creating a loop.
+ *
+ * We have no option but to fail.
+ *
+ * Userspace should proactively try to detect and prevent these.
+ */
+#define MAX_KMOD_ALL_BUSY_TIMEOUT 5
 
 /*
 	modprobe_path is set via /proc/sys.
@@ -143,7 +144,6 @@ int __request_module(bool wait, const char *fmt, ...)
 {
 	va_list args;
 	char module_name[MODULE_NAME_LEN];
-	unsigned int max_modprobes;
 	int ret;
 	char *argv[] = { modprobe_path, "-q", "--", module_name, NULL };
 	static char *envp[] = { "HOME=/",
@@ -200,9 +200,21 @@ int __request_module(bool wait, const char *fmt, ...)
 			       "request_module: runaway loop modprobe %s\n",
 			       module_name);
 			kmod_loop_msg++;
+	if (atomic_dec_if_positive(&kmod_concurrent_max) < 0) {
+		pr_warn_ratelimited("request_module: kmod_concurrent_max (%u) close to 0 (max_modprobes: %u), for module %s, throttling...",
+				    atomic_read(&kmod_concurrent_max),
+				    MAX_KMOD_CONCURRENT, module_name);
+		ret = wait_event_killable_timeout(kmod_wq,
+						  atomic_dec_if_positive(&kmod_concurrent_max) >= 0,
+						  MAX_KMOD_ALL_BUSY_TIMEOUT * HZ);
+		if (!ret) {
+			pr_warn_ratelimited("request_module: modprobe %s cannot be processed, kmod busy with %d threads for more than %d seconds now",
+					    module_name, MAX_KMOD_CONCURRENT, MAX_KMOD_ALL_BUSY_TIMEOUT);
+			return -ETIME;
+		} else if (ret == -ERESTARTSYS) {
+			pr_warn_ratelimited("request_module: sigkill sent for modprobe %s, giving up", module_name);
+			return ret;
 		}
-		atomic_dec(&kmod_concurrent);
-		return -ENOMEM;
 	}
 
 	ret = call_usermodehelper(modprobe_path, argv, envp, 1);
@@ -228,7 +240,9 @@ struct subprocess_info {
 
 	ret = call_modprobe(module_name, wait ? UMH_WAIT_PROC : UMH_WAIT_EXEC);
 
-	atomic_dec(&kmod_concurrent);
+	atomic_inc(&kmod_concurrent_max);
+	wake_up(&kmod_wq);
+
 	return ret;
 }
 EXPORT_SYMBOL(__request_module);

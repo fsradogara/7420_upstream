@@ -63,7 +63,7 @@ static struct resource rb532_dev3_ctl_res[] = {
 #include <linux/export.h>
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 
 #include <asm/mach-rc32434/rb.h>
 #include <asm/mach-rc32434/gpio.h>
@@ -260,8 +260,8 @@ static int rb532_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct rb532_gpio_chip	*gpch;
 
-	gpch = container_of(chip, struct rb532_gpio_chip, chip);
-	return rb532_get_bit(offset, gpch->regbase + GPIOD);
+	gpch = gpiochip_get_data(chip);
+	return !!rb532_get_bit(offset, gpch->regbase + GPIOD);
 }
 
 /*
@@ -272,7 +272,7 @@ static void rb532_gpio_set(struct gpio_chip *chip,
 {
 	struct rb532_gpio_chip	*gpch;
 
-	gpch = container_of(chip, struct rb532_gpio_chip, chip);
+	gpch = gpiochip_get_data(chip);
 	rb532_set_bit(value, offset, gpch->regbase + GPIOD);
 }
 
@@ -283,7 +283,7 @@ static int rb532_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
 	struct rb532_gpio_chip	*gpch;
 
-	gpch = container_of(chip, struct rb532_gpio_chip, chip);
+	gpch = gpiochip_get_data(chip);
 
 	/* disable alternate function in case it's set */
 	rb532_set_bit(0, offset, gpch->regbase + GPIOFUNC);
@@ -300,7 +300,7 @@ static int rb532_gpio_direction_output(struct gpio_chip *chip,
 {
 	struct rb532_gpio_chip	*gpch;
 
-	gpch = container_of(chip, struct rb532_gpio_chip, chip);
+	gpch = gpiochip_get_data(chip);
 
 	/* disable alternate function in case it's set */
 	rb532_set_bit(0, offset, gpch->regbase + GPIOFUNC);
@@ -380,7 +380,7 @@ int __init rb532_gpio_init(void)
 		return -ENXIO;
 	}
 	/* Register our GPIO chip */
-	gpiochip_add(&rb532_gpio_chip->chip);
+	gpiochip_add_data(&rb532_gpio_chip->chip, rb532_gpio_chip);
 
 	return 0;
 }

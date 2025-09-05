@@ -42,7 +42,7 @@
 #include <linux/bitops.h>
 #include <linux/dmi.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/system.h>
@@ -328,9 +328,13 @@ static int resume_detect_interrupts_are_broken(struct uhci_hcd *uhci)
 
 static int resume_detect_interrupts_are_broken(struct uhci_hcd *uhci)
 {
-	/* If we have to ignore overcurrent events then almost by definition
-	 * we can't depend on resume-detect interrupts. */
-	if (ignore_oc)
+	/*
+	 * If we have to ignore overcurrent events then almost by definition
+	 * we can't depend on resume-detect interrupts.
+	 *
+	 * Those interrupts also don't seem to work on ASpeed SoCs.
+	 */
+	if (ignore_oc || uhci_is_aspeed(uhci))
 		return 1;
 
 	switch (to_pci_dev(uhci_dev(uhci))->vendor) {
@@ -543,6 +547,13 @@ static void start_rh(struct uhci_hcd *uhci)
 {
 	uhci_to_hcd(uhci)->state = HC_STATE_RUNNING;
 	uhci->is_stopped = 0;
+
+	/*
+	 * Clear stale status bits on Aspeed as we get a stale HCH
+	 * which causes problems later on
+	 */
+	if (uhci_is_aspeed(uhci))
+		uhci_writew(uhci, uhci_readw(uhci, USBSTS), USBSTS);
 
 	/* Mark it configured and running with a 64-byte max packet.
 	 * All interrupts are enabled, even though RESUME won't do anything.
@@ -899,8 +910,8 @@ static int uhci_start(struct usb_hcd *hcd)
 				"memory for frame pointers\n");
 		dev_err(uhci_dev(uhci),
 			"unable to allocate memory for frame pointers\n");
+	if (!uhci->frame_cpu)
 		goto err_alloc_frame_cpu;
-	}
 
 	uhci->td_pool = dma_pool_create("uhci_td", uhci_dev(uhci),
 			sizeof(struct uhci_td), 16, 0);
@@ -1293,7 +1304,7 @@ static int uhci_count_ports(struct usb_hcd *hcd)
 
 static const char hcd_name[] = "uhci_hcd";
 
-#ifdef CONFIG_PCI
+#ifdef CONFIG_USB_PCI
 #include "uhci-pci.c"
 #define	PCI_DRIVER		uhci_pci_driver
 #endif

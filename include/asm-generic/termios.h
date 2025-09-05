@@ -7,11 +7,12 @@
 #include <asm/uaccess.h>
 
 #ifndef __ARCH_TERMIO_GETPUT
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_GENERIC_TERMIOS_H
 #define _ASM_GENERIC_TERMIOS_H
 
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <uapi/asm-generic/termios.h>
 
 /*	intr=^C		quit=^\		erase=del	kill=^U

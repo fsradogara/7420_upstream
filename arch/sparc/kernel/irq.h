@@ -65,6 +65,7 @@ BTFIXUPDEF_CALL(void, set_irq_udt, int)
 #define set_cpu_int(cpu,level) BTFIXUP_CALL(set_cpu_int)(cpu,level)
 #define clear_cpu_int(cpu,level) BTFIXUP_CALL(clear_cpu_int)(cpu,level)
 #define set_irq_udt(cpu) BTFIXUP_CALL(set_irq_udt)(cpu)
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/platform_device.h>
 
 #include <asm/cpu_type.h>

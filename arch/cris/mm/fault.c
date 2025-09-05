@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/cris/mm/fault.c
  *
@@ -17,7 +18,9 @@
 
 extern int find_fixup_code(struct pt_regs *);
 extern void die_if_kernel(const char *, struct pt_regs *, long);
+#include <linux/extable.h>
 #include <linux/wait.h>
+#include <linux/sched/signal.h>
 #include <linux/uaccess.h>
 #include <arch/system.h>
 
@@ -191,6 +194,7 @@ retry:
 		if (fault & VM_FAULT_OOM)
 			goto out_of_memory;
 	fault = handle_mm_fault(mm, vma, address, flags);
+	fault = handle_mm_fault(vma, address, flags);
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;

@@ -8,6 +8,7 @@ __NR_link,
 __NR_unlink,
 __NR_symlink,
 __NR_mknod,
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifdef __NR_rename
 __NR_rename,
 #endif

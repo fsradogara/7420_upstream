@@ -57,7 +57,7 @@ static int i2c_versatile_getscl(void *data)
 	return !!(readl(i2c->base + I2C_CONTROL) & SCL);
 }
 
-static struct i2c_algo_bit_data i2c_versatile_algo = {
+static const struct i2c_algo_bit_data i2c_versatile_algo = {
 	.setsda	= i2c_versatile_setsda,
 	.setscl = i2c_versatile_setscl,
 	.getsda	= i2c_versatile_getsda,
@@ -71,6 +71,10 @@ static int i2c_versatile_probe(struct platform_device *dev)
 	struct i2c_versatile *i2c;
 	struct resource *r;
 	int ret;
+
+	i2c = devm_kzalloc(&dev->dev, sizeof(struct i2c_versatile), GFP_KERNEL);
+	if (!i2c)
+		return -ENOMEM;
 
 	r = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	if (!r) {
@@ -96,6 +100,9 @@ static int i2c_versatile_probe(struct platform_device *dev)
 		ret = -ENOMEM;
 		goto err_free;
 	}
+	i2c->base = devm_ioremap_resource(&dev->dev, r);
+	if (IS_ERR(i2c->base))
+		return PTR_ERR(i2c->base);
 
 	writel(SCL | SDA, i2c->base + I2C_CONTROLS);
 
@@ -113,10 +120,8 @@ static int i2c_versatile_probe(struct platform_device *dev)
 
 	i2c->adap.nr = dev->id;
 	ret = i2c_bit_add_numbered_bus(&i2c->adap);
-	if (ret >= 0) {
-		platform_set_drvdata(dev, i2c);
-		return 0;
-	}
+	if (ret < 0)
+		return ret;
 
 	iounmap(i2c->base);
  err_free:
@@ -126,6 +131,9 @@ static int i2c_versatile_probe(struct platform_device *dev)
 	release_mem_region(r->start, resource_size(r));
  err_out:
 	return ret;
+	platform_set_drvdata(dev, i2c);
+
+	return 0;
 }
 
 static int i2c_versatile_remove(struct platform_device *dev)

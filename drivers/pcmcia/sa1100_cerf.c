@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/pcmcia/sa1100_cerf.c
  *
@@ -111,7 +112,7 @@ static struct pcmcia_low_level cerf_pcmcia_ops = {
 	.owner			= THIS_MODULE,
 	.hw_init		= cerf_pcmcia_hw_init,
 	.hw_shutdown		= cerf_pcmcia_hw_shutdown,
-	.socket_state		= cerf_pcmcia_socket_state,
+	.socket_state		= soc_common_cf_socket_state,
 	.configure_socket	= cerf_pcmcia_configure_socket,
 
 	.socket_init		= cerf_pcmcia_socket_init,

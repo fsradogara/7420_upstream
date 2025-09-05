@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef XEN_OPS_H
 #define XEN_OPS_H
 
@@ -83,7 +84,7 @@ void xen_init_irq_ops(void);
 void xen_setup_timer(int cpu);
 void xen_setup_runstate_info(int cpu);
 void xen_teardown_timer(int cpu);
-cycle_t xen_clocksource_read(void);
+u64 xen_clocksource_read(void);
 void xen_setup_cpu_clockevents(void);
 void __init xen_init_time_ops(void);
 void __init xen_hvm_init_time_ops(void);
@@ -104,6 +105,10 @@ extern cpumask_t xen_cpu_initialized_map;
 static inline void xen_smp_init(void) {}
 #endif
 
+extern int xen_have_vcpu_info_placement;
+
+int xen_vcpu_setup(int cpu);
+void xen_vcpu_info_reset(int cpu);
 void xen_setup_vcpu_info_placement(void);
 
 #ifdef CONFIG_SMP
@@ -167,6 +172,10 @@ DECL_ASM(void, xen_irq_enable_direct, void);
 DECL_ASM(void, xen_irq_disable_direct, void);
 DECL_ASM(unsigned long, xen_save_fl_direct, void);
 DECL_ASM(void, xen_restore_fl_direct, unsigned long);
+__visible void xen_irq_enable_direct(void);
+__visible void xen_irq_disable_direct(void);
+__visible unsigned long xen_save_fl_direct(void);
+__visible void xen_restore_fl_direct(unsigned long);
 
 /* These are not functions, and cannot be called normally */
 void xen_iret(void);
@@ -176,14 +185,29 @@ void xen_sysret64(void);
 void xen_adjust_exception_frame(void);
 
 __visible void xen_iret(void);
-#ifdef CONFIG_X86_32
-__visible void xen_sysexit(void);
-#endif
 __visible void xen_sysret32(void);
 __visible void xen_sysret64(void);
-__visible void xen_adjust_exception_frame(void);
 
 extern int xen_panic_handler_init(void);
 
-void xen_pvh_secondary_vcpu_init(int cpu);
+int xen_cpuhp_setup(int (*cpu_up_prepare_cb)(unsigned int),
+		    int (*cpu_dead_cb)(unsigned int));
+
+void xen_pin_vcpu(int cpu);
+
+void xen_emergency_restart(void);
+#ifdef CONFIG_XEN_PV
+void xen_pv_pre_suspend(void);
+void xen_pv_post_suspend(int suspend_cancelled);
+#else
+static inline void xen_pv_pre_suspend(void) {}
+static inline void xen_pv_post_suspend(int suspend_cancelled) {}
+#endif
+
+#ifdef CONFIG_XEN_PVHVM
+void xen_hvm_post_suspend(int suspend_cancelled);
+#else
+static inline void xen_hvm_post_suspend(int suspend_cancelled) {}
+#endif
+
 #endif /* XEN_OPS_H */

@@ -1124,6 +1124,7 @@ static void __exit pcwd_cleanup_module(void)
 
 module_init(pcwd_init_module);
 module_exit(pcwd_cleanup_module);
+module_isa_driver(pcwd_isa_driver, PCWD_ISA_NR_CARDS);
 
 MODULE_AUTHOR("Ken Hollis <kenji@bitgate.com>, Wim Van Sebroeck <wim@iguana.be>");
 MODULE_DESCRIPTION("Berkshire ISA-PC Watchdog driver");

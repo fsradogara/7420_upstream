@@ -30,6 +30,7 @@
  * *** empty log message ***
  *
  */
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _AHA1542_H_
 #define _AHA1542_H_
 

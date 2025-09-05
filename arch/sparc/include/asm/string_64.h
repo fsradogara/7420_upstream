@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * string.h: External definitions for optimized assembly string
  *           routines for the Linux Kernel.
@@ -8,10 +9,6 @@
 
 #ifndef __SPARC64_STRING_H__
 #define __SPARC64_STRING_H__
-
-/* Really, userland/ksyms should not see any of this stuff. */
-
-#ifdef __KERNEL__
 
 #include <asm/asi.h>
 
@@ -89,12 +86,5 @@ int memcmp(const void *,const void *,__kernel_size_t);
 /* Now the str*() stuff... */
 #define __HAVE_ARCH_STRLEN
 __kernel_size_t strlen(const char *);
-
-#define __HAVE_ARCH_STRNCMP
-int strncmp(const char *, const char *, __kernel_size_t);
-
-#endif /* !EXPORT_SYMTAB_STROPS */
-
-#endif /* __KERNEL__ */
 
 #endif /* !(__SPARC64_STRING_H__) */

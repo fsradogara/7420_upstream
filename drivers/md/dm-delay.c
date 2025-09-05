@@ -241,7 +241,7 @@ out:
 bad_dev_write:
 	ti->num_flush_bios = 1;
 	ti->num_discard_bios = 1;
-	ti->per_bio_data_size = sizeof(struct dm_delay_info);
+	ti->per_io_data_size = sizeof(struct dm_delay_info);
 	ti->private = dc;
 	return 0;
 
@@ -335,6 +335,7 @@ static int delay_map(struct dm_target *ti, struct bio *bio)
 		bio->bi_bdev = dc->dev_write->bdev;
 		bio->bi_sector = dc->start_write +
 				 (bio->bi_sector - ti->begin);
+		bio_set_dev(bio, dc->dev_write->bdev);
 		if (bio_sectors(bio))
 			bio->bi_iter.bi_sector = dc->start_write +
 				dm_target_offset(ti, bio->bi_iter.bi_sector);
@@ -345,6 +346,7 @@ static int delay_map(struct dm_target *ti, struct bio *bio)
 	bio->bi_bdev = dc->dev_read->bdev;
 	bio->bi_sector = dc->start_read +
 			 (bio->bi_sector - ti->begin);
+	bio_set_dev(bio, dc->dev_read->bdev);
 	bio->bi_iter.bi_sector = dc->start_read +
 		dm_target_offset(ti, bio->bi_iter.bi_sector);
 
@@ -399,6 +401,7 @@ static struct target_type delay_target = {
 	.name	     = "delay",
 	.version     = {1, 0, 2},
 	.version     = {1, 2, 1},
+	.features    = DM_TARGET_PASSES_INTEGRITY,
 	.module      = THIS_MODULE,
 	.ctr	     = delay_ctr,
 	.dtr	     = delay_dtr,

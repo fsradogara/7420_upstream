@@ -39,16 +39,19 @@ static int zero_map(struct dm_target *ti, struct bio *bio,
 		      union map_info *map_context)
 static int zero_map(struct dm_target *ti, struct bio *bio)
 {
-	switch(bio_rw(bio)) {
-	case READ:
+	switch (bio_op(bio)) {
+	case REQ_OP_READ:
+		if (bio->bi_opf & REQ_RAHEAD) {
+			/* readahead of null bytes only wastes buffer cache */
+			return DM_MAPIO_KILL;
+		}
 		zero_fill_bio(bio);
 		break;
-	case READA:
-		/* readahead of null bytes only wastes buffer cache */
-		return -EIO;
-	case WRITE:
+	case REQ_OP_WRITE:
 		/* writes get silently dropped */
 		break;
+	default:
+		return DM_MAPIO_KILL;
 	}
 
 	bio_endio(bio, 0);

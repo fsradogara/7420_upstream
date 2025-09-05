@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  fs/ext4/mballoc.h
  *
@@ -27,18 +28,6 @@
 #include "ext4.h"
 
 /*
- * with AGGRESSIVE_CHECK allocator runs consistency checks over
- * structures. these checks slow things down a lot
- */
-#define AGGRESSIVE_CHECK__
-
-/*
- * with DOUBLE_CHECK defined mballoc creates persistent in-core
- * bitmaps, maintains and uses them to check for double allocations
- */
-#define DOUBLE_CHECK__
-
-/*
  */
 #define MB_DEBUG__
 #ifdef MB_DEBUG
@@ -62,16 +51,15 @@
 #ifdef CONFIG_EXT4_DEBUG
 extern ushort ext4_mballoc_debug;
 
-#define mb_debug(n, fmt, a...)	                                        \
-	do {								\
-		if ((n) <= ext4_mballoc_debug) {		        \
-			printk(KERN_DEBUG "(%s, %d): %s: ",		\
-			       __FILE__, __LINE__, __func__);		\
-			printk(fmt, ## a);				\
-		}							\
-	} while (0)
+#define mb_debug(n, fmt, ...)	                                        \
+do {									\
+	if ((n) <= ext4_mballoc_debug) {				\
+		printk(KERN_DEBUG "(%s, %d): %s: " fmt,			\
+		       __FILE__, __LINE__, __func__, ##__VA_ARGS__);	\
+	}								\
+} while (0)
 #else
-#define mb_debug(n, fmt, a...)		no_printk(fmt, ## a)
+#define mb_debug(n, fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 #define EXT4_MB_HISTORY_ALLOC		1	/* allocation */
@@ -159,10 +147,8 @@ struct ext4_group_info {
 
 
 struct ext4_free_data {
-	/* MUST be the first member */
-	struct ext4_journal_cb_entry	efd_jce;
-
-	/* ext4_free_data private data starts from here */
+	/* this links the free block information from sb_info */
+	struct list_head		efd_list;
 
 	/* this links the free block information from group_info */
 	struct rb_node			efd_node;
@@ -376,4 +362,21 @@ static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
 	return ext4_group_first_block_no(sb, fex->fe_group) +
 		(fex->fe_start << EXT4_SB(sb)->s_cluster_bits);
 }
+
+typedef int (*ext4_mballoc_query_range_fn)(
+	struct super_block		*sb,
+	ext4_group_t			agno,
+	ext4_grpblk_t			start,
+	ext4_grpblk_t			len,
+	void				*priv);
+
+int
+ext4_mballoc_query_range(
+	struct super_block		*sb,
+	ext4_group_t			agno,
+	ext4_grpblk_t			start,
+	ext4_grpblk_t			end,
+	ext4_mballoc_query_range_fn	formatter,
+	void				*priv);
+
 #endif

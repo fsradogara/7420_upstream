@@ -45,6 +45,7 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/err.h>
 #include <linux/irq.h>
 #include <linux/bootmem.h>
@@ -480,6 +481,7 @@ int __init start_secondary(void *unused)
 
 	cpu_idle();
 	cpu_startup_entry(CPUHP_ONLINE);
+	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 	return 0;
 }
 

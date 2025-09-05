@@ -1,5 +1,6 @@
 #ifndef _ASM_IA64_GCC_INTRIN_H
 #define _ASM_IA64_GCC_INTRIN_H
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *
  * Copyright (C) 2002,2003 Jun Nakajima <jun.nakajima@intel.com>

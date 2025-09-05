@@ -35,7 +35,7 @@
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/nand_ecc.h>
 #include <linux/mtd/partitions.h>
 #include <linux/slab.h>
@@ -104,7 +104,6 @@
 /*--------------------------------------------------------------------------*/
 
 struct tmio_nand {
-	struct mtd_info mtd;
 	struct nand_chip chip;
 
 	struct platform_device *dev;
@@ -120,7 +119,10 @@ struct tmio_nand {
 	unsigned read_good:1;
 };
 
-#define mtd_to_tmio(m)			container_of(m, struct tmio_nand, mtd)
+static inline struct tmio_nand *mtd_to_tmio(struct mtd_info *mtd)
+{
+	return container_of(mtd_to_nand(mtd), struct tmio_nand, chip);
+}
 
 #ifdef CONFIG_MTD_CMDLINE_PARTS
 static const char *part_probes[] = { "cmdlinepart", NULL };
@@ -132,7 +134,7 @@ static void tmio_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
 	struct tmio_nand *tmio = mtd_to_tmio(mtd);
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 
 	if (ctrl & NAND_CTRL_CHANGE) {
 		u8 mode;
@@ -409,9 +411,8 @@ static int tmio_probe(struct platform_device *dev)
 	tmio->dev = dev;
 
 	platform_set_drvdata(dev, tmio);
-	mtd = &tmio->mtd;
 	nand_chip = &tmio->chip;
-	mtd->priv = nand_chip;
+	mtd = nand_to_mtd(nand_chip);
 	mtd->name = "tmio-nand";
 
 	tmio->ccr = ioremap(ccr->start, ccr->end - ccr->start + 1);
@@ -508,10 +509,14 @@ static int tmio_probe(struct platform_device *dev)
 #endif
 	retval = add_mtd_device(mtd);
 
+	retval = nand_scan(mtd, 1);
+	if (retval)
 		goto err_irq;
-	}
+
 	/* Register the partitions */
-	retval = mtd_device_parse_register(mtd, NULL, NULL,
+	retval = mtd_device_parse_register(mtd,
+					   data ? data->part_parsers : NULL,
+					   NULL,
 					   data ? data->partition : NULL,
 					   data ? data->num_partitions : 0);
 	if (!retval)
@@ -547,6 +552,7 @@ static int tmio_remove(struct platform_device *dev)
 	iounmap(tmio->fcr);
 	iounmap(tmio->ccr);
 	kfree(tmio);
+	nand_release(nand_to_mtd(&tmio->chip));
 	tmio_hw_stop(dev, tmio);
 	return 0;
 }

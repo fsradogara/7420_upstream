@@ -25,7 +25,7 @@
  * <mountpoint>/devices contains USB topology, device, config, class,
  * interface, & endpoint data.
  *
- * I considered using /proc/bus/usb/devices/device# for each device
+ * I considered using /dev/bus/usb/device# for each device
  * as it is attached or detached, but I didn't like this for some
  * reason -- maybe it's just too deep of a directory structure.
  * I also don't like looking in multiple places to gather and view
@@ -41,7 +41,7 @@
  *   Converted the whole proc stuff to real
  *   read methods. Now not the whole device list needs to fit
  *   into one page, only the device list for one bus.
- *   Added a poll method to /proc/bus/usb/devices, to wake
+ *   Added a poll method to /sys/kernel/debug/usb/devices, to wake
  *   up an eventual usbd
  * 2000-01-04: Thomas Sailer <sailer@ife.ee.ethz.ch>
  *   Turned into its own filesystem
@@ -267,6 +267,8 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 			bandwidth = 3; break;
 		}
 	}
+	if (speed == USB_SPEED_HIGH)
+		bandwidth = usb_endpoint_maxp_mult(desc);
 
 	/* this isn't checking for illegal values */
 	switch (desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
@@ -297,6 +299,7 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 		type = "Int.";
 		if (speed == USB_SPEED_HIGH)
 		if (speed == USB_SPEED_HIGH || speed == USB_SPEED_SUPER)
+		if (speed == USB_SPEED_HIGH || speed >= USB_SPEED_SUPER)
 			interval = 1 << (desc->bInterval - 1);
 		else
 			interval = desc->bInterval;
@@ -306,7 +309,7 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 	}
 	interval *= (speed == USB_SPEED_HIGH) ? 125 : 1000;
 	interval *= (speed == USB_SPEED_HIGH ||
-		     speed == USB_SPEED_SUPER) ? 125 : 1000;
+		     speed >= USB_SPEED_SUPER) ? 125 : 1000;
 	if (interval % 1000)
 		unit = 'u';
 	else {
@@ -318,6 +321,7 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 			 desc->bmAttributes, type,
 			 (le16_to_cpu(desc->wMaxPacketSize) & 0x07ff) *
 			 (usb_endpoint_maxp(desc) & 0x07ff) *
+			 usb_endpoint_maxp(desc) *
 			 bandwidth,
 			 interval, unit);
 	return start;
@@ -403,7 +407,7 @@ static char *usb_dump_config_descriptor(char *start, char *end,
 
 	if (start > end)
 		return start;
-	if (speed == USB_SPEED_SUPER)
+	if (speed >= USB_SPEED_SUPER)
 		mul = 8;
 	else
 		mul = 2;
@@ -623,6 +627,8 @@ static ssize_t usb_device_dump(char __user **buffer, size_t *nbytes,
 		speed = "480"; break;
 	case USB_SPEED_SUPER:
 		speed = "5000"; break;
+	case USB_SPEED_SUPER_PLUS:
+		speed = "10000"; break;
 	default:
 		speed = "??";
 	}
@@ -644,7 +650,7 @@ static ssize_t usb_device_dump(char __user **buffer, size_t *nbytes,
 		if (usbdev->speed == USB_SPEED_HIGH)
 		/* super/high speed reserves 80%, full/low reserves 90% */
 		if (usbdev->speed == USB_SPEED_HIGH ||
-		    usbdev->speed == USB_SPEED_SUPER)
+		    usbdev->speed >= USB_SPEED_SUPER)
 			max = 800;
 		else
 			max = FRAME_TIME_MAX_USECS_ALLOC;
@@ -720,6 +726,7 @@ static ssize_t usb_device_read(struct file *file, char __user *buf,
 	struct usb_bus *bus;
 	ssize_t ret, total_written = 0;
 	loff_t skip_bytes = *ppos;
+	int id;
 
 	if (*ppos < 0)
 		return -EINVAL;
@@ -728,9 +735,9 @@ static ssize_t usb_device_read(struct file *file, char __user *buf,
 	if (!access_ok(VERIFY_WRITE, buf, nbytes))
 		return -EFAULT;
 
-	mutex_lock(&usb_bus_list_lock);
+	mutex_lock(&usb_bus_idr_lock);
 	/* print devices for all busses */
-	list_for_each_entry(bus, &usb_bus_list, bus_list) {
+	idr_for_each_entry(&usb_bus_idr, bus, id) {
 		/* recurse through all children of the root hub */
 		if (!bus->root_hub)
 		if (!bus_to_hcd(bus)->rh_registered)
@@ -740,12 +747,12 @@ static ssize_t usb_device_read(struct file *file, char __user *buf,
 				      bus->root_hub, bus, 0, 0, 0);
 		usb_unlock_device(bus->root_hub);
 		if (ret < 0) {
-			mutex_unlock(&usb_bus_list_lock);
+			mutex_unlock(&usb_bus_idr_lock);
 			return ret;
 		}
 		total_written += ret;
 	}
-	mutex_unlock(&usb_bus_list_lock);
+	mutex_unlock(&usb_bus_idr_lock);
 	return total_written;
 }
 
@@ -842,7 +849,7 @@ static loff_t usb_device_lseek(struct file *file, loff_t offset, int orig)
 }
 
 const struct file_operations usbfs_devices_fops = {
-	.llseek =	usb_device_lseek,
+	.llseek =	no_seek_end_llseek,
 	.read =		usb_device_read,
 	.poll =		usb_device_poll,
 	.open =		usb_device_open,

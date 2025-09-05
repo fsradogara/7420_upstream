@@ -123,6 +123,7 @@ static const unsigned char wm_vol[256] = {
 
 static struct snd_akm4xxx akm_phase22 __devinitdata = {
 static struct snd_akm4xxx akm_phase22 = {
+static const struct snd_akm4xxx akm_phase22 = {
 	.type = SND_AK4524,
 	.num_dacs = 2,
 	.num_adcs = 2,
@@ -130,6 +131,7 @@ static struct snd_akm4xxx akm_phase22 = {
 
 static struct snd_ak4xxx_private akm_phase22_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_phase22_priv = {
+static const struct snd_ak4xxx_private akm_phase22_priv = {
 	.caddr =	2,
 	.cif =		1,
 	.data_mask =	1 << 4,

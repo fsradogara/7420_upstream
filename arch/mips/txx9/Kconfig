@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 config MACH_TX39XX
 	bool
 	select MACH_TXX9
@@ -23,6 +24,7 @@ config MACH_TXX9
 	select SYS_SUPPORTS_BIG_ENDIAN
 	select GENERIC_HARDIRQS_NO__DO_IRQ
 	select HAVE_CLK
+	select COMMON_CLK
 
 config TOSHIBA_JMR3927
 	bool "Toshiba JMR-TX3927 board"

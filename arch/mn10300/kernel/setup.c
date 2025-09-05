@@ -35,7 +35,7 @@
 #include <linux/cpu.h>
 #include <asm/processor.h>
 #include <linux/console.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/setup.h>
 #include <asm/io.h>
 #include <asm/smp.h>

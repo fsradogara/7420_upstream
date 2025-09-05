@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  IBM System z Huge TLB Page Support for Kernel.
  *
@@ -18,6 +19,7 @@
 void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, pte_t pte);
 #define hugepages_supported()			(MACHINE_HAS_HPAGE)
+#define hugepages_supported()			(MACHINE_HAS_EDAT1)
 
 void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, pte_t pte);
@@ -189,9 +191,12 @@ static inline void huge_ptep_clear_flush(struct vm_area_struct *vma,
 #define arch_clear_hugepage_flags(page)		do { } while (0)
 
 static inline void huge_pte_clear(struct mm_struct *mm, unsigned long addr,
-				  pte_t *ptep)
+				  pte_t *ptep, unsigned long sz)
 {
-	pte_val(*ptep) = _SEGMENT_ENTRY_EMPTY;
+	if ((pte_val(*ptep) & _REGION_ENTRY_TYPE_MASK) == _REGION_ENTRY_TYPE_R3)
+		pte_val(*ptep) = _REGION3_ENTRY_EMPTY;
+	else
+		pte_val(*ptep) = _SEGMENT_ENTRY_EMPTY;
 }
 
 static inline void huge_ptep_clear_flush(struct vm_area_struct *vma,
@@ -259,4 +264,7 @@ static inline pte_t huge_pte_modify(pte_t pte, pgprot_t newprot)
 	return pte_modify(pte, newprot);
 }
 
+#ifdef CONFIG_ARCH_HAS_GIGANTIC_PAGE
+static inline bool gigantic_page_supported(void) { return true; }
+#endif
 #endif /* _ASM_S390_HUGETLB_H */

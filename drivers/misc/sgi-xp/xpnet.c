@@ -124,6 +124,8 @@ static DEFINE_SPINLOCK(xpnet_broadcast_lock);
  * now, the default is 64KB.
  */
 #define XPNET_MAX_MTU (0x800000UL - L1_CACHE_BYTES)
+/* 68 comes from min TCP+IP+MAC header */
+#define XPNET_MIN_MTU 68
 /* 32KB has been determined to be the ideal */
 #define XPNET_DEF_MTU (0x8000UL)
 
@@ -346,22 +348,6 @@ xpnet_dev_stop(struct net_device *dev)
 	return 0;
 }
 
-static int
-xpnet_dev_change_mtu(struct net_device *dev, int new_mtu)
-{
-	/* 68 comes from min TCP+IP+MAC header */
-	if ((new_mtu < 68) || (new_mtu > XPNET_MAX_MTU)) {
-		dev_err(xpnet, "ifconfig %s mtu %d failed; value must be "
-			"between 68 and %ld\n", dev->name, new_mtu,
-			XPNET_MAX_MTU);
-		return -EINVAL;
-	}
-
-	dev->mtu = new_mtu;
-	dev_dbg(xpnet, "ifconfig %s mtu set to %d\n", dev->name, new_mtu);
-	return 0;
-}
-
 /*
  * Required for the net_device structure.
  */
@@ -575,7 +561,6 @@ static const struct net_device_ops xpnet_netdev_ops = {
 	.ndo_open		= xpnet_dev_open,
 	.ndo_stop		= xpnet_dev_stop,
 	.ndo_start_xmit		= xpnet_dev_hard_start_xmit,
-	.ndo_change_mtu		= xpnet_dev_change_mtu,
 	.ndo_tx_timeout		= xpnet_dev_tx_timeout,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
@@ -621,6 +606,8 @@ xpnet_init(void)
 	xpnet_device->set_config = xpnet_dev_set_config;
 	xpnet_device->netdev_ops = &xpnet_netdev_ops;
 	xpnet_device->mtu = XPNET_DEF_MTU;
+	xpnet_device->min_mtu = XPNET_MIN_MTU;
+	xpnet_device->max_mtu = XPNET_MAX_MTU;
 
 	/*
 	 * Multicast assumes the LSB of the first octet is set for multicast

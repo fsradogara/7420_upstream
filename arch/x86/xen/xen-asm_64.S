@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
 	Asm versions of Xen pv-ops, suitable for either direct use or inlining.
 	The inline versions are the same as the direct-use versions, with the
@@ -144,10 +145,10 @@ ENTRY(xen_adjust_exception_frame)
  *
  * This code is encoded for size rather than absolute efficiency, with
  * a view to being able to inline as much as possible.
+ * Asm versions of Xen pv-ops, suitable for direct use.
  *
  * We only bother with direct forms (ie, vcpu in pda) of the
- * operations here; the indirect forms are better handled in C, since
- * they're generally too large to inline anyway.
+ * operations here; the indirect forms are better handled in C.
  */
 
 #include <asm/errno.h>
@@ -159,12 +160,44 @@ ENTRY(xen_adjust_exception_frame)
 
 #include <xen/interface/xen.h>
 
-#include "xen-asm.h"
+#include <linux/linkage.h>
 
-ENTRY(xen_adjust_exception_frame)
-	mov 8+0(%rsp), %rcx
-	mov 8+8(%rsp), %r11
-	ret $16
+.macro xen_pv_trap name
+ENTRY(xen_\name)
+	pop %rcx
+	pop %r11
+	jmp  \name
+END(xen_\name)
+.endm
+
+xen_pv_trap divide_error
+xen_pv_trap debug
+xen_pv_trap xendebug
+xen_pv_trap int3
+xen_pv_trap xenint3
+xen_pv_trap nmi
+xen_pv_trap overflow
+xen_pv_trap bounds
+xen_pv_trap invalid_op
+xen_pv_trap device_not_available
+xen_pv_trap double_fault
+xen_pv_trap coprocessor_segment_overrun
+xen_pv_trap invalid_TSS
+xen_pv_trap segment_not_present
+xen_pv_trap stack_segment
+xen_pv_trap general_protection
+xen_pv_trap page_fault
+xen_pv_trap spurious_interrupt_bug
+xen_pv_trap coprocessor_error
+xen_pv_trap alignment_check
+#ifdef CONFIG_X86_MCE
+xen_pv_trap machine_check
+#endif /* CONFIG_X86_MCE */
+xen_pv_trap simd_coprocessor_error
+#ifdef CONFIG_IA32_EMULATION
+xen_pv_trap entry_INT80_compat
+#endif
+xen_pv_trap hypervisor_callback
 
 hypercall_iret = hypercall_page + __HYPERVISOR_iret * 32
 /*
@@ -197,9 +230,7 @@ rsp ->	rax		}
  */
 ENTRY(xen_iret)
 	pushq $0
-1:	jmp hypercall_iret
-ENDPATCH(xen_iret)
-RELOC(xen_iret, 1b+1)
+	jmp hypercall_iret
 
 /*
 	sysexit is not used for 64-bit processes, so it's
@@ -270,6 +301,7 @@ ENTRY(xen_sysret32)
 1:	jmp hypercall_iret
 ENDPATCH(xen_sysret32)
 RELOC(xen_sysret32, 1b+1)
+	jmp hypercall_iret
 
 /*
 	Xen handles syscall callbacks much like ordinary exceptions,
@@ -306,22 +338,25 @@ RELOC(xen_sysret32, 1b+1)
  *	rip
  *	r11
  * rsp->rcx
- *
- * In all the entrypoints, we undo all that to make it look like a
- * CPU-generated syscall/sysenter and jump to the normal entrypoint.
  */
-
-.macro undo_xen_syscall
-	mov 0*8(%rsp), %rcx
-	mov 1*8(%rsp), %r11
-	mov 5*8(%rsp), %rsp
-.endm
 
 /* Normal 64-bit system call target */
 ENTRY(xen_syscall_target)
 	undo_xen_syscall
 	jmp system_call_after_swapgs
 	jmp entry_SYSCALL_64_after_swapgs
+	popq %rcx
+	popq %r11
+
+	/*
+	 * Neither Xen nor the kernel really knows what the old SS and
+	 * CS were.  The kernel expects __USER_DS and __USER_CS, so
+	 * report those values even though Xen will guess its own values.
+	 */
+	movq $__USER_DS, 4*8(%rsp)
+	movq $__USER_CS, 1*8(%rsp)
+
+	jmp entry_SYSCALL_64_after_hwframe
 ENDPROC(xen_syscall_target)
 
 #ifdef CONFIG_IA32_EMULATION
@@ -331,12 +366,27 @@ ENTRY(xen_syscall32_target)
 	undo_xen_syscall
 	jmp ia32_cstar_target
 	jmp entry_SYSCALL_compat
+	popq %rcx
+	popq %r11
+
+	/*
+	 * Neither Xen nor the kernel really knows what the old SS and
+	 * CS were.  The kernel expects __USER32_DS and __USER32_CS, so
+	 * report those values even though Xen will guess its own values.
+	 */
+	movq $__USER32_DS, 4*8(%rsp)
+	movq $__USER32_CS, 1*8(%rsp)
+
+	jmp entry_SYSCALL_compat_after_hwframe
 ENDPROC(xen_syscall32_target)
 
 /* 32-bit compat sysenter target */
 ENTRY(xen_sysenter_target)
 	undo_xen_syscall
 	jmp ia32_sysenter_target
+	mov 0*8(%rsp), %rcx
+	mov 1*8(%rsp), %r11
+	mov 5*8(%rsp), %rsp
 	jmp entry_SYSENTER_compat
 ENDPROC(xen_sysenter_target)
 

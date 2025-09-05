@@ -6,6 +6,7 @@
 #include <asm/unistd_32.h>
 #endif
 #endif
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * System calls under the Sparc.
  *

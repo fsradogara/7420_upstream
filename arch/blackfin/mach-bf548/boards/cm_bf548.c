@@ -49,9 +49,9 @@
 #include <asm/bfin5xx_spi.h>
 #include <asm/cplb.h>
 #include <linux/usb/musb.h>
+#include <linux/gpio.h>
 #include <asm/bfin5xx_spi.h>
 #include <asm/dma.h>
-#include <asm/gpio.h>
 #include <asm/nand.h>
 #include <asm/portmux.h>
 #include <asm/bfin_sdh.h>

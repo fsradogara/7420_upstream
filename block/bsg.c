@@ -87,7 +87,6 @@ struct bsg_command {
 	struct bio *bidi_bio;
 	int err;
 	struct sg_io_v4 hdr;
-	char sense[SCSI_SENSE_BUFFERSIZE];
 };
 
 static void bsg_free_command(struct bsg_command *bc)
@@ -181,20 +180,24 @@ static int blk_fill_sgv4_hdr_rq(struct request_queue *q, struct request *rq,
 				struct sg_io_v4 *hdr, struct bsg_device *bd,
 				fmode_t has_write_perm)
 {
+	struct scsi_request *req = scsi_req(rq);
+
 	if (hdr->request_len > BLK_MAX_CDB) {
-		rq->cmd = kzalloc(hdr->request_len, GFP_KERNEL);
-		if (!rq->cmd)
+		req->cmd = kzalloc(hdr->request_len, GFP_KERNEL);
+		if (!req->cmd)
 			return -ENOMEM;
 	}
 
 	if (copy_from_user(rq->cmd, (void *)(unsigned long)hdr->request,
 	if (copy_from_user(rq->cmd, (void __user *)(unsigned long)hdr->request,
+	if (copy_from_user(req->cmd, (void __user *)(unsigned long)hdr->request,
 			   hdr->request_len))
 		return -EFAULT;
 
 	if (hdr->subprotocol == BSG_SUB_PROTOCOL_SCSI_CMD) {
 		if (blk_verify_command(&q->cmd_filter, rq->cmd, has_write_perm))
 		if (blk_verify_command(rq->cmd, has_write_perm))
+		if (blk_verify_command(req->cmd, has_write_perm))
 			return -EPERM;
 	} else if (!capable(CAP_SYS_RAWIO))
 		return -EPERM;
@@ -206,6 +209,7 @@ static int blk_fill_sgv4_hdr_rq(struct request_queue *q, struct request *rq,
 	rq->cmd_type = REQ_TYPE_BLOCK_PC;
 
 	rq->timeout = (hdr->timeout * HZ) / 1000;
+	req->cmd_len = hdr->request_len;
 
 	rq->timeout = msecs_to_jiffies(hdr->timeout);
 	if (!rq->timeout)
@@ -222,7 +226,7 @@ static int blk_fill_sgv4_hdr_rq(struct request_queue *q, struct request *rq,
  * Check if sg_io_v4 from user is allowed and valid
  */
 static int
-bsg_validate_sgv4_hdr(struct request_queue *q, struct sg_io_v4 *hdr, int *rw)
+bsg_validate_sgv4_hdr(struct sg_io_v4 *hdr, int *op)
 {
 	int ret = 0;
 
@@ -246,7 +250,7 @@ bsg_validate_sgv4_hdr(struct request_queue *q, struct sg_io_v4 *hdr, int *rw)
 		ret = -EINVAL;
 	}
 
-	*rw = hdr->dout_xfer_len ? WRITE : READ;
+	*op = hdr->dout_xfer_len ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN;
 	return ret;
 }
 
@@ -263,6 +267,12 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
 	int ret, rw;
 	unsigned int dxfer_len;
 	void *dxferp = NULL;
+bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm)
+{
+	struct request_queue *q = bd->queue;
+	struct request *rq, *next_rq = NULL;
+	int ret;
+	unsigned int op, dxfer_len;
 	void __user *dxferp = NULL;
 	struct bsg_class_device *bcd = &q->bsg_dev;
 
@@ -277,7 +287,7 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
 		hdr->dout_xfer_len, (unsigned long long) hdr->din_xferp,
 		hdr->din_xfer_len);
 
-	ret = bsg_validate_sgv4_hdr(q, hdr, &rw);
+	ret = bsg_validate_sgv4_hdr(hdr, &op);
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -289,16 +299,15 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
 		return ERR_PTR(-ENOMEM);
 	 * map scatter-gather elements separately and string them to request
 	 */
-	rq = blk_get_request(q, rw, GFP_KERNEL);
+	rq = blk_get_request(q, op, GFP_KERNEL);
 	if (IS_ERR(rq))
 		return rq;
-	blk_rq_set_block_pc(rq);
 
 	ret = blk_fill_sgv4_hdr_rq(q, rq, hdr, bd, has_write_perm);
 	if (ret)
 		goto out;
 
-	if (rw == WRITE && hdr->din_xfer_len) {
+	if (op == REQ_OP_SCSI_OUT && hdr->din_xfer_len) {
 		if (!test_bit(QUEUE_FLAG_BIDI, &q->queue_flags)) {
 			ret = -EOPNOTSUPP;
 			goto out;
@@ -307,13 +316,13 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
 		next_rq = blk_get_request(q, READ, GFP_KERNEL);
 		if (!next_rq) {
 			ret = -ENOMEM;
+		next_rq = blk_get_request(q, REQ_OP_SCSI_IN, GFP_KERNEL);
 		if (IS_ERR(next_rq)) {
 			ret = PTR_ERR(next_rq);
 			next_rq = NULL;
 			goto out;
 		}
 		rq->next_rq = next_rq;
-		next_rq->cmd_type = rq->cmd_type;
 
 		dxferp = (void*)(unsigned long)hdr->din_xferp;
 		ret =  blk_rq_map_user(q, next_rq, dxferp, hdr->din_xfer_len);
@@ -348,13 +357,9 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
 			goto out;
 	}
 
-	rq->sense = sense;
-	rq->sense_len = 0;
-
 	return rq;
 out:
-	if (rq->cmd != rq->__cmd)
-		kfree(rq->cmd);
+	scsi_req_free_cmd(scsi_req(rq));
 	blk_put_request(rq);
 	if (next_rq) {
 		blk_rq_unmap_user(next_rq->bio);
@@ -367,14 +372,14 @@ out:
  * async completion call-back from the block layer, when scsi/ide/whatever
  * calls end_that_request_last() on a request
  */
-static void bsg_rq_end_io(struct request *rq, int uptodate)
+static void bsg_rq_end_io(struct request *rq, blk_status_t status)
 {
 	struct bsg_command *bc = rq->end_io_data;
 	struct bsg_device *bd = bc->bd;
 	unsigned long flags;
 
-	dprintk("%s: finished rq %p bc %p, bio %p stat %d\n",
-		bd->name, rq, bc, bc->bio, uptodate);
+	dprintk("%s: finished rq %p bc %p, bio %p\n",
+		bd->name, rq, bc, bc->bio);
 
 	bc->hdr.duration = jiffies_to_msecs(jiffies - bc->hdr.duration);
 
@@ -464,6 +469,7 @@ static struct bsg_command *bsg_get_done_cmd(struct bsg_device *bd)
 static int blk_complete_sgv4_hdr_rq(struct request *rq, struct sg_io_v4 *hdr,
 				    struct bio *bio, struct bio *bidi_bio)
 {
+	struct scsi_request *req = scsi_req(rq);
 	int ret = 0;
 
 	dprintk("rq %p bio %p %u\n", rq, bio, rq->errors);
@@ -472,24 +478,25 @@ static int blk_complete_sgv4_hdr_rq(struct request *rq, struct sg_io_v4 *hdr,
 	 */
 	hdr->device_status = status_byte(rq->errors);
 	dprintk("rq %p bio %p 0x%x\n", rq, bio, rq->errors);
+	dprintk("rq %p bio %p 0x%x\n", rq, bio, req->result);
 	/*
 	 * fill in all the output members
 	 */
-	hdr->device_status = rq->errors & 0xff;
-	hdr->transport_status = host_byte(rq->errors);
-	hdr->driver_status = driver_byte(rq->errors);
+	hdr->device_status = req->result & 0xff;
+	hdr->transport_status = host_byte(req->result);
+	hdr->driver_status = driver_byte(req->result);
 	hdr->info = 0;
 	if (hdr->device_status || hdr->transport_status || hdr->driver_status)
 		hdr->info |= SG_INFO_CHECK;
 	hdr->response_len = 0;
 
-	if (rq->sense_len && hdr->response) {
+	if (req->sense_len && hdr->response) {
 		int len = min_t(unsigned int, hdr->max_response_len,
-					rq->sense_len);
+					req->sense_len);
 
 		ret = copy_to_user((void*)(unsigned long)hdr->response,
 		ret = copy_to_user((void __user *)(unsigned long)hdr->response,
-				   rq->sense, len);
+				   req->sense, len);
 		if (!ret)
 			hdr->response_len = len;
 		else
@@ -507,12 +514,14 @@ static int blk_complete_sgv4_hdr_rq(struct request *rq, struct sg_io_v4 *hdr,
 		hdr->dout_resid = rq->data_len;
 		hdr->dout_resid = rq->resid_len;
 		hdr->din_resid = rq->next_rq->resid_len;
+		hdr->dout_resid = req->resid_len;
+		hdr->din_resid = scsi_req(rq->next_rq)->resid_len;
 		blk_rq_unmap_user(bidi_bio);
 		blk_put_request(rq->next_rq);
 	} else if (rq_data_dir(rq) == READ)
-		hdr->din_resid = rq->resid_len;
+		hdr->din_resid = req->resid_len;
 	else
-		hdr->dout_resid = rq->resid_len;
+		hdr->dout_resid = req->resid_len;
 
 	/*
 	 * If the request generated a negative error number, return it
@@ -520,12 +529,11 @@ static int blk_complete_sgv4_hdr_rq(struct request *rq, struct sg_io_v4 *hdr,
 	 * just a protocol response (i.e. non negative), that gets
 	 * processed above.
 	 */
-	if (!ret && rq->errors < 0)
-		ret = rq->errors;
+	if (!ret && req->result < 0)
+		ret = req->result;
 
 	blk_rq_unmap_user(bio);
-	if (rq->cmd != rq->__cmd)
-		kfree(rq->cmd);
+	scsi_req_free_cmd(req);
 	blk_put_request(rq);
 
 	return ret;
@@ -674,7 +682,7 @@ bsg_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	int ret;
 	ssize_t bytes_read;
 
-	dprintk("%s: read %Zd bytes\n", bd->name, count);
+	dprintk("%s: read %zd bytes\n", bd->name, count);
 
 	bsg_set_block(bd, file);
 
@@ -752,7 +760,10 @@ bsg_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 	ssize_t bytes_written;
 	int ret;
 
-	dprintk("%s: write %Zd bytes\n", bd->name, count);
+	dprintk("%s: write %zd bytes\n", bd->name, count);
+
+	if (unlikely(uaccess_kernel()))
+		return -EINVAL;
 
 	bsg_set_block(bd, file);
 
@@ -769,7 +780,7 @@ bsg_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 	if (!bytes_written || err_block_err(ret))
 		bytes_written = ret;
 
-	dprintk("%s: returning %Zd\n", bd->name, bytes_written);
+	dprintk("%s: returning %zd\n", bd->name, bytes_written);
 	return bytes_written;
 }
 
@@ -858,6 +869,12 @@ static struct bsg_device *bsg_add_device(struct inode *inode,
 #ifdef BSG_DEBUG
 	unsigned char buf[32];
 #endif
+
+	if (!blk_queue_scsi_passthrough(rq)) {
+		WARN_ONCE(true, "Attempt to register a non-SCSI queue\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	if (!blk_get_queue(rq))
 		return ERR_PTR(-ENXIO);
 
@@ -1025,7 +1042,6 @@ static long bsg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct bio *bio, *bidi_bio = NULL;
 		struct sg_io_v4 hdr;
 		int at_head;
-		u8 sense[SCSI_SENSE_BUFFERSIZE];
 
 		if (copy_from_user(&hdr, uarg, sizeof(hdr)))
 			return -EFAULT;
@@ -1049,15 +1065,8 @@ static long bsg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		return ret;
 	}
-	/*
-	 * block device ioctls
-	 */
 	default:
-#if 0
-		return ioctl_by_bdev(bd->bdev, cmd, arg);
-#else
 		return -ENOTTY;
-#endif
 	}
 }
 

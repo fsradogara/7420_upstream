@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_UACCESS_H
 #define _ASM_UACCESS_H
 
@@ -16,13 +17,9 @@
 #include <linux/errno.h>
 #include <linux/compiler.h>
 #include <linux/string.h>
-#include <linux/thread_info.h>
 #include <asm/asi.h>
 #include <asm/spitfire.h>
-#include <asm-generic/uaccess-unaligned.h>
-#endif
-
-#ifndef __ASSEMBLY__
+#include <asm/extable_64.h>
 
 #include <asm/processor.h>
 
@@ -318,20 +315,6 @@ int __put_user_bad(void);
 	 __gu_ret;							     \
 })
 
-#define __get_user_nocheck_ret(data, addr, size, type, retval) ({	\
-	register unsigned long __gu_val __asm__ ("l1");			\
-	switch (size) {							\
-	case 1: __get_user_asm_ret(__gu_val, ub, addr, retval); break;	\
-	case 2: __get_user_asm_ret(__gu_val, uh, addr, retval); break;	\
-	case 4: __get_user_asm_ret(__gu_val, uw, addr, retval); break;	\
-	case 8: __get_user_asm_ret(__gu_val, x, addr, retval); break;	\
-	default:							\
-		if (__get_user_bad())					\
-			return retval;					\
-	}								\
-	data = (__force type) __gu_val;					\
-})
-
 #define __get_user_asm(x, size, addr, ret)				\
 __asm__ __volatile__(							\
 		"/* Get user asm, inline. */\n"				\
@@ -353,43 +336,11 @@ __asm__ __volatile__(							\
 	       : "=r" (ret), "=r" (x) : "r" (__m(addr)),		\
 		 "i" (-EFAULT))
 
-#define __get_user_asm_ret(x, size, addr, retval)			\
-if (__builtin_constant_p(retval) && retval == -EFAULT)			\
-	__asm__ __volatile__(						\
-		"/* Get user asm ret, inline. */\n"			\
-	"1:\t"	"ld"#size "a [%1] %%asi, %0\n\n\t"			\
-		".section __ex_table,\"a\"\n\t"				\
-		".align	4\n\t"						\
-		".word	1b,__ret_efault\n\n\t"				\
-		".previous\n\t"						\
-	       : "=r" (x) : "r" (__m(addr)));				\
-else									\
-	__asm__ __volatile__(						\
-		"/* Get user asm ret, inline. */\n"			\
-	"1:\t"	"ld"#size "a [%1] %%asi, %0\n\n\t"			\
-		".section .fixup,#alloc,#execinstr\n\t"			\
-		".align	4\n"						\
-	"3:\n\t"							\
-		"ret\n\t"						\
-		" restore %%g0, %2, %%o0\n\n\t"				\
-		".previous\n\t"						\
-		".section __ex_table,\"a\"\n\t"				\
-		".align	4\n\t"						\
-		".word	1b, 3b\n\n\t"					\
-		".previous\n\t"						\
-	       : "=r" (x) : "r" (__m(addr)), "i" (retval))
-
 int __get_user_bad(void);
 
-unsigned long __must_check ___copy_from_user(void *to,
+unsigned long __must_check raw_copy_from_user(void *to,
 					     const void __user *from,
 					     unsigned long size);
-unsigned long copy_from_user_fixup(void *to, const void __user *from,
-				   unsigned long size);
-static inline unsigned long __must_check
-copy_from_user(void *to, const void __user *from, unsigned long size)
-{
-	unsigned long ret = ___copy_from_user(to, from, size);
 
 	if (unlikely(ret))
 		ret = copy_from_user_fixup(to, from, size);
@@ -404,14 +355,11 @@ extern unsigned long __must_check ___copy_to_user(void __user *to,
 extern unsigned long copy_to_user_fixup(void __user *to, const void *from,
 					unsigned long size);
 unsigned long __must_check ___copy_to_user(void __user *to,
+unsigned long __must_check raw_copy_to_user(void __user *to,
 					   const void *from,
 					   unsigned long size);
-unsigned long copy_to_user_fixup(void __user *to, const void *from,
-				 unsigned long size);
-static inline unsigned long __must_check
-copy_to_user(void __user *to, const void *from, unsigned long size)
-{
-	unsigned long ret = ___copy_to_user(to, from, size);
+#define INLINE_COPY_FROM_USER
+#define INLINE_COPY_TO_USER
 
 	if (unlikely(ret))
 		ret = copy_to_user_fixup(to, from, size);
@@ -425,20 +373,9 @@ extern unsigned long __must_check ___copy_in_user(void __user *to,
 extern unsigned long copy_in_user_fixup(void __user *to, void __user *from,
 					unsigned long size);
 unsigned long __must_check ___copy_in_user(void __user *to,
+unsigned long __must_check raw_copy_in_user(void __user *to,
 					   const void __user *from,
 					   unsigned long size);
-unsigned long copy_in_user_fixup(void __user *to, void __user *from,
-				 unsigned long size);
-static inline unsigned long __must_check
-copy_in_user(void __user *to, void __user *from, unsigned long size)
-{
-	unsigned long ret = ___copy_in_user(to, from, size);
-
-	if (unlikely(ret))
-		ret = copy_in_user_fixup(to, from, size);
-	return ret;
-}
-#define __copy_in_user copy_in_user
 
 extern unsigned long __must_check __clear_user(void __user *, unsigned long);
 
@@ -460,17 +397,11 @@ unsigned long __must_check __clear_user(void __user *, unsigned long);
 
 #define clear_user __clear_user
 
-__must_check long strlen_user(const char __user *str);
 __must_check long strnlen_user(const char __user *str, long n);
-
-#define __copy_to_user_inatomic __copy_to_user
-#define __copy_from_user_inatomic __copy_from_user
 
 struct pt_regs;
 unsigned long compute_effective_address(struct pt_regs *,
 					unsigned int insn,
 					unsigned int rd);
-
-#endif  /* __ASSEMBLY__ */
 
 #endif /* _ASM_UACCESS_H */

@@ -1,5 +1,6 @@
 /*  sun4m_irq.c
  *  arch/sparc/kernel/sun4m_irq.c:
+// SPDX-License-Identifier: GPL-2.0
 /*
  * sun4m irq support
  *
@@ -106,6 +107,7 @@ unsigned long *irq_rcvreg = &dummy;
 #define	SUN4M_INT_M2S_WRITE	0x20000000	  /* write buffer error */
 #define	SUN4M_INT_ECC		0x10000000	  /* ecc memory error */
 #include <linux/slab.h>
+#include <linux/sched/debug.h>
 
 #include <asm/timer.h>
 #include <asm/traps.h>

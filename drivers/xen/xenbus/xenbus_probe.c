@@ -81,8 +81,7 @@ static void xenbus_dev_shutdown(struct device *_dev);
 
 #include <xen/hvm.h>
 
-#include "xenbus_comms.h"
-#include "xenbus_probe.h"
+#include "xenbus.h"
 
 
 int xen_store_evtchn;
@@ -244,7 +243,7 @@ static void otherend_changed(struct xenbus_watch *watch,
 EXPORT_SYMBOL_GPL(xenbus_read_otherend_details);
 
 void xenbus_otherend_changed(struct xenbus_watch *watch,
-			     const char **vec, unsigned int len,
+			     const char *path, const char *token,
 			     int ignore_on_shutdown)
 {
 	struct xenbus_device *dev =
@@ -255,18 +254,15 @@ void xenbus_otherend_changed(struct xenbus_watch *watch,
 	/* Protect us against watches firing on old details when the otherend
 	   details change, say immediately after a resume. */
 	if (!dev->otherend ||
-	    strncmp(dev->otherend, vec[XS_WATCH_PATH],
-		    strlen(dev->otherend))) {
-		dev_dbg(&dev->dev, "Ignoring watch at %s\n",
-			vec[XS_WATCH_PATH]);
+	    strncmp(dev->otherend, path, strlen(dev->otherend))) {
+		dev_dbg(&dev->dev, "Ignoring watch at %s\n", path);
 		return;
 	}
 
 	state = xenbus_read_driver_state(dev->otherend);
 
 	dev_dbg(&dev->dev, "state is %d, (%s), %s, %s\n",
-		state, xenbus_strstate(state), dev->otherend_watch.node,
-		vec[XS_WATCH_PATH]);
+		state, xenbus_strstate(state), dev->otherend_watch.node, path);
 
 	/*
 	 * Ignore xenbus transitions during shutdown. This prevents us doing
@@ -1060,7 +1056,7 @@ device_initcall(xenbus_probe_initcall);
  */
 static int __init xenstored_local_init(void)
 {
-	int err = 0;
+	int err = -ENOMEM;
 	unsigned long page = 0;
 	struct evtchn_alloc_unbound alloc_unbound;
 
@@ -1303,7 +1299,7 @@ late_initcall(boot_wait_for_devices);
 	 * Create xenfs mountpoint in /proc for compatibility with
 	 * utilities that expect to find "xenbus" under "/proc/xen".
 	 */
-	proc_mkdir("xen", NULL);
+	proc_create_mount_point("xen");
 #endif
 
 out_error:

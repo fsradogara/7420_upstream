@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/tape_char.c
  *    character device frontend for tape device driver
@@ -24,7 +25,7 @@
 #include <linux/smp_lock.h>
 #include <linux/compat.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define TAPE_DBF_AREA	tape_core_dbf
 

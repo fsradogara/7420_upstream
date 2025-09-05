@@ -381,11 +381,11 @@ MODULE_LICENSE("GPL");
 #if !defined(PCMCIA)
 #if defined(MODULE)
 static int io[] = {0, 0};
-module_param_array(io, int, NULL, 0);
+module_param_hw_array(io, int, ioport, NULL, 0);
 MODULE_PARM_DESC(io,"base io address of controller");
 
 static int irq[] = {0, 0};
-module_param_array(irq, int, NULL, 0);
+module_param_hw_array(irq, int, irq, NULL, 0);
 MODULE_PARM_DESC(irq,"interrupt for controller");
 
 static int scsiid[] = {7, 7};
@@ -1307,6 +1307,9 @@ static void free_hard_reset_SCs(struct Scsi_Host *shpnt, Scsi_Cmnd **SCs)
 /*
  * Reset the bus
  *
+ * AIC-6260 has a hard reset (MRST signal), but apparently
+ * one cannot trigger it via software. So live with
+ * a soft reset; no-one seemed to have cared.
  */
 static int aha152x_bus_reset_host(struct Scsi_Host *shpnt)
 {
@@ -4127,7 +4130,6 @@ static struct scsi_host_template aha152x_driver_template = {
 	.eh_abort_handler		= aha152x_abort,
 	.eh_device_reset_handler	= aha152x_device_reset,
 	.eh_bus_reset_handler		= aha152x_bus_reset,
-	.eh_host_reset_handler		= aha152x_host_reset,
 	.bios_param			= aha152x_biosparam,
 	.can_queue			= 1,
 	.this_id			= 7,

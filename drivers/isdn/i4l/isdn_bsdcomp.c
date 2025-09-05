@@ -598,7 +598,7 @@ static int bsd_compress(void *state, struct sk_buff *skb_in, struct sk_buff *skb
 		accm |= ((ent) << bitno);				\
 		do	{						\
 			if (skb_out && skb_tailroom(skb_out) > 0)	\
-				*(skb_put(skb_out, 1)) = (unsigned char)(accm >> 24); \
+				skb_put_u8(skb_out, (u8)(accm >> 24));	\
 			accm <<= 8;					\
 			bitno += 8;					\
 		} while (bitno <= 24);					\
@@ -773,7 +773,8 @@ nomatch:
 		*(skb_put(skb_out,1)) = (unsigned char) ((accm | (0xff << (bitno-8))) >> 24);
     
 	if (bitno < 32 && skb_out && skb_tailroom(skb_out) > 0)
-		*(skb_put(skb_out, 1)) = (unsigned char)((accm | (0xff << (bitno - 8))) >> 24);
+		skb_put_u8(skb_out,
+			   (unsigned char)((accm | (0xff << (bitno - 8))) >> 24));
 
 	/*
 	 * Increase code size if we would have without the packet
@@ -896,7 +897,7 @@ static int bsd_decompress(void *state, struct sk_buff *skb_in, struct sk_buff *s
 		return DECOMP_ERR_NOMEM;
     
 	if (skb_tailroom(skb_out) > 0)
-		*(skb_put(skb_out, 1)) = 0;
+		skb_put_u8(skb_out, 0);
 	else
 		return DECOMP_ERR_NOMEM;
 
@@ -1044,7 +1045,7 @@ static int bsd_decompress(void *state, struct sk_buff *skb_in, struct sk_buff *s
 	
 
 		if (extra)		/* the KwKwK case again */
-			*(skb_put(skb_out, 1)) = finchar;
+			skb_put_u8(skb_out, finchar);
 
 		/*
 		 * If not first code in a packet, and

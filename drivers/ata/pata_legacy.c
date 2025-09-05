@@ -329,14 +329,16 @@ static void pdc20230_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 }
 
-static unsigned int pdc_data_xfer_vlb(struct ata_device *dev,
+static unsigned int pdc_data_xfer_vlb(struct ata_queued_cmd *qc,
 			unsigned char *buf, unsigned int buflen, int rw)
 {
 	if (ata_id_has_dword_io(dev->id)) {
 		struct ata_port *ap = dev->link->ap;
 		int slop = buflen & 3;
 	int slop = buflen & 3;
+	struct ata_device *dev = qc->dev;
 	struct ata_port *ap = dev->link->ap;
+	int slop = buflen & 3;
 
 	/* 32bit I/O capable *and* we need to write a whole number of dwords */
 	if (ata_id_has_dword_io(dev->id) && (slop == 0 || slop == 3)
@@ -369,7 +371,7 @@ static unsigned int pdc_data_xfer_vlb(struct ata_device *dev,
 		}
 		local_irq_restore(flags);
 	} else
-		buflen = ata_sff_data_xfer_noirq(dev, buf, buflen, rw);
+		buflen = ata_sff_data_xfer_noirq(qc, buf, buflen, rw);
 
 	return buflen;
 }
@@ -804,9 +806,11 @@ static unsigned int qdi_qc_issue(struct ata_queued_cmd *qc)
 	return ata_sff_qc_issue(qc);
 }
 
-static unsigned int vlb32_data_xfer(struct ata_device *adev, unsigned char *buf,
-					unsigned int buflen, int rw)
+static unsigned int vlb32_data_xfer(struct ata_queued_cmd *qc,
+				    unsigned char *buf,
+				    unsigned int buflen, int rw)
 {
+	struct ata_device *adev = qc->dev;
 	struct ata_port *ap = adev->link->ap;
 	int slop = buflen & 3;
 
@@ -830,7 +834,7 @@ static unsigned int vlb32_data_xfer(struct ata_device *adev, unsigned char *buf,
 		}
 		return (buflen + 3) & ~3;
 	} else
-		return ata_sff_data_xfer(adev, buf, buflen, rw);
+		return ata_sff_data_xfer(qc, buf, buflen, rw);
 }
 
 static int qdi_port(struct platform_device *dev,

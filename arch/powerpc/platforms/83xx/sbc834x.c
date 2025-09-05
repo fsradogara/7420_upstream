@@ -98,6 +98,7 @@ machine_device_initcall(sbc834x, sbc834x_declare_of_platform_devices);
 		ppc_md.progress("sbc834x_setup_arch()", 0);
 
 	mpc83xx_setup_pci();
+	mpc83xx_setup_arch();
 }
 
 machine_device_initcall(sbc834x, mpc83xx_declare_of_platform_devices);
@@ -118,6 +119,7 @@ define_machine(sbc834x) {
 	.setup_arch		= sbc834x_setup_arch,
 	.init_IRQ		= sbc834x_init_IRQ,
 	return of_flat_dt_is_compatible(root, "SBC834xE");
+	return of_machine_is_compatible("SBC834xE");
 }
 
 define_machine(sbc834x) {

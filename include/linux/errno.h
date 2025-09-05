@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_ERRNO_H
 #define _LINUX_ERRNO_H
 
@@ -34,5 +35,6 @@
 #define EIOCBRETRY	530	/* iocb queued, will trigger a retry */
 
 #endif
+#define ERECALLCONFLICT	530	/* conflict with recalled state */
 
 #endif

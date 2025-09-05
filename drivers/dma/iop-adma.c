@@ -122,6 +122,7 @@ iop_adma_run_tx_complete_actions(struct iop_adma_desc_slot *desc,
 	async_tx_run_dependencies(&desc->async_tx);
 		if (tx->callback)
 			tx->callback(tx->callback_param);
+		dmaengine_desc_get_callback_invoke(tx, NULL);
 
 		dma_descriptor_unmap(tx);
 		if (desc->group_head)
@@ -1567,6 +1568,10 @@ static int iop_adma_probe(struct platform_device *pdev)
 							  plat_data->pool_size,
 							  &adev->dma_desc_pool,
 							  GFP_KERNEL);
+	adev->dma_desc_pool_virt = dma_alloc_wc(&pdev->dev,
+						plat_data->pool_size,
+						&adev->dma_desc_pool,
+						GFP_KERNEL);
 	if (!adev->dma_desc_pool_virt) {
 		ret = -ENOMEM;
 		goto err_free_adev;

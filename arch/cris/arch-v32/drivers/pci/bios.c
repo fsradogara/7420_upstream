@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/pci.h>
 #include <linux/kernel.h>
 #include <asm/arch/hwregs/intr_vect.h>
@@ -16,6 +17,7 @@ char * __devinit  pcibios_setup(char *str)
 void pcibios_fixup_bus(struct pci_bus *b)
 {
 }
+#include <hwregs/intr_vect.h>
 
 void pcibios_set_master(struct pci_dev *dev)
 {

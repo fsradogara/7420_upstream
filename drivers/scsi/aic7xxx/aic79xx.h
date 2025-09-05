@@ -627,7 +627,7 @@ struct scb {
 };
 
 TAILQ_HEAD(scb_tailq, scb);
-LIST_HEAD(scb_list, scb);
+BSD_LIST_HEAD(scb_list, scb);
 
 struct scb_data {
 	/*
@@ -1074,7 +1074,7 @@ struct ahd_softc {
 	/*
 	 * SCBs that have been sent to the controller
 	 */
-	LIST_HEAD(, scb)	  pending_scbs;
+	BSD_LIST_HEAD(, scb)	  pending_scbs;
 
 	/*
 	 * Current register window mode information.

@@ -29,8 +29,9 @@
 
 #include <asm/system.h>
 #include <linux/perf_event.h>
+#include <linux/sched/task_stack.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/user32.h>
@@ -153,7 +154,7 @@ static struct linux_binfmt aout_format = {
 	.min_coredump	= PAGE_SIZE
 };
 
-static void set_brk(unsigned long start, unsigned long end)
+static int set_brk(unsigned long start, unsigned long end)
 {
 	start = PAGE_ALIGN(start);
 	end = PAGE_ALIGN(end);
@@ -166,6 +167,8 @@ static void set_brk(unsigned long start, unsigned long end)
 
 #ifdef CORE_DUMP
 	vm_brk(start, end - start);
+		return 0;
+	return vm_brk(start, end - start);
 }
 
 #ifdef CONFIG_COREDUMP
@@ -449,7 +452,7 @@ static int load_aout_binary(struct linux_binprm *bprm)
 
 		error = vm_brk(text_addr & PAGE_MASK, map_size);
 
-		if (error != (text_addr & PAGE_MASK))
+		if (error)
 			return error;
 
 		error = read_code(bprm->file, text_addr, 32,
@@ -496,6 +499,10 @@ static int load_aout_binary(struct linux_binprm *bprm)
 		down_write(&current->mm->mmap_sem);
 		error = do_mmap(bprm->file, N_TXTADDR(ex), ex.a_text,
 			vm_brk(N_TXTADDR(ex), ex.a_text+ex.a_data);
+			error = vm_brk(N_TXTADDR(ex), ex.a_text+ex.a_data);
+			if (error)
+				return error;
+
 			read_code(bprm->file, N_TXTADDR(ex), fd_offset,
 					ex.a_text+ex.a_data);
 			goto beyond_if;
@@ -532,10 +539,13 @@ static int load_aout_binary(struct linux_binprm *bprm)
 		if (error != N_DATADDR(ex))
 			return error;
 	}
-beyond_if:
-	set_binfmt(&aout_format);
 
-	set_brk(current->mm->start_brk, current->mm->brk);
+beyond_if:
+	error = set_brk(current->mm->start_brk, current->mm->brk);
+	if (error)
+		return error;
+
+	set_binfmt(&aout_format);
 
 	retval = setup_arg_pages(bprm, IA32_STACK_TOP, EXSTACK_DEFAULT);
 	if (retval < 0) {
@@ -575,9 +585,10 @@ static int load_aout_library(struct file *file)
 	struct exec ex;
 
 	inode = file->f_path.dentry->d_inode;
+	loff_t pos = 0;
 
 	retval = -ENOEXEC;
-	error = kernel_read(file, 0, (char *) &ex, sizeof(ex));
+	error = kernel_read(file, &ex, sizeof(ex), &pos);
 	if (error != sizeof(ex))
 		goto out;
 
@@ -626,7 +637,9 @@ static int load_aout_library(struct file *file)
 			error_time = jiffies;
 		}
 #endif
-		vm_brk(start_addr, ex.a_text + ex.a_data + ex.a_bss);
+		retval = vm_brk(start_addr, ex.a_text + ex.a_data + ex.a_bss);
+		if (retval)
+			goto out;
 
 		read_code(file, start_addr, N_TXTOFF(ex),
 			  ex.a_text + ex.a_data);
@@ -657,6 +670,8 @@ static int load_aout_library(struct file *file)
 		error = vm_brk(start_addr + len, bss - len);
 		retval = error;
 		if (error != start_addr + len)
+		retval = vm_brk(start_addr + len, bss - len);
+		if (retval)
 			goto out;
 	}
 	retval = 0;

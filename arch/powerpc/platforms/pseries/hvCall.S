@@ -93,7 +93,7 @@ _GLOBAL(plpar_hcall_norets)
 
 	.globl hcall_tracepoint_refcount
 hcall_tracepoint_refcount:
-	.llong	0
+	.8byte	0
 
 	.section	".text"
 #endif

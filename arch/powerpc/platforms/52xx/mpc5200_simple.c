@@ -84,6 +84,7 @@ static int __init mpc5200_simple_probe(void)
 	
 	return (board[i] != NULL);
 	return of_flat_dt_match(of_get_flat_dt_root(), board);
+	return of_device_compatible_match(of_root, board);
 }
 
 define_machine(mpc5200_simple_platform) {

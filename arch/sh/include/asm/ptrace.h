@@ -136,6 +136,7 @@ static inline unsigned long profile_pc(struct pt_regs *regs)
 }
 #endif /* __KERNEL__ */
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 1999, 2000  Niibe Yutaka
  */

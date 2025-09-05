@@ -16,12 +16,14 @@
 #include <linux/profile.h>
 #include <linux/sched.h>
 #include <linux/time.h>
+#include <linux/nmi.h>
 #include <linux/interrupt.h>
 #include <linux/efi.h>
 #include <linux/timex.h>
 #include <linux/clocksource.h>
 #include <linux/timekeeper_internal.h>
 #include <linux/platform_device.h>
+#include <linux/sched/cputime.h>
 
 #include <asm/machvec.h>
 #include <asm/delay.h>
@@ -45,7 +47,7 @@ struct fsyscall_gtod_data_t fsyscall_gtod_data = {
 
 #include "fsyscall_gtod_data.h"
 
-static cycle_t itc_get_cycles(struct clocksource *cs);
+static u64 itc_get_cycles(struct clocksource *cs);
 
 struct fsyscall_gtod_data_t fsyscall_gtod_data;
 
@@ -92,18 +94,43 @@ static struct clocksource *itc_clocksource;
 
 #include <linux/kernel_stat.h>
 
-extern cputime_t cycle_to_cputime(u64 cyc);
+extern u64 cycle_to_nsec(u64 cyc);
 
-void vtime_account_user(struct task_struct *tsk)
+void vtime_flush(struct task_struct *tsk)
 {
-	cputime_t delta_utime;
 	struct thread_info *ti = task_thread_info(tsk);
+	u64 delta;
 
-	if (ti->ac_utime) {
-		delta_utime = cycle_to_cputime(ti->ac_utime);
-		account_user_time(tsk, delta_utime, delta_utime);
-		ti->ac_utime = 0;
+	if (ti->utime)
+		account_user_time(tsk, cycle_to_nsec(ti->utime));
+
+	if (ti->gtime)
+		account_guest_time(tsk, cycle_to_nsec(ti->gtime));
+
+	if (ti->idle_time)
+		account_idle_time(cycle_to_nsec(ti->idle_time));
+
+	if (ti->stime) {
+		delta = cycle_to_nsec(ti->stime);
+		account_system_index_time(tsk, delta, CPUTIME_SYSTEM);
 	}
+
+	if (ti->hardirq_time) {
+		delta = cycle_to_nsec(ti->hardirq_time);
+		account_system_index_time(tsk, delta, CPUTIME_IRQ);
+	}
+
+	if (ti->softirq_time) {
+		delta = cycle_to_nsec(ti->softirq_time));
+		account_system_index_time(tsk, delta, CPUTIME_SOFTIRQ);
+	}
+
+	ti->utime = 0;
+	ti->gtime = 0;
+	ti->idle_time = 0;
+	ti->stime = 0;
+	ti->hardirq_time = 0;
+	ti->softirq_time = 0;
 }
 
 /*
@@ -136,7 +163,7 @@ void arch_vtime_task_switch(struct task_struct *prev)
 	struct thread_info *pi = task_thread_info(prev);
 	struct thread_info *ni = task_thread_info(current);
 
-	pi->ac_stamp = ni->ac_stamp;
+	ni->ac_stamp = pi->ac_stamp;
 	ni->ac_stime = ni->ac_utime = 0;
 }
 
@@ -153,10 +180,10 @@ void account_system_vtime(struct task_struct *tsk)
 
 	local_irq_save(flags);
 static cputime_t vtime_delta(struct task_struct *tsk)
+static __u64 vtime_delta(struct task_struct *tsk)
 {
 	struct thread_info *ti = task_thread_info(tsk);
-	cputime_t delta_stime;
-	__u64 now;
+	__u64 now, delta_stime;
 
 	WARN_ON_ONCE(!irqs_disabled());
 
@@ -192,6 +219,7 @@ void account_process_tick(struct task_struct *p, int user_tick)
 
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 	ti->ac_stime = 0;
+	delta_stime = now - ti->ac_stamp;
 	ti->ac_stamp = now;
 
 	return delta_stime;
@@ -199,15 +227,25 @@ void account_process_tick(struct task_struct *p, int user_tick)
 
 void vtime_account_system(struct task_struct *tsk)
 {
-	cputime_t delta = vtime_delta(tsk);
+	struct thread_info *ti = task_thread_info(tsk);
+	__u64 stime = vtime_delta(tsk);
 
-	account_system_time(tsk, 0, delta, delta);
+	if ((tsk->flags & PF_VCPU) && !irq_count())
+		ti->gtime += stime;
+	else if (hardirq_count())
+		ti->hardirq_time += stime;
+	else if (in_serving_softirq())
+		ti->softirq_time += stime;
+	else
+		ti->stime += stime;
 }
 EXPORT_SYMBOL_GPL(vtime_account_system);
 
 void vtime_account_idle(struct task_struct *tsk)
 {
-	account_idle_time(vtime_delta(tsk));
+	struct thread_info *ti = task_thread_info(tsk);
+
+	ti->idle_time += vtime_delta(tsk);
 }
 
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
@@ -445,6 +483,7 @@ static cycle_t itc_get_cycles(void)
 {
 	u64 lcycle, now, ret;
 static cycle_t itc_get_cycles(struct clocksource *cs)
+static u64 itc_get_cycles(struct clocksource *cs)
 {
 	unsigned long lcycle, now, ret;
 
@@ -480,7 +519,7 @@ static struct irqaction timer_irqaction = {
 	.name =		"timer"
 };
 
-void read_persistent_clock(struct timespec *ts)
+void read_persistent_clock64(struct timespec64 *ts)
 {
 	efi_gettimeofday(ts);
 }
@@ -542,7 +581,7 @@ void update_vsyscall(struct timespec *wall, struct clocksource *c)
         fsyscall_gtod_data.clk_fsys_mmio = c->fsys_mmio;
         fsyscall_gtod_data.clk_cycle_last = c->cycle_last;
 void update_vsyscall_old(struct timespec *wall, struct timespec *wtm,
-			 struct clocksource *c, u32 mult, cycle_t cycle_last)
+			 struct clocksource *c, u32 mult, u64 cycle_last)
 {
 	write_seqcount_begin(&fsyscall_gtod_data.seq);
 

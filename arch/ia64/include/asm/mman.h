@@ -1,6 +1,7 @@
 #ifndef _ASM_IA64_MMAN_H
 #define _ASM_IA64_MMAN_H
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Based on <asm-i386/mman.h>.
  *

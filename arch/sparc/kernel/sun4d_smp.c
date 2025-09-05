@@ -1,4 +1,5 @@
 /* sun4d_smp.c: Sparc SS1000/SC2000 SMP support.
+// SPDX-License-Identifier: GPL-2.0
 /* Sparc SS1000/SC2000 SMP support.
  *
  * Copyright (C) 1998 Jakub Jelinek (jj@sunsite.mff.cuni.cz)
@@ -66,7 +67,7 @@ static inline unsigned long swap(volatile unsigned long *ptr, unsigned long val)
 #include <linux/interrupt.h>
 #include <linux/profile.h>
 #include <linux/delay.h>
-#include <linux/sched.h>
+#include <linux/sched/mm.h>
 #include <linux/cpu.h>
 
 #include <asm/cacheflush.h>
@@ -187,7 +188,7 @@ void sun4d_cpu_pre_online(void *arg)
 	
 
 	/* Attach to the address space of init_task. */
-	atomic_inc(&init_mm.mm_count);
+	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 
 	local_flush_cache_all();

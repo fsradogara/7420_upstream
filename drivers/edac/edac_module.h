@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 
 /*
  * edac_module.h
@@ -13,6 +14,9 @@
 #include <linux/sysdev.h>
 
 #include "edac_core.h"
+#include "edac_mc.h"
+#include "edac_pci.h"
+#include "edac_device.h"
 
 /*
  * INTERNAL EDAC MODULE:
@@ -56,10 +60,12 @@ extern void edac_device_remove_sysfs(struct edac_device_ctl_info *edac_dev);
 extern struct sysdev_class *edac_get_edac_class(void);
 
 /* edac core workqueue: single CPU mode */
-extern struct workqueue_struct *edac_workqueue;
-extern void edac_device_workq_setup(struct edac_device_ctl_info *edac_dev,
-				    unsigned msec);
-extern void edac_device_workq_teardown(struct edac_device_ctl_info *edac_dev);
+int edac_workqueue_setup(void);
+void edac_workqueue_teardown(void);
+bool edac_queue_work(struct delayed_work *work, unsigned long delay);
+bool edac_stop_work(struct delayed_work *work);
+bool edac_mod_work(struct delayed_work *work, unsigned long delay);
+
 extern void edac_device_reset_delay_period(struct edac_device_ctl_info
 					   *edac_dev, unsigned long value);
 extern void edac_mc_reset_delay_period(int value);

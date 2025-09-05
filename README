@@ -2,16 +2,15 @@
 
 These are the release notes for Linux version 2.6.  Read them carefully,
         Linux kernel release 4.x <http://kernel.org/>
+Linux kernel
 
-These are the release notes for Linux version 4.  Read them carefully,
-as they tell you what this is all about, explain how to install the
-kernel, and what to do if something goes wrong. 
+This file was moved to Documentation/admin-guide/README.rst
 
-WHAT IS LINUX?
+Please notice that there are several guides for kernel developers and users.
+These guides can be rendered in a number of formats, like HTML and PDF.
 
-  Linux is a clone of the operating system Unix, written from scratch by
-  Linus Torvalds with assistance from a loosely-knit team of hackers across
-  the Net. It aims towards POSIX and Single UNIX Specification compliance.
+In order to build the documentation, use ``make htmldocs`` or
+``make pdfdocs``.
 
   It has all the features you would expect in a modern fully-fledged Unix,
   including true multitasking, virtual memory, shared libraries, demand
@@ -529,4 +528,10 @@ IF SOMETHING GOES WRONG:
 
    gdb'ing a non-running kernel currently fails because gdb (wrongly)
    disregards the starting offset for which the kernel is compiled.
+There are various text files in the Documentation/ subdirectory,
+several of them using the Restructured Text markup notation.
+See Documentation/00-INDEX for a list of what is contained in each file.
 
+Please read the Documentation/process/changes.rst file, as it contains the
+requirements for building and running the kernel, and information about
+the problems which may result by upgrading your kernel.

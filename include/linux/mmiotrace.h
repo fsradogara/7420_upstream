@@ -1,5 +1,6 @@
 #ifndef MMIOTRACE_H
 #define MMIOTRACE_H
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_MMIOTRACE_H
 #define _LINUX_MMIOTRACE_H
 

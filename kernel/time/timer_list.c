@@ -23,8 +23,9 @@
 typedef void (*print_fn_t)(struct seq_file *m, unsigned int *classes);
 
 DECLARE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases);
+#include <linux/nmi.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "tick-internal.h"
 
@@ -78,22 +79,12 @@ print_timer(struct seq_file *m, struct hrtimer *timer, int idx, u64 now)
 print_timer(struct seq_file *m, struct hrtimer *taddr, struct hrtimer *timer,
 	    int idx, u64 now)
 {
-#ifdef CONFIG_TIMER_STATS
-	char tmp[TASK_COMM_LEN + 1];
-#endif
 	SEQ_printf(m, " #%d: ", idx);
 	print_name_offset(m, timer);
 	print_name_offset(m, taddr);
 	SEQ_printf(m, ", ");
 	print_name_offset(m, timer->function);
-	SEQ_printf(m, ", S:%02lx", timer->state);
-#ifdef CONFIG_TIMER_STATS
-	SEQ_printf(m, ", ");
-	print_name_offset(m, timer->start_site);
-	memcpy(tmp, timer->start_comm, TASK_COMM_LEN);
-	tmp[TASK_COMM_LEN] = 0;
-	SEQ_printf(m, ", %s/%d", tmp, timer->start_pid);
-#endif
+	SEQ_printf(m, ", S:%02x", timer->state);
 	SEQ_printf(m, "\n");
 	SEQ_printf(m, " # expires at %Lu nsecs [in %Ld nsecs]\n",
 		(unsigned long long)ktime_to_ns(timer->expires),
@@ -120,6 +111,9 @@ next_one:
 	spin_lock_irqsave(&base->cpu_base->lock, flags);
 
 	curr = base->first;
+
+	touch_nmi_watchdog();
+
 	raw_spin_lock_irqsave(&base->cpu_base->lock, flags);
 
 	curr = timerqueue_getnext(&base->active);
@@ -165,7 +159,7 @@ print_base(struct seq_file *m, struct hrtimer_clock_base *base, u64 now)
 	SEQ_printf(m, "  .base:       %pK\n", base);
 	SEQ_printf(m, "  .index:      %d\n", base->index);
 
-	SEQ_printf(m, "  .resolution: %u nsecs\n", (unsigned) hrtimer_resolution);
+	SEQ_printf(m, "  .resolution: %u nsecs\n", hrtimer_resolution);
 
 	SEQ_printf(m,   "  .get_time:   ");
 	print_name_offset(m, base->get_time);
@@ -255,6 +249,8 @@ print_tickdevice(struct seq_file *m, struct tick_device *td)
 print_tickdevice(struct seq_file *m, struct tick_device *td, int cpu)
 {
 	struct clock_event_device *dev = td->evtdev;
+
+	touch_nmi_watchdog();
 
 	SEQ_printf(m, "Tick Device: mode:     %d\n", td->mode);
 	if (cpu < 0)

@@ -10,6 +10,7 @@
 #include <linux/errno.h>
 #include <asm/asm.h>
 #include <asm/asm-offsets.h>
+#include <asm/export.h>
 #include <asm/regdef.h>
 
 #define EX(insn,reg,addr,handler)			\
@@ -69,7 +70,6 @@ LEAF(__strncpy_from_\func\()_asm)
 	and		v0, a1
 	bnez		v0, .Lfault\@
 
-FEXPORT(__strncpy_from_\func\()_nocheck_asm)
 	move		t0, zero
 	move		v1, a1
 .ifeqs "\func","kernel"
@@ -104,16 +104,17 @@ FEXPORT(__strncpy_from_\func\()_nocheck_asm)
 #ifndef CONFIG_EVA
 	/* Set aliases */
 	.global __strncpy_from_user_asm
-	.global __strncpy_from_user_nocheck_asm
 	.set __strncpy_from_user_asm, __strncpy_from_kernel_asm
-	.set __strncpy_from_user_nocheck_asm, __strncpy_from_kernel_nocheck_asm
+EXPORT_SYMBOL(__strncpy_from_user_asm)
 #endif
 
 __BUILD_STRNCPY_ASM kernel
+EXPORT_SYMBOL(__strncpy_from_kernel_asm)
 
 #ifdef CONFIG_EVA
 	.set push
 	.set eva
 __BUILD_STRNCPY_ASM user
 	.set pop
+EXPORT_SYMBOL(__strncpy_from_user_asm)
 #endif

@@ -409,6 +409,7 @@ static struct scsi_host_template cumanascsi2_template = {
 	.sg_tablesize			= SG_ALL,
 	.cmd_per_lun			= 1,
 	.sg_tablesize			= SCSI_MAX_SG_CHAIN_SEGMENTS,
+	.sg_tablesize			= SG_MAX_SEGMENTS,
 	.dma_boundary			= IOMD_DMA_BOUNDARY,
 	.use_clustering			= DISABLE_CLUSTERING,
 	.proc_name			= "cumanascsi2",

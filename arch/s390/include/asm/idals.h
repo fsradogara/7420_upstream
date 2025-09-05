@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* 
  * File...........: linux/include/asm-s390x/idals.h
  * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
@@ -23,7 +24,7 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <asm/cio.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #ifdef __s390x__
 #define IDA_SIZE_LOG 12 /* 11 for 2k , 12 for 4k */

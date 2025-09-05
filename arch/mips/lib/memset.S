@@ -11,6 +11,7 @@
  */
 #include <asm/asm.h>
 #include <asm/asm-offsets.h>
+#include <asm/export.h>
 #include <asm/regdef.h>
 
 #if LONGSIZE == 4
@@ -254,10 +255,12 @@
 	.hidden __memset
 	.endif
 
+#ifdef CONFIG_CPU_MIPSR6
 .Lbyte_fixup\@:
 	PTR_SUBU	a2, $0, t0
 	jr		ra
 	 PTR_ADDIU	a2, 1
+#endif /* CONFIG_CPU_MIPSR6 */
 
 .Lfirst_fixup\@:
 	jr	ra
@@ -299,6 +302,7 @@ LEAF(memset)
 	 move		v0, a0			/* result */
 
 LEAF(memset)
+EXPORT_SYMBOL(memset)
 	beqz		a1, 1f
 	move		v0, a0			/* result */
 
@@ -423,13 +427,16 @@ FEXPORT(__bzero)
 	 andi		v1, a2, LONGMASK
 #ifndef CONFIG_EVA
 FEXPORT(__bzero)
+EXPORT_SYMBOL(__bzero)
 #else
 FEXPORT(__bzero_kernel)
+EXPORT_SYMBOL(__bzero_kernel)
 #endif
 	__BUILD_BZERO LEGACY_MODE
 
 #ifdef CONFIG_EVA
 LEAF(__bzero)
+EXPORT_SYMBOL(__bzero)
 	__BUILD_BZERO EVA_MODE
 END(__bzero)
 #endif

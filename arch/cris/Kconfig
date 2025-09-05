@@ -5,6 +5,7 @@
 
 mainmenu "Linux/CRIS Kernel Configuration"
 
+# SPDX-License-Identifier: GPL-2.0
 config MMU
 	bool
 	default y
@@ -46,7 +47,7 @@ config GENERIC_CALIBRATE_DELAY
 
 config NO_IOPORT
 config NO_IOPORT_MAP
-	def_bool y
+	def_bool y if !PCI
 
 config FORCE_MAX_ZONEORDER
 	int
@@ -75,9 +76,10 @@ config CRIS
 	select GENERIC_IOMAP
 	select MODULES_USE_ELF_RELA
 	select CLONE_BACKWARDS2
+	select HAVE_EXIT_THREAD if ETRAX_ARCH_V32
 	select OLD_SIGSUSPEND
 	select OLD_SIGACTION
-	select ARCH_REQUIRE_GPIOLIB
+	select GPIOLIB
 	select IRQ_DOMAIN if ETRAX_ARCH_V32
 	select OF if ETRAX_ARCH_V32
 	select OF_EARLY_FLATTREE if ETRAX_ARCH_V32
@@ -85,6 +87,7 @@ config CRIS
 	select GENERIC_CLOCKEVENTS if ETRAX_ARCH_V32
 	select GENERIC_SCHED_CLOCK if ETRAX_ARCH_V32
 	select HAVE_DEBUG_BUGVERBOSE if ETRAX_ARCH_V32
+	select HAVE_NMI
 
 config HZ
 	int

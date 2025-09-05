@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/cris/kernel/time.c
  *
@@ -30,7 +31,7 @@
 #include <linux/timex.h>
 #include <linux/init.h>
 #include <linux/profile.h>
-#include <linux/sched.h>	/* just for sched_clock() - funny that */
+#include <linux/sched/clock.h>
 
 int have_rtc;  /* used to remember if we have an RTC or not */;
 

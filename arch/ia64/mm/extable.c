@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Kernel exception handling table support.  Derived from arch/alpha/mm/extable.c.
  *
@@ -102,11 +103,15 @@ search_extable (const struct exception_table_entry *first,
         }
         return NULL;
 }
+#include <asm/ptrace.h>
+#include <asm/extable.h>
+#include <asm/errno.h>
+#include <asm/processor.h>
 
 void
 ia64_handle_exception (struct pt_regs *regs, const struct exception_table_entry *e)
 {
-	long fix = (u64) &e->cont + e->cont;
+	long fix = (u64) &e->fixup + e->fixup;
 
 	regs->r8 = -EFAULT;
 	if (fix & 4)

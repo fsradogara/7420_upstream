@@ -3,6 +3,7 @@
    
    Written By: Adam Radford <linuxraid@amcc.com>
    Written By: Adam Radford <linuxraid@lsi.com>
+   Written By: Adam Radford <aradford@gmail.com>
    Modifications By: Joel Jacobson <linux@3ware.com>
    		     Arnaldo Carvalho de Melo <acme@conectiva.com.br>
                      Brad Strand <linux@3ware.com>
@@ -54,6 +55,8 @@
    For more information, goto:
    http://www.amcc.com
    linuxraid@lsi.com
+
+   aradford@gmail.com
    
    For more information, goto:
    http://www.lsi.com

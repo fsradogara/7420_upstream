@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * memory buffer pool support
  */
@@ -5,6 +6,7 @@
 #define _LINUX_MEMPOOL_H
 
 #include <linux/wait.h>
+#include <linux/compiler.h>
 
 struct kmem_cache;
 
@@ -34,7 +36,7 @@ extern int mempool_resize(mempool_t *pool, int new_min_nr, gfp_t gfp_mask);
 
 extern int mempool_resize(mempool_t *pool, int new_min_nr);
 extern void mempool_destroy(mempool_t *pool);
-extern void * mempool_alloc(mempool_t *pool, gfp_t gfp_mask);
+extern void *mempool_alloc(mempool_t *pool, gfp_t gfp_mask) __malloc;
 extern void mempool_free(void *element, mempool_t *pool);
 
 /*

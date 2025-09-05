@@ -653,7 +653,9 @@ static void udf_table_free_blocks(struct super_block *sb,
 			oepos = epos;
 
 			/* Steal a block from the extent being free'd */
-			epos.block.logicalBlockNum = eloc.logicalBlockNum;
+			udf_setup_indirect_aext(table, eloc.logicalBlockNum,
+						&epos);
+
 			eloc.logicalBlockNum++;
 			elen -= sb->s_blocksize;
 
@@ -754,6 +756,11 @@ static void udf_table_free_blocks(struct super_block *sb,
 				mark_buffer_dirty(epos.bh);
 			}
 		}
+		}
+
+		/* It's possible that stealing the block emptied the extent */
+		if (elen)
+			__udf_add_aext(table, &epos, &eloc, elen, 1);
 	}
 
 	brelse(epos.bh);

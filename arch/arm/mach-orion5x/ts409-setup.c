@@ -29,9 +29,9 @@
 #include <asm/gpio.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/pci.h>
-#include <mach/orion5x.h>
 #include "common.h"
 #include "mpp.h"
+#include "orion5x.h"
 #include "tsx09-common.h"
 
 /*****************************************************************************
@@ -351,6 +351,7 @@ MACHINE_START(TS409, "QNAP TS-409")
 	.timer		= &orion5x_timer,
 	.fixup		= tag_fixup_mem32,
 	.atag_offset	= 0x100,
+	.nr_irqs	= ORION5X_NR_IRQS,
 	.init_machine	= qnap_ts409_init,
 	.map_io		= orion5x_map_io,
 	.init_early	= orion5x_init_early,

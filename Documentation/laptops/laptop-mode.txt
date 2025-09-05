@@ -956,3 +956,4 @@ int main(int argc, char **argv)
 }
 ---------------------------dslm.c END-------------------------------------------
 spends spun up/down.  See Documentation/laptops/dslm.c
+spends spun up/down.  See tools/laptop/dslm/dslm.c

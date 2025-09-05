@@ -114,6 +114,7 @@ static int fast_fail = 1;
 static int client_reserve = 1;
 static char partition_name[97] = "UNKNOWN";
 static unsigned int partition_number = -1;
+static LIST_HEAD(ibmvscsi_head);
 
 static struct scsi_transport_template *ibmvscsi_transport_template;
 
@@ -208,7 +209,7 @@ static struct viosrp_crq *crq_queue_next_crq(struct crq_queue *queue)
 
 	spin_lock_irqsave(&queue->lock, flags);
 	crq = &queue->msgs[queue->cur];
-	if (crq->valid & 0x80) {
+	if (crq->valid != VIOSRP_CRQ_FREE) {
 		if (++queue->cur == queue->size)
 			queue->cur = 0;
 
@@ -257,7 +258,8 @@ static void ibmvscsi_task(void *data)
 		/* Pull all the valid messages off the CRQ */
 		while ((crq = crq_queue_next_crq(&hostdata->queue)) != NULL) {
 			ibmvscsi_handle_crq(crq, hostdata);
-			crq->valid = 0x00;
+			crq->valid = VIOSRP_CRQ_FREE;
+			wmb();
 		}
 
 		vio_enable_interrupts(vdev);
@@ -265,7 +267,8 @@ static void ibmvscsi_task(void *data)
 		if (crq != NULL) {
 			vio_disable_interrupts(vdev);
 			ibmvscsi_handle_crq(crq, hostdata);
-			crq->valid = 0x00;
+			crq->valid = VIOSRP_CRQ_FREE;
+			wmb();
 		} else {
 			done = 1;
 		}
@@ -274,25 +277,23 @@ static void ibmvscsi_task(void *data)
 
 static void gather_partition_info(void)
 {
-	struct device_node *rootdn;
-
 	const char *ppartition_name;
 	const __be32 *p_number_ptr;
 
 	/* Retrieve information about this partition */
-	rootdn = of_find_node_by_path("/");
-	if (!rootdn) {
+	if (!of_root)
 		return;
-	}
 
-	ppartition_name = of_get_property(rootdn, "ibm,partition-name", NULL);
+	of_node_get(of_root);
+
+	ppartition_name = of_get_property(of_root, "ibm,partition-name", NULL);
 	if (ppartition_name)
 		strncpy(partition_name, ppartition_name,
 				sizeof(partition_name));
-	p_number_ptr = of_get_property(rootdn, "ibm,partition-no", NULL);
+	p_number_ptr = of_get_property(of_root, "ibm,partition-no", NULL);
 	if (p_number_ptr)
 		partition_number = of_read_number(p_number_ptr, 1);
-	of_node_put(rootdn);
+	of_node_put(of_root);
 }
 
 static void set_adapter_info(struct ibmvscsi_host_data *hostdata)
@@ -309,8 +310,8 @@ static void set_adapter_info(struct ibmvscsi_host_data *hostdata)
 	hostdata->madapter_info.partition_number =
 					cpu_to_be32(partition_number);
 
-	hostdata->madapter_info.mad_version = cpu_to_be32(1);
-	hostdata->madapter_info.os_type = cpu_to_be32(2);
+	hostdata->madapter_info.mad_version = cpu_to_be32(SRP_MAD_VERSION_1);
+	hostdata->madapter_info.os_type = cpu_to_be32(SRP_MAD_OS_LINUX);
 }
 
 /**
@@ -342,7 +343,7 @@ static int ibmvscsi_reset_crq_queue(struct crq_queue *queue,
 	rc = plpar_hcall_norets(H_REG_CRQ,
 				vdev->unit_address,
 				queue->msg_token, PAGE_SIZE);
-	if (rc == 2) {
+	if (rc == H_CLOSED) {
 		/* Adapter is good, but other end is not ready */
 		dev_warn(hostdata->dev, "Partner adapter not ready\n");
 	} else if (rc != 0) {
@@ -392,7 +393,7 @@ static int ibmvscsi_init_crq_queue(struct crq_queue *queue,
 		rc = ibmvscsi_reset_crq_queue(queue,
 					      hostdata);
 
-	if (rc == 2) {
+	if (rc == H_CLOSED) {
 		/* Adapter is good, but other end is not ready */
 		dev_warn(hostdata->dev, "Partner adapter not ready\n");
 		retrc = 0;
@@ -504,6 +505,7 @@ static int initialize_event_pool(struct event_pool *pool,
 		evt->crq.IU_length = sizeof(*evt->xfer_iu);
 		evt->crq.IU_data_ptr = pool->iu_token + 
 			sizeof(*evt->xfer_iu) * i;
+		evt->crq.valid = VIOSRP_CRQ_CMD_RSP;
 		evt->crq.IU_length = cpu_to_be16(sizeof(*evt->xfer_iu));
 		evt->crq.IU_data_ptr = cpu_to_be64(pool->iu_token +
 			sizeof(*evt->xfer_iu) * i);
@@ -1091,7 +1093,7 @@ static void handle_cmd_rsp(struct srp_event_struct *evt_struct)
 	if (unlikely(rsp->opcode != SRP_RSP)) {
 		if (printk_ratelimit())
 			dev_warn(evt_struct->hostdata->dev,
-				 "bad SRP RSP type %d\n", rsp->opcode);
+				 "bad SRP RSP type %#02x\n", rsp->opcode);
 	}
 	
 	if (cmnd) {
@@ -1635,7 +1637,7 @@ static void adapter_info_rsp(struct srp_event_struct *evt_struct)
 			hostdata->host->max_sectors = 
 				be32_to_cpu(hostdata->madapter_info.port_max_txu[0]) >> 9;
 		
-		if (be32_to_cpu(hostdata->madapter_info.os_type) == 3 &&
+		if (be32_to_cpu(hostdata->madapter_info.os_type) == SRP_MAD_OS_AIX &&
 		    strcmp(hostdata->madapter_info.srp_version, "1.6a") <= 0) {
 			dev_err(hostdata->dev, "host (Ver. %s) doesn't support large transfers\n",
 				hostdata->madapter_info.srp_version);
@@ -1644,7 +1646,7 @@ static void adapter_info_rsp(struct srp_event_struct *evt_struct)
 			hostdata->host->sg_tablesize = MAX_INDIRECT_BUFS;
 		}
 
-		if (be32_to_cpu(hostdata->madapter_info.os_type) == 3) {
+		if (be32_to_cpu(hostdata->madapter_info.os_type) == SRP_MAD_OS_AIX) {
 			enable_fast_fail(hostdata);
 			return;
 		}
@@ -2023,9 +2025,9 @@ static void ibmvscsi_handle_crq(struct viosrp_crq *crq,
 	struct srp_event_struct *evt_struct =
 			(__force struct srp_event_struct *)crq->IU_data_ptr;
 	switch (crq->valid) {
-	case 0xC0:		/* initialization */
+	case VIOSRP_CRQ_INIT_RSP:		/* initialization */
 		switch (crq->format) {
-		case 0x01:	/* Initialization message */
+		case VIOSRP_CRQ_INIT:	/* Initialization message */
 			dev_info(hostdata->dev, "partner initialized\n");
 			/* Send back a response */
 			if ((rc = ibmvscsi_ops->send_crq(hostdata,
@@ -2041,7 +2043,7 @@ static void ibmvscsi_handle_crq(struct viosrp_crq *crq,
 			}
 
 			break;
-		case 0x02:	/* Initialization response */
+		case VIOSRP_CRQ_INIT_COMPLETE:	/* Initialization response */
 			dev_info(hostdata->dev, "partner initialization complete\n");
 
 			/* Now login */
@@ -2052,7 +2054,7 @@ static void ibmvscsi_handle_crq(struct viosrp_crq *crq,
 			dev_err(hostdata->dev, "unknown crq message type: %d\n", crq->format);
 		}
 		return;
-	case 0xFF:	/* Hypervisor telling us the connection is closed */
+	case VIOSRP_CRQ_XPORT_EVENT:	/* Hypervisor telling us the connection is closed */
 		scsi_block_requests(hostdata->host);
 		atomic_set(&hostdata->request_limit, 0);
 		if (crq->format == 0x06) {
@@ -2092,7 +2094,7 @@ static void ibmvscsi_handle_crq(struct viosrp_crq *crq,
 			ibmvscsi_reset_host(hostdata);
 		}
 		return;
-	case 0x80:		/* real payload */
+	case VIOSRP_CRQ_CMD_RSP:		/* real payload */
 		break;
 	default:
 		dev_err(hostdata->dev, "got an invalid message type 0x%02x\n",
@@ -2351,7 +2353,7 @@ static ssize_t show_host_partition_number(struct device *dev,
 	int len;
 
 	len = snprintf(buf, PAGE_SIZE, "%d\n",
-		       hostdata->madapter_info.partition_number);
+		       be32_to_cpu(hostdata->madapter_info.partition_number));
 	return len;
 }
 
@@ -2371,7 +2373,7 @@ static ssize_t show_host_mad_version(struct device *dev,
 	int len;
 
 	len = snprintf(buf, PAGE_SIZE, "%d\n",
-		       hostdata->madapter_info.mad_version);
+		       be32_to_cpu(hostdata->madapter_info.mad_version));
 	return len;
 }
 
@@ -2390,7 +2392,8 @@ static ssize_t show_host_os_type(struct device *dev,
 	struct ibmvscsi_host_data *hostdata = shost_priv(shost);
 	int len;
 
-	len = snprintf(buf, PAGE_SIZE, "%d\n", hostdata->madapter_info.os_type);
+	len = snprintf(buf, PAGE_SIZE, "%d\n",
+		       be32_to_cpu(hostdata->madapter_info.os_type));
 	return len;
 }
 
@@ -2405,21 +2408,14 @@ static struct device_attribute ibmvscsi_host_os_type = {
 static ssize_t show_host_config(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct Scsi_Host *shost = class_to_shost(dev);
-	struct ibmvscsi_host_data *hostdata = shost_priv(shost);
-
-	/* returns null-terminated host config data */
-	if (ibmvscsi_do_host_config(hostdata, buf, PAGE_SIZE) == 0)
-		return strlen(buf);
-	else
-		return 0;
+	return 0;
 }
 
 static struct device_attribute ibmvscsi_host_config = {
 	.attr = {
-		 .name = "config",
-		 .mode = S_IRUGO,
-		 },
+		.name = "config",
+		.mode = S_IRUGO,
+		},
 	.show = show_host_config,
 };
 
@@ -2443,6 +2439,7 @@ static struct scsi_host_template driver_template = {
 	.name = "IBM POWER Virtual SCSI Adapter " IBMVSCSI_VERSION,
 	.proc_name = "ibmvscsi",
 	.queuecommand = ibmvscsi_queuecommand,
+	.eh_timed_out = srp_timed_out,
 	.eh_abort_handler = ibmvscsi_eh_abort_handler,
 	.eh_device_reset_handler = ibmvscsi_eh_device_reset_handler,
 	.eh_host_reset_handler = ibmvscsi_eh_host_reset_handler,
@@ -2659,6 +2656,7 @@ static int ibmvscsi_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 
 	vdev->dev.driver_data = hostdata;
 	dev_set_drvdata(&vdev->dev, hostdata);
+	list_add_tail(&hostdata->host_list, &ibmvscsi_head);
 	return 0;
 
       add_srp_port_failed:
@@ -2687,6 +2685,7 @@ static int ibmvscsi_remove(struct vio_dev *vdev)
 					max_requests);
 
 	struct ibmvscsi_host_data *hostdata = dev_get_drvdata(&vdev->dev);
+	list_del(&hostdata->host_list);
 	unmap_persist_bufs(hostdata);
 	release_event_pool(&hostdata->pool, hostdata);
 	ibmvscsi_release_crq_queue(&hostdata->queue, hostdata,
@@ -2724,13 +2723,13 @@ static int ibmvscsi_resume(struct device *dev)
  * ibmvscsi_device_table: Used by vio.c to match devices in the device tree we 
  * support.
  */
-static struct vio_device_id ibmvscsi_device_table[] = {
+static const struct vio_device_id ibmvscsi_device_table[] = {
 	{"vscsi", "IBM,v-scsi"},
 	{ "", "" }
 };
 MODULE_DEVICE_TABLE(vio, ibmvscsi_device_table);
 
-static struct dev_pm_ops ibmvscsi_pm_ops = {
+static const struct dev_pm_ops ibmvscsi_pm_ops = {
 	.resume = ibmvscsi_resume
 };
 

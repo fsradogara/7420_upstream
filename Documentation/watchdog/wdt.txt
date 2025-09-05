@@ -52,3 +52,4 @@ Minor numbers are however allocated for it.
 
 Example Watchdog Driver:  see Documentation/watchdog/src/watchdog-simple.c
 
+Example Watchdog Driver:  see samples/watchdog/watchdog-simple.c

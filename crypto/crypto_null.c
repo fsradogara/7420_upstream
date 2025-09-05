@@ -32,7 +32,7 @@
 #define NULL_DIGEST_SIZE	0
 #define NULL_IV_SIZE		0
 static DEFINE_MUTEX(crypto_default_null_skcipher_lock);
-static struct crypto_blkcipher *crypto_default_null_skcipher;
+static struct crypto_skcipher *crypto_default_null_skcipher;
 static int crypto_default_null_skcipher_refcnt;
 
 static int null_compress(struct crypto_tfm *tfm, const u8 *src,
@@ -206,15 +206,16 @@ MODULE_ALIAS_CRYPTO("compress_null");
 MODULE_ALIAS_CRYPTO("digest_null");
 MODULE_ALIAS_CRYPTO("cipher_null");
 
-struct crypto_blkcipher *crypto_get_default_null_skcipher(void)
+struct crypto_skcipher *crypto_get_default_null_skcipher(void)
 {
-	struct crypto_blkcipher *tfm;
+	struct crypto_skcipher *tfm;
 
 	mutex_lock(&crypto_default_null_skcipher_lock);
 	tfm = crypto_default_null_skcipher;
 
 	if (!tfm) {
-		tfm = crypto_alloc_blkcipher("ecb(cipher_null)", 0, 0);
+		tfm = crypto_alloc_skcipher("ecb(cipher_null)",
+					    0, CRYPTO_ALG_ASYNC);
 		if (IS_ERR(tfm))
 			goto unlock;
 
@@ -234,7 +235,7 @@ void crypto_put_default_null_skcipher(void)
 {
 	mutex_lock(&crypto_default_null_skcipher_lock);
 	if (!--crypto_default_null_skcipher_refcnt) {
-		crypto_free_blkcipher(crypto_default_null_skcipher);
+		crypto_free_skcipher(crypto_default_null_skcipher);
 		crypto_default_null_skcipher = NULL;
 	}
 	mutex_unlock(&crypto_default_null_skcipher_lock);

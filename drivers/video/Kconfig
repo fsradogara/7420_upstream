@@ -12,10 +12,6 @@ source "drivers/gpu/drm/Kconfig"
 config HAVE_FB_ATMEL
 	bool
 
-config SH_MIPI_DSI
-	tristate
-	depends on (SUPERH || ARCH_SHMOBILE) && HAVE_CLK
-
 config SH_LCD_MIPI_DSI
 	bool
 

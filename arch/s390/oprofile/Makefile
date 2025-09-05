@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_OPROFILE) += oprofile.o
 
 DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \
@@ -9,3 +10,4 @@ DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \
 oprofile-y				:= $(DRIVER_OBJS) init.o backtrace.o
 oprofile-y :=	$(DRIVER_OBJS) init.o backtrace.o
 oprofile-y +=	hwsampler.o
+oprofile-y :=	$(DRIVER_OBJS) init.o

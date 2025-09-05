@@ -24,6 +24,7 @@
 #define SND_DEV_ADSP		12	/* Like /dev/dsp (obsolete) */
 #define SND_DEV_AMIDI		13	/* Like /dev/midi (obsolete) */
 #define SND_DEV_ADMMIDI		14	/* Like /dev/dmmidi (onsolete) */
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_SOUND_H
 #define _LINUX_SOUND_H
 

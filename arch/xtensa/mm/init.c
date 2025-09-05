@@ -8,7 +8,7 @@
  * for more details.
  *
  * Copyright (C) 2001 - 2005 Tensilica Inc.
- * Copyright (C) 2014 Cadence Design Systems Inc.
+ * Copyright (C) 2014 - 2016 Cadence Design Systems Inc.
  *
  * Chris Zankel	<chris@zankel.net>
  * Joe Taylor	<joe@tensilica.com, joetylr@yahoo.com>
@@ -41,6 +41,8 @@ DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 
 extern char _ftext, _etext, _fdata, _edata, _rodata_end;
 extern char __init_begin, __init_end;
+#include <linux/of_fdt.h>
+#include <linux/dma-contiguous.h>
 
 #include <asm/bootparam.h>
 #include <asm/page.h>
@@ -295,39 +297,26 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 
 void __init bootmem_init(void)
 {
-	unsigned long pfn;
-	unsigned long bootmap_start, bootmap_size;
-	int i;
-
-	/* Reserve all memory below PLATFORM_DEFAULT_MEM_START, as memory
+	/* Reserve all memory below PHYS_OFFSET, as memory
 	 * accounting doesn't work for pages below that address.
 	 *
-	 * If PLATFORM_DEFAULT_MEM_START is zero reserve page at address 0:
+	 * If PHYS_OFFSET is zero reserve page at address 0:
 	 * successfull allocations should never return NULL.
 	 */
-	if (PLATFORM_DEFAULT_MEM_START)
-		mem_reserve(0, PLATFORM_DEFAULT_MEM_START, 0);
+	if (PHYS_OFFSET)
+		memblock_reserve(0, PHYS_OFFSET);
 	else
-		mem_reserve(0, 1, 0);
+		memblock_reserve(0, 1);
 
-	sysmem_dump();
-	max_low_pfn = max_pfn = 0;
-	min_low_pfn = ~0;
+	early_init_fdt_scan_reserved_mem();
 
-	for (i=0; i < sysmem.nr_banks; i++) {
-		pfn = PAGE_ALIGN(sysmem.bank[i].start) >> PAGE_SHIFT;
-		if (pfn < min_low_pfn)
-			min_low_pfn = pfn;
-		pfn = PAGE_ALIGN(sysmem.bank[i].end - 1) >> PAGE_SHIFT;
-		if (pfn > max_pfn)
-			max_pfn = pfn;
-	}
-
-	if (min_low_pfn > max_pfn)
+	if (!memblock_phys_mem_size())
 		panic("No memory found!\n");
 
-	max_low_pfn = max_pfn < MAX_MEM_PFN >> PAGE_SHIFT ?
-		max_pfn : MAX_MEM_PFN >> PAGE_SHIFT;
+	min_low_pfn = PFN_UP(memblock_start_of_DRAM());
+	min_low_pfn = max(min_low_pfn, PFN_UP(PHYS_OFFSET));
+	max_pfn = PFN_DOWN(memblock_end_of_DRAM());
+	max_low_pfn = min(max_pfn, MAX_LOW_PFN);
 
 	/* Find an area to use for the bootmem bitmap. */
 
@@ -368,7 +357,10 @@ void __init bootmem_init(void)
 				     end - sysmem.bank[i].start);
 		}
 	}
+	memblock_set_current_limit(PFN_PHYS(max_low_pfn));
+	dma_contiguous_reserve(PFN_PHYS(max_low_pfn));
 
+	memblock_dump_all();
 }
 
 
@@ -503,7 +495,7 @@ free_reserved_mem(void *start, void *end)
 		"    fixmap  : 0x%08lx - 0x%08lx  (%5lu kB)\n"
 #endif
 #ifdef CONFIG_MMU
-		"    vmalloc : 0x%08x - 0x%08x  (%5u MB)\n"
+		"    vmalloc : 0x%08lx - 0x%08lx  (%5lu MB)\n"
 #endif
 		"    lowmem  : 0x%08lx - 0x%08lx  (%5lu MB)\n",
 #ifdef CONFIG_HIGHMEM
@@ -582,16 +574,16 @@ static void __init parse_memmap_one(char *p)
 	switch (*p) {
 	case '@':
 		start_at = memparse(p + 1, &p);
-		add_sysmem_bank(start_at, start_at + mem_size);
+		memblock_add(start_at, mem_size);
 		break;
 
 	case '$':
 		start_at = memparse(p + 1, &p);
-		mem_reserve(start_at, start_at + mem_size, 0);
+		memblock_reserve(start_at, mem_size);
 		break;
 
 	case 0:
-		mem_reserve(mem_size, 0, 0);
+		memblock_reserve(mem_size, -mem_size);
 		break;
 
 	default:

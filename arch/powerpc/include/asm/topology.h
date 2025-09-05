@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_POWERPC_TOPOLOGY_H
 #define _ASM_POWERPC_TOPOLOGY_H
 #ifdef __KERNEL__
@@ -38,8 +39,6 @@ int of_node_to_nid(struct device_node *device);
 #define RECLAIM_DISTANCE 10
 
 #include <asm/mmzone.h>
-
-#define parent_node(node)	(node)
 
 #define cpumask_of_node(node) ((node) == -1 ?				\
 			       cpu_all_mask :				\
@@ -112,8 +111,23 @@ extern void __init dump_numa_cpu_topology(void);
 
 extern int sysfs_add_device_to_node(struct device *dev, int nid);
 extern void sysfs_remove_device_from_node(struct device *dev, int nid);
+extern int numa_update_cpu_topology(bool cpus_locked);
 
+static inline int early_cpu_to_node(int cpu)
+{
+	int nid;
+
+	nid = numa_cpu_lookup_table[cpu];
+
+	/*
+	 * Fall back to node 0 if nid is unset (it should be, except bugs).
+	 * This allows callers to safely do NODE_DATA(early_cpu_to_node(cpu)).
+	 */
+	return (nid < 0) ? 0 : nid;
+}
 #else
+
+static inline int early_cpu_to_node(int cpu) { return 0; }
 
 static inline void dump_numa_cpu_topology(void) {}
 
@@ -132,6 +146,11 @@ static inline void sysfs_remove_device_from_node(struct sys_device *dev,
 static inline void sysfs_remove_device_from_node(struct device *dev,
 						int nid)
 {
+}
+
+static inline int numa_update_cpu_topology(bool cpus_locked)
+{
+	return 0;
 }
 #endif /* CONFIG_NUMA */
 

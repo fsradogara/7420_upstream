@@ -166,7 +166,7 @@ static int load_asic(struct echoaudio *chip)
 		return FALSE;
 				FW_LAYLA24_2S_ASIC);
 	if (err < 0)
-		return false;
+		return err;
 
 	/* Now give the external ASIC a little time to set up */
 	mdelay(10);

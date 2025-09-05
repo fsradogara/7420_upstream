@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright 1999 Hans Reiser, see reiserfs/README for licensing and copyright details
  * Copyright 1999 Hans Reiser, see reiserfs/README for licensing and copyright
@@ -230,6 +231,7 @@ int direct2indirect(struct reiserfs_transaction_handle *th, struct inode *inode,
 		char *kaddr = kmap_atomic(up_to_date_bh->b_page, KM_USER0);
 		memset(kaddr + pgoff, 0, n_blk_size - total_tail);
 		kunmap_atomic(kaddr, KM_USER0);
+		    (tail_offset + total_tail - 1) & (PAGE_SIZE - 1);
 		char *kaddr = kmap_atomic(up_to_date_bh->b_page);
 		memset(kaddr + pgoff, 0, blk_size - total_tail);
 		kunmap_atomic(kaddr);
@@ -426,7 +428,7 @@ int indirect2direct(struct reiserfs_transaction_handle *th,
 	 * the page was locked and this part of the page was up to date when
 	 * indirect2direct was called, so we know the bytes are still valid
 	 */
-	tail = tail + (pos & (PAGE_CACHE_SIZE - 1));
+	tail = tail + (pos & (PAGE_SIZE - 1));
 
 	PATH_LAST_POSITION(path)++;
 

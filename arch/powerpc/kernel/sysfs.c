@@ -116,7 +116,7 @@ static DEFINE_PER_CPU(struct cpu, cpu_devices);
 #ifdef CONFIG_PPC64
 
 /* Time in microseconds we delay before sleeping in the idle loop */
-DEFINE_PER_CPU(long, smt_snooze_delay) = { 100 };
+static DEFINE_PER_CPU(long, smt_snooze_delay) = { 100 };
 
 static ssize_t store_smt_snooze_delay(struct device *dev,
 				      struct device_attribute *attr,
@@ -1256,12 +1256,16 @@ static struct device_attribute pa6t_attrs[] = {
 #endif /* HAS_PPC_PMC_PA6T */
 #endif /* HAS_PPC_PMC_CLASSIC */
 
-static void register_cpu_online(unsigned int cpu)
+static int register_cpu_online(unsigned int cpu)
 {
 	struct cpu *c = &per_cpu(cpu_devices, cpu);
 	struct device *s = &c->dev;
 	struct device_attribute *attrs, *pmc_attrs;
 	int i, nattrs;
+
+	/* For cpus present at boot a reference was already grabbed in register_cpu() */
+	if (!s->of_node)
+		s->of_node = of_get_cpu_node(cpu, NULL);
 
 #ifdef CONFIG_PPC64
 	if (cpu_has_feature(CPU_FTR_SMT))
@@ -1384,10 +1388,11 @@ static void unregister_cpu_online(unsigned int cpu)
 	}
 #endif
 	cacheinfo_cpu_online(cpu);
+	return 0;
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
-static void unregister_cpu_online(unsigned int cpu)
+static int unregister_cpu_online(unsigned int cpu)
 {
 	struct cpu *c = &per_cpu(cpu_devices, cpu);
 	struct device *s = &c->dev;
@@ -1505,7 +1510,13 @@ static int __cpuinit sysfs_cpu_notify(struct notifier_block *self,
 	}
 #endif
 	cacheinfo_cpu_offline(cpu);
+	of_node_put(s->of_node);
+	s->of_node = NULL;
+	return 0;
 }
+#else /* !CONFIG_HOTPLUG_CPU */
+#define unregister_cpu_online NULL
+#endif
 
 #ifdef CONFIG_ARCH_CPU_PROBE_RELEASE
 ssize_t arch_cpu_probe(const char *buf, size_t count)
@@ -1706,12 +1717,10 @@ static DEVICE_ATTR(physical_id, 0444, show_physical_id, NULL);
 
 static int __init topology_init(void)
 {
-	int cpu;
+	int cpu, r;
 
 	register_nodes();
 	register_cpu_notifier(&sysfs_cpu_nb);
-
-	cpu_notifier_register_begin();
 
 	for_each_possible_cpu(cpu) {
 		struct cpu *c = &per_cpu(cpu_devices, cpu);
@@ -1732,15 +1741,10 @@ static int __init topology_init(void)
 			sysdev_create_file(&c->sysdev, &attr_physical_id);
 			device_create_file(&c->dev, &dev_attr_physical_id);
 		}
-
-		if (cpu_online(cpu))
-			register_cpu_online(cpu);
 	}
-
-	__register_cpu_notifier(&sysfs_cpu_nb);
-
-	cpu_notifier_register_done();
-
+	r = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "powerpc/topology:online",
+			      register_cpu_online, unregister_cpu_online);
+	WARN_ON(r < 0);
 #ifdef CONFIG_PPC64
 	sysfs_create_dscr_default();
 #endif /* CONFIG_PPC64 */

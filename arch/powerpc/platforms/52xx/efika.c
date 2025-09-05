@@ -106,6 +106,7 @@ static void __init efika_pcisetup(void)
 		printk(KERN_WARNING EFIKA_PLATFORM_NAME
 		       ": Can't get bus-range for %s\n", pcictrl->full_name);
 		return;
+		       ": Can't get bus-range for %pOF\n", pcictrl);
 		goto out_put;
 	}
 
@@ -115,7 +116,7 @@ static void __init efika_pcisetup(void)
 	else
 		printk(KERN_INFO EFIKA_PLATFORM_NAME ": PCI buses %d..%d",
 		       bus_range[0], bus_range[1]);
-	printk(" controlled by %s\n", pcictrl->full_name);
+	printk(" controlled by %pOF\n", pcictrl);
 	printk("\n");
 
 	hose = pcibios_alloc_controller(of_node_get(pcictrl));
@@ -125,6 +126,8 @@ static void __init efika_pcisetup(void)
 		       ": Can't allocate PCI controller structure for %s\n",
 		       pcictrl->full_name);
 		return;
+		       ": Can't allocate PCI controller structure for %pOF\n",
+		       pcictrl);
 		goto out_put;
 	}
 
@@ -212,6 +215,7 @@ static int __init efika_probe(void)
 					  "model", NULL);
 	const char *model = of_get_flat_dt_prop(of_get_flat_dt_root(),
 						"model", NULL);
+	const char *model = of_get_property(of_root, "model", NULL);
 
 	if (model == NULL)
 		return 0;

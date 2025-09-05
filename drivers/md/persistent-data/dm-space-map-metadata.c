@@ -152,12 +152,9 @@ static int brb_peek(struct bop_ring_buffer *brb, struct block_op *result)
 
 static int brb_pop(struct bop_ring_buffer *brb)
 {
-	struct block_op *bop;
-
 	if (brb_empty(brb))
 		return -ENODATA;
 
-	bop = brb->bops + brb->begin;
 	brb->begin = brb_next(brb, brb->begin);
 
 	return 0;
@@ -547,7 +544,7 @@ static int sm_metadata_copy_root(struct dm_space_map *sm, void *where_le, size_t
 
 static int sm_metadata_extend(struct dm_space_map *sm, dm_block_t extra_blocks);
 
-static struct dm_space_map ops = {
+static const struct dm_space_map ops = {
 	.destroy = sm_metadata_destroy,
 	.extend = sm_metadata_extend,
 	.get_nr_blocks = sm_metadata_get_nr_blocks,
@@ -674,7 +671,7 @@ static int sm_bootstrap_copy_root(struct dm_space_map *sm, void *where,
 	return -EINVAL;
 }
 
-static struct dm_space_map bootstrap_ops = {
+static const struct dm_space_map bootstrap_ops = {
 	.destroy = sm_bootstrap_destroy,
 	.extend = sm_bootstrap_extend,
 	.get_nr_blocks = sm_bootstrap_get_nr_blocks,
@@ -778,16 +775,14 @@ int dm_sm_metadata_create(struct dm_space_map *sm,
 	memcpy(&smm->sm, &bootstrap_ops, sizeof(smm->sm));
 
 	r = sm_ll_new_metadata(&smm->ll, tm);
-	if (r)
-		return r;
-
-	if (nr_blocks > DM_SM_METADATA_MAX_BLOCKS)
-		nr_blocks = DM_SM_METADATA_MAX_BLOCKS;
-	r = sm_ll_extend(&smm->ll, nr_blocks);
-	if (r)
-		return r;
-
+	if (!r) {
+		if (nr_blocks > DM_SM_METADATA_MAX_BLOCKS)
+			nr_blocks = DM_SM_METADATA_MAX_BLOCKS;
+		r = sm_ll_extend(&smm->ll, nr_blocks);
+	}
 	memcpy(&smm->sm, &ops, sizeof(smm->sm));
+	if (r)
+		return r;
 
 	/*
 	 * Now we need to update the newly created data structures with the

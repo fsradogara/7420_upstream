@@ -1,6 +1,7 @@
 #ifndef _ASM_IA64_PARAM_H
 #define _ASM_IA64_PARAM_H
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Fundamental kernel parameters.
  *

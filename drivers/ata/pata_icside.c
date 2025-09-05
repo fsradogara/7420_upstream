@@ -315,6 +315,7 @@ static struct scsi_host_template pata_icside_sht = {
 	.sg_tablesize		= PATA_ICSIDE_MAX_SG,
 	.dma_boundary		= ~0, /* no dma boundaries */
 	.sg_tablesize		= SCSI_MAX_SG_CHAIN_SEGMENTS,
+	.sg_tablesize		= SG_MAX_SEGMENTS,
 	.dma_boundary		= IOMD_DMA_BOUNDARY,
 };
 

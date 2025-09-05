@@ -179,7 +179,7 @@ static int n810_hw_params(struct snd_pcm_substream *substream,
 	return err;
 }
 
-static struct snd_soc_ops n810_ops = {
+static const struct snd_soc_ops n810_ops = {
 	.startup = n810_startup,
 	.hw_params = n810_hw_params,
 	.shutdown = n810_shutdown,
@@ -188,7 +188,7 @@ static struct snd_soc_ops n810_ops = {
 static int n810_get_spk(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = n810_spk_func;
+	ucontrol->value.enumerated.item[0] = n810_spk_func;
 
 	return 0;
 }
@@ -199,11 +199,12 @@ static int n810_set_spk(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec =  snd_kcontrol_chip(kcontrol);
 	struct snd_soc_card *card =  snd_kcontrol_chip(kcontrol);
 
-	if (n810_spk_func == ucontrol->value.integer.value[0])
+	if (n810_spk_func == ucontrol->value.enumerated.item[0])
 		return 0;
 
 	n810_spk_func = ucontrol->value.integer.value[0];
 	n810_ext_control(codec);
+	n810_spk_func = ucontrol->value.enumerated.item[0];
 	n810_ext_control(&card->dapm);
 
 	return 1;
@@ -212,7 +213,7 @@ static int n810_set_spk(struct snd_kcontrol *kcontrol,
 static int n810_get_jack(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = n810_jack_func;
+	ucontrol->value.enumerated.item[0] = n810_jack_func;
 
 	return 0;
 }
@@ -223,11 +224,12 @@ static int n810_set_jack(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec =  snd_kcontrol_chip(kcontrol);
 	struct snd_soc_card *card =  snd_kcontrol_chip(kcontrol);
 
-	if (n810_jack_func == ucontrol->value.integer.value[0])
+	if (n810_jack_func == ucontrol->value.enumerated.item[0])
 		return 0;
 
 	n810_jack_func = ucontrol->value.integer.value[0];
 	n810_ext_control(codec);
+	n810_jack_func = ucontrol->value.enumerated.item[0];
 	n810_ext_control(&card->dapm);
 
 	return 1;
@@ -236,7 +238,7 @@ static int n810_set_jack(struct snd_kcontrol *kcontrol,
 static int n810_get_input(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = n810_dmic_func;
+	ucontrol->value.enumerated.item[0] = n810_dmic_func;
 
 	return 0;
 }
@@ -247,11 +249,12 @@ static int n810_set_input(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec =  snd_kcontrol_chip(kcontrol);
 	struct snd_soc_card *card =  snd_kcontrol_chip(kcontrol);
 
-	if (n810_dmic_func == ucontrol->value.integer.value[0])
+	if (n810_dmic_func == ucontrol->value.enumerated.item[0])
 		return 0;
 
 	n810_dmic_func = ucontrol->value.integer.value[0];
 	n810_ext_control(codec);
+	n810_dmic_func = ucontrol->value.enumerated.item[0];
 	n810_ext_control(&card->dapm);
 
 	return 1;

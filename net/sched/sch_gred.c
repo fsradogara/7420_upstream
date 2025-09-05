@@ -177,6 +177,8 @@ static int gred_enqueue(struct sk_buff *skb, struct Qdisc* sch)
 
 		if ((q = t->tab[dp]) == NULL) {
 static int gred_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+static int gred_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+			struct sk_buff **to_free)
 {
 	struct gred_sched_data *q = NULL;
 	struct gred_sched *t = qdisc_priv(sch);
@@ -299,10 +301,10 @@ static int gred_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 
 	q->stats.pdrop++;
 drop:
-	return qdisc_drop(skb, sch);
+	return qdisc_drop(skb, sch, to_free);
 
 congestion_drop:
-	qdisc_drop(skb, sch);
+	qdisc_drop(skb, sch, to_free);
 	return NET_XMIT_CN;
 }
 
@@ -573,7 +575,7 @@ static int gred_change(struct Qdisc *sch, struct nlattr *opt)
 	if (opt == NULL)
 		return -EINVAL;
 
-	err = nla_parse_nested(tb, TCA_GRED_MAX, opt, gred_policy);
+	err = nla_parse_nested(tb, TCA_GRED_MAX, opt, gred_policy, NULL);
 	if (err < 0)
 		return err;
 
@@ -652,7 +654,7 @@ static int gred_init(struct Qdisc *sch, struct nlattr *opt)
 	if (opt == NULL)
 		return -EINVAL;
 
-	err = nla_parse_nested(tb, TCA_GRED_MAX, opt, gred_policy);
+	err = nla_parse_nested(tb, TCA_GRED_MAX, opt, gred_policy, NULL);
 	if (err < 0)
 		return err;
 
@@ -782,7 +784,6 @@ static struct Qdisc_ops gred_qdisc_ops __read_mostly = {
 	.dequeue	=	gred_dequeue,
 	.requeue	=	gred_requeue,
 	.peek		=	qdisc_peek_head,
-	.drop		=	gred_drop,
 	.init		=	gred_init,
 	.reset		=	gred_reset,
 	.destroy	=	gred_destroy,

@@ -42,7 +42,6 @@ static void __iomem *gpio_regs;
 struct gpio_priv {
 	int mdc_pin;
 	int mdio_pin;
-	int mdio_irqs[PHY_MAX_ADDR];
 };
 
 #define MDC_PIN(bus)	(((struct gpio_priv *)bus->priv)->mdc_pin)
@@ -354,7 +353,7 @@ static struct platform_driver gpio_mdio_driver =
 	},
 };
 
-int gpio_mdio_init(void)
+static int gpio_mdio_init(void)
 {
 	struct device_node *np;
 
@@ -375,7 +374,7 @@ int gpio_mdio_init(void)
 }
 module_init(gpio_mdio_init);
 
-void gpio_mdio_exit(void)
+static void gpio_mdio_exit(void)
 {
 	of_unregister_platform_driver(&gpio_mdio_driver);
 	platform_driver_unregister(&gpio_mdio_driver);

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
 #
 # Check if current architecture are missing any function calls compared
 # to i386.
@@ -154,6 +155,7 @@ cat << EOF
 #define __IGNORE_sysfs
 #define __IGNORE_uselib
 #define __IGNORE__sysctl
+#define __IGNORE_arch_prctl
 
 /* ... including the "new" 32-bit uid syscalls */
 #define __IGNORE_lchown32
@@ -215,14 +217,12 @@ sed -n -e '/^\#define/ { s/[^_]*__NR_\([^[:space:]]*\).*/\
 
 (ignore_list && syscall_list ${srctree}/include/asm-x86/unistd_32.h) | \
     grep '^[0-9]' "$1" | sort -n | (
+    grep '^[0-9]' "$1" | sort -n |
 	while read nr abi name entry ; do
-	    cat <<EOF
-#if !defined(__NR_${name}) && !defined(__IGNORE_${name})
-#warning syscall ${name} not implemented
-#endif
-EOF
+		echo "#if !defined(__NR_${name}) && !defined(__IGNORE_${name})"
+		echo "#warning syscall ${name} not implemented"
+		echo "#endif"
 	done
-    )
 }
 
 (ignore_list && syscall_list $(dirname $0)/../arch/x86/entry/syscalls/syscall_32.tbl) | \

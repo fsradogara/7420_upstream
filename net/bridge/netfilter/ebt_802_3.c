@@ -33,8 +33,9 @@ ebt_802_3_mt(const struct sk_buff *skb, struct xt_action_param *par)
 				return EBT_NOMATCH;
 		if (FWINV(info->sap != hdr->llc.ui.dsap, EBT_802_3_SAP))
 				return EBT_NOMATCH;
+		if (NF_INVF(info, EBT_802_3_SAP, info->sap != hdr->llc.ui.ssap))
 			return false;
-		if (FWINV(info->sap != hdr->llc.ui.dsap, EBT_802_3_SAP))
+		if (NF_INVF(info, EBT_802_3_SAP, info->sap != hdr->llc.ui.dsap))
 			return false;
 	}
 
@@ -57,7 +58,7 @@ static int ebt_802_3_check(const char *tablename, unsigned int hookmask,
 	if (datalen < sizeof(struct ebt_802_3_info))
 		return -EINVAL;
 			return false;
-		if (FWINV(info->type != type, EBT_802_3_TYPE))
+		if (NF_INVF(info, EBT_802_3_TYPE, info->type != type))
 			return false;
 	}
 

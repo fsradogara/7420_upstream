@@ -1,6 +1,4 @@
-
-  Using physical DMA provided by OHCI-1394 FireWire controllers for debugging
-  ---------------------------------------------------------------------------
+Using physical DMA provided by OHCI-1394 FireWire controllers for debugging
 
 Introduction
 ------------
@@ -119,17 +117,17 @@ Step-by-step instructions for using firescope with early OHCI initialization:
    ohci1394: fw-host0: OHCI-1394 1.1 (PCI): IRQ=[18]  MMIO=[fe9ff800-fe9fffff]
    ... Max Packet=[2048]  IR/IT contexts=[4/8]
    Load the firewire-ohci module and check your kernel logs.
-   You should see a line similar to
+   You should see a line similar to::
 
-   firewire_ohci 0000:15:00.1: added OHCI v1.0 device as card 2, 4 IR + 4 IT
-   ... contexts, quirks 0x11
+     firewire_ohci 0000:15:00.1: added OHCI v1.0 device as card 2, 4 IR + 4 IT
+     ... contexts, quirks 0x11
 
    when loading the driver. If you have no supported controller, many PCI,
    CardBus and even some Express cards which are fully compliant to OHCI-1394
    specification are available. If it requires no driver for Windows operating
    systems, it most likely is. Only specialized shops have cards which are not
-   compliant, they are based on TI PCILynx chips and require drivers for Win-
-   dows operating systems.
+   compliant, they are based on TI PCILynx chips and require drivers for Windows
+   operating systems.
 
    The mentioned kernel log message contains the string "physUB" if the
    controller implements a writable Physical Upper Bound register.  This is
@@ -141,10 +139,11 @@ Step-by-step instructions for using firescope with early OHCI initialization:
    stable connection and has matching connectors (there are small 4-pin and
    large 6-pin FireWire ports) will do.
 
-   If an driver is running on both machines you should see a line like
+   If an driver is running on both machines you should see a line like::
 
    ieee1394: Node added: ID:BUS[0-01:1023]  GUID[0090270001b84bba]
    firewire_core 0000:15:00.1: created device fw1: GUID 00061b0020105917, S400
+     firewire_core 0000:15:00.1: created device fw1: GUID 00061b0020105917, S400
 
    on both machines in the kernel log when the cable is plugged in
    and connects the two machines.
@@ -159,7 +158,7 @@ Step-by-step instructions for using firescope with early OHCI initialization:
 	$ firescope
 	Port 0 (ohci1394) opened, 2 nodes detected
    On the debug host, make sure that /dev/fw* is accessible,
-   then start firescope:
+   then start firescope::
 
 	$ firescope
 	Port 0 (/dev/fw1) opened, 2 nodes detected
@@ -199,7 +198,7 @@ Step-by-step instructions for using firescope with early OHCI initialization:
    host loaded, reboot the debugged machine, booting the kernel which has
    CONFIG_PROVIDE_OHCI1394_DMA_INIT enabled, with the option ohci1394_dma=early.
 
-   Then, on the debugging host, run firescope, for example by using -A:
+   Then, on the debugging host, run firescope, for example by using -A::
 
 	firescope -A System.map-of-debug-target-kernel
 
@@ -218,6 +217,7 @@ Documentation and specifications: ftp://ftp.suse.de/private/bk/firewire/docs
 
 FireWire is a trademark of Apple Inc. - for more information please refer to:
 http://en.wikipedia.org/wiki/FireWire
+
 Documentation and specifications: http://halobates.de/firewire/
 
 FireWire is a trademark of Apple Inc. - for more information please refer to:

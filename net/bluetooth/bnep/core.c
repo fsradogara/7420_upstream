@@ -471,12 +471,12 @@ static int bnep_rx_frame(struct bnep_session *s, struct sk_buff *skb)
 	/* Decompress header and construct ether frame */
 	switch (type & BNEP_TYPE_MASK) {
 	case BNEP_COMPRESSED:
-		memcpy(__skb_put(nskb, ETH_HLEN), &s->eh, ETH_HLEN);
+		__skb_put_data(nskb, &s->eh, ETH_HLEN);
 		break;
 
 	case BNEP_COMPRESSED_SRC_ONLY:
-		memcpy(__skb_put(nskb, ETH_ALEN), s->eh.h_dest, ETH_ALEN);
-		memcpy(__skb_put(nskb, ETH_ALEN), skb_mac_header(skb), ETH_ALEN);
+		__skb_put_data(nskb, s->eh.h_dest, ETH_ALEN);
+		__skb_put_data(nskb, skb_mac_header(skb), ETH_ALEN);
 		put_unaligned(s->eh.h_proto, (__be16 *) __skb_put(nskb, 2));
 		break;
 
@@ -494,6 +494,12 @@ static int bnep_rx_frame(struct bnep_session *s, struct sk_buff *skb)
 		memcpy(__skb_put(nskb, ETH_ALEN * 2), skb_mac_header(skb),
 		       ETH_ALEN * 2);
 								ETH_ALEN * 2);
+		__skb_put_data(nskb, skb_mac_header(skb), ETH_ALEN);
+		__skb_put_data(nskb, s->eh.h_source, ETH_ALEN + 2);
+		break;
+
+	case BNEP_GENERAL:
+		__skb_put_data(nskb, skb_mac_header(skb), ETH_ALEN * 2);
 		put_unaligned(s->eh.h_proto, (__be16 *) __skb_put(nskb, 2));
 		break;
 	}
@@ -594,7 +600,7 @@ static int bnep_session(void *arg)
 	struct net_device *dev = s->dev;
 	struct sock *sk = s->sock->sk;
 	struct sk_buff *skb;
-	wait_queue_t wait;
+	DEFINE_WAIT_FUNC(wait, woken_wake_function);
 
 	BT_DBG("");
 
@@ -612,10 +618,10 @@ static int bnep_session(void *arg)
 			bnep_rx_frame(s, skb);
 	set_user_nice(current, -15);
 
-	init_waitqueue_entry(&wait, current);
 	add_wait_queue(sk_sleep(sk), &wait);
 	while (1) {
-		set_current_state(TASK_INTERRUPTIBLE);
+		/* Ensure session->terminate is updated */
+		smp_mb__before_atomic();
 
 		if (atomic_read(&s->terminate))
 			break;
@@ -638,7 +644,7 @@ static int bnep_session(void *arg)
 				break;
 		netif_wake_queue(dev);
 
-		schedule();
+		wait_woken(&wait, TASK_INTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
 	}
 	set_current_state(TASK_RUNNING);
 	remove_wait_queue(sk->sk_sleep, &wait);
@@ -758,8 +764,11 @@ int bnep_add_connection(struct bnep_connadd_req *req, struct socket *sock)
 	s->msg.msg_flags = MSG_NOSIGNAL;
 
 #ifdef CONFIG_BT_BNEP_MC_FILTER
-	/* Set default mc filter */
-	set_bit(bnep_mc_hash(dev->broadcast), (ulong *) &s->mc_filter);
+	/* Set default mc filter to not filter out any mc addresses
+	 * as defined in the BNEP specification (revision 0.95a)
+	 * http://grouper.ieee.org/groups/802/15/Bluetooth/BNEP.pdf
+	 */
+	s->mc_filter = ~0LL;
 #endif
 
 #ifdef CONFIG_BT_BNEP_PROTO_FILTER
@@ -833,7 +842,7 @@ int bnep_del_connection(struct bnep_conndel_req *req)
 		atomic_inc(&s->killed);
 		wake_up_interruptible(s->sock->sk->sk_sleep);
 		atomic_inc(&s->terminate);
-		wake_up_process(s->task);
+		wake_up_interruptible(sk_sleep(s->sock->sk));
 	} else
 		err = -ENOENT;
 

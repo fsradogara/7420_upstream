@@ -20,7 +20,7 @@
 #include <linux/module.h>
 #include <asm/system.h>
 #include <linux/bitops.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/crc16.h>
 #include <linux/string.h>
 #include <linux/mm.h>
@@ -308,7 +308,7 @@ static void ax_bump(struct mkiss *ax)
 		return;
 	}
 
-	memcpy(skb_put(skb,count), ax->rbuff, count);
+	skb_put_data(skb, ax->rbuff, count);
 	skb->protocol = ax25_type_trans(skb, ax->dev);
 	netif_rx(skb);
 	ax->dev->last_rx = jiffies;
@@ -545,7 +545,7 @@ static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += actual;
 
-	ax->dev->trans_start = jiffies;
+	netif_trans_update(ax->dev);
 	ax->xleft = count - actual;
 	ax->xhead = ax->xbuff + actual;
 }
@@ -575,7 +575,7 @@ static netdev_tx_t ax_xmit(struct sk_buff *skb, struct net_device *dev)
 		 * May be we must check transmitter timeout here ?
 		 *      14 Oct 1994 Dmitry Gorodchanin.
 		 */
-		if (time_before(jiffies, dev->trans_start + 20 * HZ)) {
+		if (time_before(jiffies, dev_trans_start(dev) + 20 * HZ)) {
 			/* 20 sec timeout not reached */
 			return 1;
 			return NETDEV_TX_BUSY;
@@ -732,6 +732,8 @@ static void ax_setup(struct net_device *dev)
 	dev->set_mac_address = ax_set_mac_address;
 	dev->hard_header_len = 0;
 	dev->addr_len        = 0;
+	dev->hard_header_len = AX25_MAX_HEADER_LEN;
+	dev->addr_len        = AX25_ADDR_LEN;
 	dev->type            = ARPHRD_AX25;
 	dev->tx_queue_len    = 10;
 	dev->header_ops      = &ax_header_ops;

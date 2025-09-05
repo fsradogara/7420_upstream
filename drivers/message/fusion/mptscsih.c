@@ -1627,13 +1627,10 @@ mptscsih_qcmd(struct scsi_cmnd *SCpnt)
 	}
 	if ((vdevice->vtarget->tflags & MPT_TARGET_FLAGS_Q_YES)
 	    && (SCpnt->device->tagged_supported)) {
+	if ((vdevice->vtarget->tflags & MPT_TARGET_FLAGS_Q_YES) &&
+	    SCpnt->device->tagged_supported)
 		scsictl = scsidir | MPI_SCSIIO_CONTROL_SIMPLEQ;
-		if (SCpnt->request && SCpnt->request->ioprio) {
-			if (((SCpnt->request->ioprio & 0x7) == 1) ||
-				!(SCpnt->request->ioprio & 0x7))
-				scsictl |= MPI_SCSIIO_CONTROL_HEADOFQ;
-		}
-	} else
+	else
 		scsictl = scsidir | MPI_SCSIIO_CONTROL_UNTAGGED;
 
 

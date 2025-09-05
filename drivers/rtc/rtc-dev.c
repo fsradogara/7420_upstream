@@ -17,7 +17,7 @@
 
 #include <linux/module.h>
 #include <linux/rtc.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include "rtc-core.h"
 
 static dev_t rtc_devt;
@@ -26,28 +26,19 @@ static dev_t rtc_devt;
 
 static int rtc_dev_open(struct inode *inode, struct file *file)
 {
-	int err;
 	struct rtc_device *rtc = container_of(inode->i_cdev,
 					struct rtc_device, char_dev);
-	const struct rtc_class_ops *ops = rtc->ops;
 
 	if (test_and_set_bit_lock(RTC_DEV_BUSY, &rtc->flags))
 		return -EBUSY;
 
 	file->private_data = rtc;
 
-	err = ops->open ? ops->open(rtc->dev.parent) : 0;
-	if (err == 0) {
-		spin_lock_irq(&rtc->irq_lock);
-		rtc->irq_data = 0;
-		spin_unlock_irq(&rtc->irq_lock);
+	spin_lock_irq(&rtc->irq_lock);
+	rtc->irq_data = 0;
+	spin_unlock_irq(&rtc->irq_lock);
 
-		return 0;
-	}
-
-	/* something has gone wrong */
-	clear_bit_unlock(RTC_DEV_BUSY, &rtc->flags);
-	return err;
+	return 0;
 }
 
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
@@ -541,6 +532,7 @@ void rtc_dev_prepare(struct rtc_device *rtc)
 	if (rtc->id >= RTC_DEV_MAX) {
 		pr_debug("%s: too many RTC devices\n", rtc->name);
 		dev_dbg(&rtc->dev, "%s: too many RTC devices\n", rtc->name);
+		dev_dbg(&rtc->dev, "too many RTC devices\n");
 		return;
 	}
 

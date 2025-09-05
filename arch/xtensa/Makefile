@@ -77,9 +77,11 @@ endif
 
 ifeq ($(shell echo __XTENSA_EB__ | $(CC) -E - | grep -v "\#"),1)
 CHECKFLAGS += -D__XTENSA_EB__
+KBUILD_CPPFLAGS += -DCONFIG_CPU_BIG_ENDIAN
 endif
 ifeq ($(shell echo __XTENSA_EL__ | $(CC) -E - | grep -v "\#"),1)
 CHECKFLAGS += -D__XTENSA_EL__
+KBUILD_CPPFLAGS += -DCONFIG_CPU_LITTLE_ENDIAN
 endif
 
 vardirs := $(patsubst %,arch/xtensa/variants/%/,$(variant-y))
@@ -154,6 +156,7 @@ define archhelp
 endef
 
 zImage: vmlinux
+all Image zImage uImage: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $@
 
 %.dtb:
@@ -163,6 +166,8 @@ dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts
 
 define archhelp
+  @echo '* Image       - Kernel ELF image with reset vector'
   @echo '* zImage      - Compressed kernel image (arch/xtensa/boot/images/zImage.*)'
+  @echo '* uImage      - U-Boot wrapped image'
   @echo '  dtbs        - Build device tree blobs for enabled boards'
 endef

@@ -277,6 +277,7 @@ int xilinx_intc_get_irq(void)
 	pr_debug("get_irq:\n");
 	return irq_linear_revmap(master_irqhost, in_be32(regs + XINTC_IVR));
 }
+#include <linux/irqchip.h>
 
 #if defined(CONFIG_PPC_I8259)
 /*
@@ -325,12 +326,6 @@ static void __init xilinx_i8259_setup_cascade(void)
 static inline void xilinx_i8259_setup_cascade(void) { return; }
 #endif /* defined(CONFIG_PPC_I8259) */
 
-static const struct of_device_id xilinx_intc_match[] __initconst = {
-	{ .compatible = "xlnx,opb-intc-1.00.c", },
-	{ .compatible = "xlnx,xps-intc-1.00.a", },
-	{}
-};
-
 /*
  * Initialize master Xilinx interrupt controller
  */
@@ -363,5 +358,6 @@ void __init xilinx_intc_init_tree(void)
 	irq_set_default_host(master_irqhost);
 	of_node_put(np);
 
+	irqchip_init();
 	xilinx_i8259_setup_cascade();
 }

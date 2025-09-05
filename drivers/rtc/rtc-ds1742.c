@@ -33,8 +33,6 @@
 #include <linux/io.h>
 #include <linux/module.h>
 
-#define DRV_VERSION "0.4"
-
 #define RTC_SIZE		8
 
 #define RTC_CONTROL		0
@@ -391,5 +389,4 @@ module_platform_driver(ds1742_rtc_driver);
 MODULE_AUTHOR("Atsushi Nemoto <anemo@mba.ocn.ne.jp>");
 MODULE_DESCRIPTION("Dallas DS1742 RTC driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);
 MODULE_ALIAS("platform:rtc-ds1742");

@@ -17,6 +17,8 @@
 
 #include <linux/types.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/mm_types.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -184,7 +186,8 @@ void show_stack(struct task_struct *task, unsigned long *esp)
 	printk("Stack from %08lx:", (unsigned long)stack);
 	pr_info("Stack from %08lx:", (unsigned long)stack);
 	for (i = 0; i < kstack_depth_to_print; i++) {
-		if (((unsigned long)stack & (THREAD_SIZE - 1)) == 0)
+		if (((unsigned long)stack & (THREAD_SIZE - 1)) >=
+		    THREAD_SIZE-4)
 			break;
 		if (i % 8 == 0)
 			printk("\n       ");
@@ -194,12 +197,14 @@ void show_stack(struct task_struct *task, unsigned long *esp)
 	printk("\nCall Trace:");
 			pr_info("\n       ");
 		pr_info(" %08lx", *stack++);
+			pr_info(" ");
+		pr_cont(" %08lx", *stack++);
 	}
 
-	pr_info("\nCall Trace:");
+	pr_info("\nCall Trace:\n");
 	i = 0;
 	stack = esp;
-	while (((unsigned long)stack & (THREAD_SIZE - 1)) != 0) {
+	while (((unsigned long)stack & (THREAD_SIZE - 1)) < THREAD_SIZE-4) {
 		addr = *stack++;
 		/*
 		 * If the address is either in the text segment of the
@@ -219,6 +224,8 @@ void show_stack(struct task_struct *task, unsigned long *esp)
 	printk("\n");
 				pr_info("\n       ");
 			pr_info(" [<%08lx>]", addr);
+				pr_info("       ");
+			pr_cont(" [<%08lx>]", addr);
 			i++;
 		}
 	}

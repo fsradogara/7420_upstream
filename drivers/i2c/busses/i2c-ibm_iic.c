@@ -45,6 +45,8 @@
 #include <linux/of_platform.h>
 #include <linux/of_i2c.h>
 #include <linux/interrupt.h>
+#include <linux/sched/signal.h>
+
 #include <asm/irq.h>
 #include <linux/io.h>
 #include <linux/i2c.h>
@@ -116,7 +118,7 @@ static void dump_iic_regs(const char* header, struct ibm_iic_private* dev)
 #endif
 
 /* Bus timings (in ns) for bit-banging */
-static struct i2c_timings {
+static struct ibm_iic_timings {
 	unsigned int hd_sta;
 	unsigned int su_sto;
 	unsigned int low;
@@ -258,7 +260,7 @@ static int iic_dc_wait(volatile struct iic_regs __iomem *iic, u8 mask)
 static int iic_smbus_quick(struct ibm_iic_private* dev, const struct i2c_msg* p)
 {
 	volatile struct iic_regs __iomem *iic = dev->vaddr;
-	const struct i2c_timings* t = &timings[dev->fast_mode ? 1 : 0];
+	const struct ibm_iic_timings *t = &timings[dev->fast_mode ? 1 : 0];
 	u8 mask, v, sda;
 	int i, res;
 
@@ -286,7 +288,7 @@ static int iic_smbus_quick(struct ibm_iic_private* dev, const struct i2c_msg* p)
 	ndelay(t->hd_sta);
 
 	/* Send address */
-	v = (u8)((p->addr << 1) | ((p->flags & I2C_M_RD) ? 1 : 0));
+	v = i2c_8bit_addr_from_msg(p);
 	for (i = 0, mask = 0x80; i < 8; ++i, mask >>= 1){
 		out_8(&iic->directcntl, sda);
 		ndelay(t->low / 2);
@@ -798,10 +800,8 @@ static int iic_probe(struct platform_device *ofdev)
 	adap->timeout = HZ;
 
 	ret = i2c_add_adapter(adap);
-	if (ret  < 0) {
-		dev_err(&ofdev->dev, "failed to register i2c adapter\n");
+	if (ret  < 0)
 		goto error_cleanup;
-	}
 
 	/* Now register all the child nodes */
 	of_register_i2c_devices(adap, np);

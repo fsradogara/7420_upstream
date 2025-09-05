@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/ufs/namei.c
  *
@@ -176,7 +177,8 @@ static int ufs_symlink (struct inode * dir, struct dentry * dentry,
 
 	if (l > UFS_SB(sb)->s_uspi->s_maxsymlinklen) {
 		/* slow symlink */
-		inode->i_op = &ufs_symlink_inode_operations;
+		inode->i_op = &page_symlink_inode_operations;
+		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &ufs_aops;
 		err = page_symlink(inode, symname, l);
 		if (err)
@@ -185,6 +187,7 @@ static int ufs_symlink (struct inode * dir, struct dentry * dentry,
 		/* fast symlink */
 		inode->i_op = &ufs_fast_symlink_inode_operations;
 		memcpy((char*)&UFS_I(inode)->i_u1.i_data,symname,l);
+		inode->i_op = &simple_symlink_inode_operations;
 		inode->i_link = (char *)UFS_I(inode)->i_u1.i_symlink;
 		memcpy(inode->i_link, symname, l);
 		inode->i_size = l-1;
@@ -243,7 +246,7 @@ static int ufs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 	struct inode *inode = d_inode(old_dentry);
 	int error;
 
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode->i_ctime = current_time(inode);
 	inode_inc_link_count(inode);
 	ihold(inode);
 
@@ -352,7 +355,8 @@ static int ufs_rmdir (struct inode * dir, struct dentry *dentry)
 }
 
 static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
-		      struct inode *new_dir, struct dentry *new_dentry)
+		      struct inode *new_dir, struct dentry *new_dentry,
+		      unsigned int flags)
 {
 	struct inode *old_inode = old_dentry->d_inode;
 	struct inode *new_inode = new_dentry->d_inode;
@@ -365,6 +369,9 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int err = -ENOENT;
 
 	old_de = ufs_find_entry(old_dir, old_dentry, &old_page);
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
+
 	old_de = ufs_find_entry(old_dir, &old_dentry->d_name, &old_page);
 	if (!old_de)
 		goto out;
@@ -394,7 +401,7 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (!new_de)
 			goto out_dir;
 		ufs_set_link(new_dir, new_de, new_page, old_inode, 1);
-		new_inode->i_ctime = CURRENT_TIME_SEC;
+		new_inode->i_ctime = current_time(new_inode);
 		if (dir_de)
 			drop_nlink(new_inode);
 		inode_dec_link_count(new_inode);
@@ -422,7 +429,7 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
  	 * rename.
 	 * inode_dec_link_count() will mark the inode dirty.
 	 */
-	old_inode->i_ctime = CURRENT_TIME_SEC;
+	old_inode->i_ctime = current_time(old_inode);
 
 	ufs_delete_entry(old_dir, old_de, old_page);
 	inode_dec_link_count(old_inode);
@@ -436,7 +443,7 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			ufs_set_link(old_inode, dir_de, dir_page, new_dir, 0);
 		else {
 			kunmap(dir_page);
-			page_cache_release(dir_page);
+			put_page(dir_page);
 		}
 		inode_dec_link_count(old_dir);
 	}
@@ -446,11 +453,11 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
 out_dir:
 	if (dir_de) {
 		kunmap(dir_page);
-		page_cache_release(dir_page);
+		put_page(dir_page);
 	}
 out_old:
 	kunmap(old_page);
-	page_cache_release(old_page);
+	put_page(old_page);
 out:
 	return err;
 }

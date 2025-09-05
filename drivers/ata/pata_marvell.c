@@ -156,6 +156,7 @@ static int marvell_init_one (struct pci_dev *pdev, const struct pci_device_id *i
 
 #if defined(CONFIG_AHCI) || defined(CONFIG_AHCI_MODULE)
 #if defined(CONFIG_SATA_AHCI) || defined(CONFIG_SATA_AHCI_MODULE)
+#if IS_ENABLED(CONFIG_SATA_AHCI)
 	if (!marvell_pata_active(pdev)) {
 		printk(KERN_INFO DRV_NAME ": PATA port not active, deferring to AHCI driver.\n");
 		return -ENODEV;

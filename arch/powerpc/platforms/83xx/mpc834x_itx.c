@@ -77,6 +77,7 @@ static void __init mpc834x_itx_setup_arch(void)
 		ppc_md.progress("mpc834x_itx_setup_arch()", 0);
 
 	mpc83xx_setup_pci();
+	mpc83xx_setup_arch();
 
 	mpc834x_usb_cfg();
 }
@@ -102,9 +103,7 @@ static void __init mpc834x_itx_init_IRQ(void)
  */
 static int __init mpc834x_itx_probe(void)
 {
-        unsigned long root = of_get_flat_dt_root();
-
-        return of_flat_dt_is_compatible(root, "MPC834xMITX");
+	return of_machine_is_compatible("MPC834xMITX");
 }
 
 define_machine(mpc834x_itx) {

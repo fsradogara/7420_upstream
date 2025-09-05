@@ -26,13 +26,13 @@
 #include <linux/gfp.h>
 #include <linux/pagemap.h>
 #include <linux/pagevec.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/swap.h>
 #include <linux/uio.h>
 #include <linux/writeback.h>
 
 #include <asm/page.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "attrib.h"
 #include "bitmap.h"
@@ -229,8 +229,8 @@ do_non_resident_extend:
 		m = NULL;
 	}
 	mapping = vi->i_mapping;
-	index = old_init_size >> PAGE_CACHE_SHIFT;
-	end_index = (new_init_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	index = old_init_size >> PAGE_SHIFT;
+	end_index = (new_init_size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	do {
 		/*
 		 * Read the page.  If the page is not present, this will zero
@@ -242,7 +242,7 @@ do_non_resident_extend:
 			goto init_err_out;
 		}
 		if (unlikely(PageError(page))) {
-			page_cache_release(page);
+			put_page(page);
 			err = -EIO;
 			goto init_err_out;
 		}
@@ -251,13 +251,13 @@ do_non_resident_extend:
 		 * enough to make ntfs_writepage() work.
 		 */
 		write_lock_irqsave(&ni->size_lock, flags);
-		ni->initialized_size = (s64)(index + 1) << PAGE_CACHE_SHIFT;
+		ni->initialized_size = (s64)(index + 1) << PAGE_SHIFT;
 		if (ni->initialized_size > new_init_size)
 			ni->initialized_size = new_init_size;
 		write_unlock_irqrestore(&ni->size_lock, flags);
 		/* Set the page dirty so it gets written out. */
 		set_page_dirty(page);
-		page_cache_release(page);
+		put_page(page);
 		/*
 		 * Play nice with the vm and the rest of the system.  This is
 		 * very much needed as we can potentially be modifying the
@@ -626,7 +626,7 @@ out:
 err_out:
 	while (nr > 0) {
 		unlock_page(pages[--nr]);
-		page_cache_release(pages[nr]);
+		put_page(pages[nr]);
 	}
 	goto out;
 }
@@ -636,7 +636,7 @@ static inline int ntfs_submit_bh_for_read(struct buffer_head *bh)
 	lock_buffer(bh);
 	get_bh(bh);
 	bh->b_end_io = end_buffer_read_sync;
-	return submit_bh(READ, bh);
+	return submit_bh(REQ_OP_READ, 0, bh);
 }
 
 /**
@@ -656,7 +656,7 @@ static inline int ntfs_submit_bh_for_read(struct buffer_head *bh)
  * only partially being written to.
  *
  * If @nr_pages is greater than one, we are guaranteed that the cluster size is
- * greater than PAGE_CACHE_SIZE, that all pages in @pages are entirely inside
+ * greater than PAGE_SIZE, that all pages in @pages are entirely inside
  * the same cluster and that they are the entirety of that cluster, and that
  * the cluster is sparse, i.e. we need to allocate a cluster to fill the hole.
  *
@@ -736,7 +736,7 @@ static int ntfs_prepare_pages_for_non_resident_write(struct page **pages,
 	u = 0;
 do_next_page:
 	page = pages[u];
-	bh_pos = (s64)page->index << PAGE_CACHE_SHIFT;
+	bh_pos = (s64)page->index << PAGE_SHIFT;
 	bh = head = page_buffers(page);
 	do {
 		VCN cdelta;
@@ -823,8 +823,7 @@ map_buffer_cached:
 					set_buffer_uptodate(bh);
 				if (unlikely(was_hole)) {
 					/* We allocated the buffer. */
-					unmap_underlying_metadata(bh->b_bdev,
-							bh->b_blocknr);
+					clean_bdev_bh_alias(bh);
 					if (bh_end <= pos || bh_pos >= end)
 						mark_buffer_dirty(bh);
 					else
@@ -867,7 +866,7 @@ map_buffer_cached:
 				continue;
 			}
 			/* We allocated the buffer. */
-			unmap_underlying_metadata(bh->b_bdev, bh->b_blocknr);
+			clean_bdev_bh_alias(bh);
 			/*
 			 * If the buffer is fully outside the write, zero it,
 			 * set it uptodate, and mark it dirty so it gets
@@ -894,11 +893,11 @@ map_buffer_cached:
 				kaddr = kmap_atomic(page, KM_USER0);
 				kaddr = kmap_atomic(page);
 				if (bh_pos < pos) {
-					pofs = bh_pos & ~PAGE_CACHE_MASK;
+					pofs = bh_pos & ~PAGE_MASK;
 					memset(kaddr + pofs, 0, pos - bh_pos);
 				}
 				if (bh_end > end) {
-					pofs = end & ~PAGE_CACHE_MASK;
+					pofs = end & ~PAGE_MASK;
 					memset(kaddr + pofs, 0, bh_end - end);
 				}
 				kunmap_atomic(kaddr, KM_USER0);
@@ -1027,7 +1026,7 @@ rl_not_mapped_enoent:
 		 * unmapped.  This can only happen when the cluster size is
 		 * less than the page cache size.
 		 */
-		if (unlikely(vol->cluster_size < PAGE_CACHE_SIZE)) {
+		if (unlikely(vol->cluster_size < PAGE_SIZE)) {
 			bh_cend = (bh_end + vol->cluster_size - 1) >>
 					vol->cluster_size_bits;
 			if ((bh_cend <= cpos || bh_cpos >= cend)) {
@@ -1293,7 +1292,7 @@ rl_not_mapped_enoent:
 		wait_on_buffer(bh);
 		if (likely(buffer_uptodate(bh))) {
 			page = bh->b_page;
-			bh_pos = ((s64)page->index << PAGE_CACHE_SHIFT) +
+			bh_pos = ((s64)page->index << PAGE_SHIFT) +
 					bh_offset(bh);
 			/*
 			 * If the buffer overflows the initialized size, need
@@ -1435,7 +1434,7 @@ rl_not_mapped_enoent:
 		bh = head = page_buffers(page);
 		do {
 			if (u == nr_pages &&
-					((s64)page->index << PAGE_CACHE_SHIFT) +
+					((s64)page->index << PAGE_SHIFT) +
 					bh_offset(bh) >= end)
 				break;
 			if (!buffer_new(bh))
@@ -1682,7 +1681,7 @@ static inline int ntfs_commit_pages_after_non_resident_write(
 		bool partial;
 
 		page = pages[u];
-		bh_pos = (s64)page->index << PAGE_CACHE_SHIFT;
+		bh_pos = (s64)page->index << PAGE_SHIFT;
 		bh = head = page_buffers(page);
 		partial = false;
 		do {
@@ -1900,7 +1899,7 @@ static int ntfs_commit_pages_after_write(struct page **pages,
 		if (end < attr_len)
 			memcpy(kaddr + end, kattr + end, attr_len - end);
 		/* Zero the region outside the end of the attribute value. */
-		memset(kaddr + attr_len, 0, PAGE_CACHE_SIZE - attr_len);
+		memset(kaddr + attr_len, 0, PAGE_SIZE - attr_len);
 		flush_dcache_page(page);
 		SetPageUptodate(page);
 	}
@@ -1978,7 +1977,7 @@ static size_t ntfs_copy_from_user_iter(struct page **pages, unsigned nr_pages,
 	unsigned len, copied;
 
 	do {
-		len = PAGE_CACHE_SIZE - ofs;
+		len = PAGE_SIZE - ofs;
 		if (len > bytes)
 			len = bytes;
 		copied = iov_iter_copy_from_user_atomic(*pages, &data, ofs,
@@ -1996,14 +1995,14 @@ out:
 	return total;
 err:
 	/* Zero the rest of the target like __copy_from_user(). */
-	len = PAGE_CACHE_SIZE - copied;
+	len = PAGE_SIZE - copied;
 	do {
 		if (len > bytes)
 			len = bytes;
 		zero_user(*pages, copied, len);
 		bytes -= len;
 		copied = 0;
-		len = PAGE_CACHE_SIZE;
+		len = PAGE_SIZE;
 	} while (++pages < last_page);
 	goto out;
 }
@@ -2195,6 +2194,8 @@ static ssize_t ntfs_perform_write(struct file *file, struct iov_iter *i,
 	last_vcn = -1;
 	if (likely(nr_segs == 1))
 		buf = iov->iov_base;
+	if (vol->cluster_size > PAGE_SIZE && NInoNonResident(ni))
+		nr_pages = vol->cluster_size >> PAGE_SHIFT;
 	last_vcn = -1;
 	do {
 		VCN vcn;
@@ -2202,9 +2203,9 @@ static ssize_t ntfs_perform_write(struct file *file, struct iov_iter *i,
 		unsigned ofs, do_pages, u;
 		size_t copied;
 
-		start_idx = idx = pos >> PAGE_CACHE_SHIFT;
-		ofs = pos & ~PAGE_CACHE_MASK;
-		bytes = PAGE_CACHE_SIZE - ofs;
+		start_idx = idx = pos >> PAGE_SHIFT;
+		ofs = pos & ~PAGE_MASK;
+		bytes = PAGE_SIZE - ofs;
 		do_pages = 1;
 		if (nr_pages > 1) {
 			vcn = pos >> vol->cluster_size_bits;
@@ -2242,7 +2243,7 @@ static ssize_t ntfs_perform_write(struct file *file, struct iov_iter *i,
 				if (lcn == LCN_HOLE) {
 					start_idx = (pos & ~(s64)
 							vol->cluster_size_mask)
-							>> PAGE_CACHE_SHIFT;
+							>> PAGE_SHIFT;
 					bytes = vol->cluster_size - (pos &
 							vol->cluster_size_mask);
 					do_pages = nr_pages;
@@ -2270,6 +2271,7 @@ again:
 		status = __ntfs_grab_cache_pages(mapping, start_idx, do_pages,
 				pages, &cached_page, &lru_pvec);
 		if (unlikely(iov_iter_fault_in_multipages_readable(i, bytes))) {
+		if (unlikely(iov_iter_fault_in_readable(i, bytes))) {
 			status = -EFAULT;
 			break;
 		}
@@ -2292,7 +2294,7 @@ again:
 
 				do {
 					unlock_page(pages[--do_pages]);
-					page_cache_release(pages[do_pages]);
+					put_page(pages[do_pages]);
 				} while (do_pages);
 				/*
 				 * The write preparation may have instantiated
@@ -2349,6 +2351,7 @@ err_out:
 		}
   	}
 	pagevec_lru_add(&lru_pvec);
+		u = (pos >> PAGE_SHIFT) - pages[0]->index;
 		copied = ntfs_copy_from_user_iter(pages + u, do_pages - u, ofs,
 					i, bytes);
 		ntfs_flush_dcache_pages(pages + u, do_pages - u);
@@ -2361,7 +2364,7 @@ err_out:
 		}
 		do {
 			unlock_page(pages[--do_pages]);
-			page_cache_release(pages[do_pages]);
+			put_page(pages[do_pages]);
 		} while (do_pages);
 		if (unlikely(status < 0))
 			break;
@@ -2393,7 +2396,7 @@ err_out:
 		}
 	} while (iov_iter_count(i));
 	if (cached_page)
-		page_cache_release(cached_page);
+		put_page(cached_page);
 	ntfs_debug("Done.  Returning %s (written 0x%lx, status %li).",
 			written ? "written" : "status", (unsigned long)written,
 			(long)status);
@@ -2515,20 +2518,17 @@ static ssize_t ntfs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t written = 0;
 	ssize_t err;
 
-	mutex_lock(&vi->i_mutex);
+	inode_lock(vi);
 	/* We can write back this queue in page reclaim. */
 	current->backing_dev_info = inode_to_bdi(vi);
 	err = ntfs_prepare_file_for_write(iocb, from);
 	if (iov_iter_count(from) && !err)
 		written = ntfs_perform_write(file, from, iocb->ki_pos);
 	current->backing_dev_info = NULL;
-	mutex_unlock(&vi->i_mutex);
-	if (likely(written > 0)) {
-		err = generic_write_sync(file, iocb->ki_pos, written);
-		if (err < 0)
-			written = 0;
-	}
+	inode_unlock(vi);
 	iocb->ki_pos += written;
+	if (likely(written > 0))
+		written = generic_write_sync(iocb, written);
 	return written ? written : err;
 }
 
@@ -2578,10 +2578,10 @@ static int ntfs_file_fsync(struct file *filp, loff_t start, loff_t end,
 
 	ntfs_debug("Entering for inode 0x%lx.", vi->i_ino);
 
-	err = filemap_write_and_wait_range(vi->i_mapping, start, end);
+	err = file_write_and_wait_range(filp, start, end);
 	if (err)
 		return err;
-	mutex_lock(&vi->i_mutex);
+	inode_lock(vi);
 
 	BUG_ON(S_ISDIR(vi->i_mode));
 	if (!datasync || !NInoNonResident(NTFS_I(vi)))
@@ -2600,7 +2600,7 @@ static int ntfs_file_fsync(struct file *filp, loff_t start, loff_t end,
 	else
 		ntfs_warning(vi->i_sb, "Failed to f%ssync inode 0x%lx.  Error "
 				"%u.", datasync ? "data" : "", vi->i_ino, -ret);
-	mutex_unlock(&vi->i_mutex);
+	inode_unlock(vi);
 	return ret;
 }
 

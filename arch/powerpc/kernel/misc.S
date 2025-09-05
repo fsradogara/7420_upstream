@@ -19,6 +19,7 @@
 #include <asm/unistd.h>
 #include <asm/asm-compat.h>
 #include <asm/asm-offsets.h>
+#include <asm/export.h>
 
 	.text
 
@@ -130,3 +131,4 @@ _GLOBAL(__restore_cpu_power7)
 _GLOBAL(current_stack_pointer)
 	PPC_LL	r3,0(r1)
 	blr
+EXPORT_SYMBOL(current_stack_pointer)

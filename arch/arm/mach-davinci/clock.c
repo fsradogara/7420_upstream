@@ -39,7 +39,7 @@
 #include <mach/hardware.h>
 
 #include <mach/clock.h>
-#include <mach/psc.h>
+#include "psc.h"
 #include <mach/cputype.h>
 #include "clock.h"
 
@@ -106,9 +106,10 @@ static int __clk_enable(struct clk *clk)
 	davinci_psc_config(DAVINCI_GPSC_ARMDOMAIN, clk->lpsc, 1);
 	return 0;
 static void __clk_enable(struct clk *clk)
+void davinci_clk_enable(struct clk *clk)
 {
 	if (clk->parent)
-		__clk_enable(clk->parent);
+		davinci_clk_enable(clk->parent);
 	if (clk->usecount++ == 0) {
 		if (clk->flags & CLK_PSC)
 			davinci_psc_config(clk->domain, clk->gpsc, clk->lpsc,
@@ -118,7 +119,7 @@ static void __clk_enable(struct clk *clk)
 	}
 }
 
-static void __clk_disable(struct clk *clk)
+void davinci_clk_disable(struct clk *clk)
 {
 	if (clk->usecount)
 		return;
@@ -140,7 +141,7 @@ int clk_enable(struct clk *clk)
 			clk->clk_disable(clk);
 	}
 	if (clk->parent)
-		__clk_disable(clk->parent);
+		davinci_clk_disable(clk->parent);
 }
 
 int davinci_clk_reset(struct clk *clk, bool reset)
@@ -194,7 +195,7 @@ int clk_enable(struct clk *clk)
 		return -EINVAL;
 
 	spin_lock_irqsave(&clockfw_lock, flags);
-	__clk_enable(clk);
+	davinci_clk_enable(clk);
 	spin_unlock_irqrestore(&clockfw_lock, flags);
 
 	return 0;
@@ -214,7 +215,7 @@ void clk_disable(struct clk *clk)
 		spin_unlock_irqrestore(&clockfw_lock, flags);
 	}
 	spin_lock_irqsave(&clockfw_lock, flags);
-	__clk_disable(clk);
+	davinci_clk_disable(clk);
 	spin_unlock_irqrestore(&clockfw_lock, flags);
 }
 EXPORT_SYMBOL(clk_disable);
@@ -310,6 +311,14 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 		return -EINVAL;
 
 	mutex_lock(&clocks_mutex);
+	if (clk->set_parent) {
+		int ret = clk->set_parent(clk, parent);
+
+		if (ret) {
+			mutex_unlock(&clocks_mutex);
+			return ret;
+		}
+	}
 	clk->parent = parent;
 	list_del_init(&clk->childnode);
 	list_add(&clk->childnode, &clk->parent->children);
@@ -324,6 +333,15 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	return 0;
 }
 EXPORT_SYMBOL(clk_set_parent);
+
+struct clk *clk_get_parent(struct clk *clk)
+{
+	if (!clk)
+		return NULL;
+
+	return clk->parent;
+}
+EXPORT_SYMBOL(clk_get_parent);
 
 int clk_register(struct clk *clk)
 {
@@ -343,8 +361,17 @@ int clk_register(struct clk *clk)
 
 	mutex_lock(&clocks_mutex);
 	list_add_tail(&clk->node, &clocks);
-	if (clk->parent)
+	if (clk->parent) {
+		if (clk->set_parent) {
+			int ret = clk->set_parent(clk, clk->parent);
+
+			if (ret) {
+				mutex_unlock(&clocks_mutex);
+				return ret;
+			}
+		}
 		list_add_tail(&clk->childnode, &clk->parent->children);
+	}
 	mutex_unlock(&clocks_mutex);
 
 	/* If rate is already set, use it */
@@ -753,7 +780,7 @@ EXPORT_SYMBOL(davinci_set_pllrate);
  * than that used by default in <soc>.c file. The reference clock rate
  * should be updated early in the boot process; ideally soon after the
  * clock tree has been initialized once with the default reference clock
- * rate (davinci_common_init()).
+ * rate (davinci_clk_init()).
  *
  * Returns 0 on success, error otherwise.
  */

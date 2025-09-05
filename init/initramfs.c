@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Many of the syscalls used in this file expect some of the arguments
  * to be __user pointers not __kernel pointers.  To limit the sparse
@@ -19,6 +20,7 @@
 #include <linux/dirent.h>
 #include <linux/syscalls.h>
 #include <linux/utime.h>
+#include <linux/file.h>
 
 static ssize_t __init xwrite(int fd, const char *p, size_t count)
 {
@@ -116,7 +118,7 @@ static __initdata unsigned long ino, major, minor, nlink;
 static __initdata mode_t mode;
 static long __init do_utime(char *filename, time_t mtime)
 {
-	struct timespec t[2];
+	struct timespec64 t[2];
 
 	t[0].tv_sec = mtime;
 	t[0].tv_nsec = 0;
@@ -346,10 +348,10 @@ static void __init clean_path(char *path, mode_t mode)
 	if (!sys_newlstat(path, &st) && (st.st_mode^mode) & S_IFMT) {
 static void __init clean_path(char *path, umode_t fmode)
 {
-	struct stat st;
+	struct kstat st;
 
-	if (!sys_newlstat(path, &st) && (st.st_mode ^ fmode) & S_IFMT) {
-		if (S_ISDIR(st.st_mode))
+	if (!vfs_lstat(path, &st) && (st.mode ^ fmode) & S_IFMT) {
+		if (S_ISDIR(st.mode))
 			sys_rmdir(path);
 		else
 			sys_unlink(path);
@@ -765,13 +767,13 @@ static void __init clean_rootfs(void)
 	num = sys_getdents64(fd, dirp, BUF_SIZE);
 	while (num > 0) {
 		while (num > 0) {
-			struct stat st;
+			struct kstat st;
 			int ret;
 
-			ret = sys_newlstat(dirp->d_name, &st);
+			ret = vfs_lstat(dirp->d_name, &st);
 			WARN_ON_ONCE(ret);
 			if (!ret) {
-				if (S_ISDIR(st.st_mode))
+				if (S_ISDIR(st.mode))
 					sys_rmdir(dirp->d_name);
 				else
 					sys_unlink(dirp->d_name);
@@ -792,10 +794,12 @@ static void __init clean_rootfs(void)
 
 static int __init populate_rootfs(void)
 {
+	/* Load the built in initramfs */
 	char *err = unpack_to_rootfs(__initramfs_start, __initramfs_size);
 	if (err)
 		panic("%s", err); /* Failed to decompress INTERNAL initramfs */
-	if (initrd_start) {
+	/* If available load the bootloader supplied initrd */
+	if (initrd_start && !IS_ENABLED(CONFIG_INITRAMFS_FORCE)) {
 #ifdef CONFIG_BLK_DEV_RAM
 		int fd;
 		printk(KERN_INFO "Trying to unpack rootfs image as initramfs...\n");
@@ -824,6 +828,7 @@ static int __init populate_rootfs(void)
 			free_initrd();
 		}
 	done:
+		/* empty statement */;
 #else
 		printk(KERN_INFO "Unpacking initramfs...\n");
 		err = unpack_to_rootfs((char *)initrd_start,
@@ -832,12 +837,14 @@ static int __init populate_rootfs(void)
 			printk(KERN_EMERG "Initramfs unpacking failed: %s\n", err);
 		free_initrd();
 #endif
-		/*
-		 * Try loading default modules from initramfs.  This gives
-		 * us a chance to load before device_initcalls.
-		 */
-		load_default_modules();
 	}
+	flush_delayed_fput();
+	/*
+	 * Try loading default modules from initramfs.  This gives
+	 * us a chance to load before device_initcalls.
+	 */
+	load_default_modules();
+
 	return 0;
 }
 rootfs_initcall(populate_rootfs);

@@ -23,9 +23,9 @@
 #include <asm/mach-types.h>
 #include <asm/gpio.h>
 #include <asm/mach/arch.h>
-#include <mach/orion5x.h>
 #include "common.h"
 #include "mpp.h"
+#include "orion5x.h"
 
 #define MV2120_NOR_BOOT_BASE	0xf4000000
 #define MV2120_NOR_BOOT_SIZE	SZ_512K
@@ -266,6 +266,7 @@ MACHINE_START(MV2120, "HP Media Vault mv2120")
 	.timer		= &orion5x_timer,
 	.fixup		= tag_fixup_mem32
 	.atag_offset	= 0x100,
+	.nr_irqs	= ORION5X_NR_IRQS,
 	.init_machine	= mv2120_init,
 	.map_io		= orion5x_map_io,
 	.init_early	= orion5x_init_early,

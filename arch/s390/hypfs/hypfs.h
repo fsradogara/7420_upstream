@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  arch/s390/hypfs/hypfs.h
  *    Hypervisor filesystem for Linux on s390.

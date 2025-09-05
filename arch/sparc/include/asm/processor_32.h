@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* include/asm/processor.h
  *
  * Copyright (C) 1994 David S. Miller (davem@caip.rutgers.edu)
@@ -18,12 +19,6 @@
 #include <asm/signal.h>
 #include <asm/btfixup.h>
 #include <asm/page.h>
-
-/*
- * The sparc has no problems with write protection
- */
-#define wp_works_ok 1
-#define wp_works_ok__is_a_macro /* for versions in ksyms.c */
 
 /* Whee, this is STACK_TOP + PAGE_SIZE and the lowest kernel address too...
  * That one page is used to protect kernel from intruders, so that
@@ -130,7 +125,6 @@ extern struct task_struct *last_task_used_math;
 int do_mathemu(struct pt_regs *regs, struct task_struct *fpt);
 
 #define cpu_relax()	barrier()
-#define cpu_relax_lowlatency() cpu_relax()
 
 extern void (*sparc_idle)(void);
 

@@ -403,6 +403,8 @@ void __exit bf561_coreb_exit(void)
 module_init(bf561_coreb_init);
 /* Load firmware into Core B on a BF561
  *
+ * Author: Bas Vermeulen <bvermeul@blackstar.xs4all.nl>
+ *
  * Copyright 2004-2009 Analog Devices Inc.
  * Licensed under the GPL-2 or later.
  */
@@ -417,9 +419,9 @@ module_init(bf561_coreb_init);
 
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
-#include <linux/module.h>
 
 #define CMD_COREB_START		_IO('b', 0)
 #define CMD_COREB_STOP		_IO('b', 1)
@@ -462,19 +464,4 @@ static struct miscdevice coreb_dev = {
 	.name  = "coreb",
 	.fops  = &coreb_fops,
 };
-
-static int __init bf561_coreb_init(void)
-{
-	return misc_register(&coreb_dev);
-}
-module_init(bf561_coreb_init);
-
-static void __exit bf561_coreb_exit(void)
-{
-	misc_deregister(&coreb_dev);
-}
-module_exit(bf561_coreb_exit);
-
-MODULE_AUTHOR("Bas Vermeulen <bvermeul@blackstar.xs4all.nl>");
-MODULE_DESCRIPTION("BF561 Core B Support");
-MODULE_LICENSE("GPL");
+builtin_misc_device(coreb_dev);

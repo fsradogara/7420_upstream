@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  include/asm-s390/ccwdev.h
  *  include/asm-s390x/ccwdev.h

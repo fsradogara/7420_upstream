@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_S390_BUG_H
 #define _ASM_S390_BUG_H
 
@@ -22,6 +23,7 @@
 		".previous\n"					\
 		".section __bug_table,\"a\"\n"			\
 		"3:\t"	S390_LONG "\t1b,2b\n"			\
+		".section __bug_table,\"aw\"\n"			\
 		"3:	.long	1b-3b,2b-3b\n"			\
 		"	.short	%0,%1\n"			\
 		"	.org	3b+%2\n"			\
@@ -39,6 +41,7 @@
 		"1:\n"					\
 		".section __bug_table,\"a\"\n"		\
 		"2:\t"	S390_LONG "\t1b\n"		\
+		".section __bug_table,\"aw\"\n"		\
 		"2:	.long	1b-2b\n"		\
 		"	.short	%0\n"			\
 		"	.org	2b+%1\n"		\
@@ -55,8 +58,8 @@
 	unreachable();					\
 } while (0)
 
-#define __WARN_TAINT(taint) do {			\
-	__EMIT_BUG(BUGFLAG_TAINT(taint));		\
+#define __WARN_FLAGS(flags) do {			\
+	__EMIT_BUG(BUGFLAG_WARNING|(flags));		\
 } while (0)
 
 #define WARN_ON(x) ({					\

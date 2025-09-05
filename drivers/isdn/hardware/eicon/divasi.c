@@ -20,7 +20,7 @@
 #include <linux/skbuff.h>
 #include <linux/smp_lock.h>
 #include <linux/seq_file.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "platform.h"
 #include "di_defs.h"
@@ -346,9 +346,8 @@ static int um_idi_open_adapter(struct file *file, int adapter_nr)
 	p_os = (diva_um_idi_os_context_t *) diva_um_id_get_os_context(e);
 	init_waitqueue_head(&p_os->read_wait);
 	init_waitqueue_head(&p_os->close_wait);
-	init_timer(&p_os->diva_timer_id);
-	p_os->diva_timer_id.function = (void *) diva_um_timer_function;
-	p_os->diva_timer_id.data = (unsigned long) p_os;
+	setup_timer(&p_os->diva_timer_id, (void *)diva_um_timer_function,
+		    (unsigned long)p_os);
 	p_os->aborted = 0;
 	p_os->adapter_nr = adapter_nr;
 	return (1);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * xfrm4_input.c
  *
@@ -56,6 +57,7 @@ EXPORT_SYMBOL(xfrm4_rcv_encap);
 
 int xfrm4_transport_finish(struct sk_buff *skb, int async)
 {
+	struct xfrm_offload *xo = xfrm_offload(skb);
 	struct iphdr *iph = ip_hdr(skb);
 
 	iph->protocol = XFRM_MODE_SKB_CB(skb)->protocol;
@@ -70,6 +72,11 @@ int xfrm4_transport_finish(struct sk_buff *skb, int async)
 	ip_send_check(iph);
 
 	NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, skb, skb->dev, NULL,
+	if (xo && (xo->flags & XFRM_GRO)) {
+		skb_mac_header_rebuild(skb);
+		return 0;
+	}
+
 	NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING,
 		dev_net(skb->dev), NULL, skb, skb->dev, NULL,
 		xfrm4_rcv_encap_finish);

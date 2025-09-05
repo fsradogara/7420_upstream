@@ -1,5 +1,6 @@
 #ifndef __ASMH8300_ELF_H
 #define __ASMH8300_ELF_H
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_H8300_ELF_H
 #define __ASM_H8300_ELF_H
 

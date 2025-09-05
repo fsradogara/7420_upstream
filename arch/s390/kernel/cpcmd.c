@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  arch/s390/kernel/cpcmd.c
  *
@@ -13,7 +14,7 @@
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/stddef.h>
@@ -21,6 +22,7 @@
 #include <asm/ebcdic.h>
 #include <asm/cpcmd.h>
 #include <asm/system.h>
+#include <linux/mm.h>
 #include <asm/diag.h>
 #include <asm/ebcdic.h>
 #include <asm/cpcmd.h>
@@ -44,7 +46,6 @@ static int diag8_noresponse(int cmdlen)
 #endif /* CONFIG_64BIT */
 		"	sam31\n"
 		"	diag	%1,%0,0x8\n"
-		"	sam64\n"
 		: "+d" (reg3) : "d" (reg2) : "cc");
 	return reg3;
 }
@@ -64,7 +65,6 @@ static int diag8_response(int cmdlen, char *response, int *rlen)
 #else /* CONFIG_64BIT */
 		"	sam31\n"
 		"	diag	%2,%0,0x8\n"
-		"	sam64\n"
 		"	brc	8,1f\n"
 		"	agr	%1,%4\n"
 #endif /* CONFIG_64BIT */
@@ -77,7 +77,6 @@ static int diag8_response(int cmdlen, char *response, int *rlen)
 
 /*
  * __cpcmd has some restrictions over cpcmd
- *  - the response buffer must reside below 2GB (if any)
  *  - __cpcmd is unlocked and therefore not SMP-safe
  */
 int  __cpcmd(const char *cmd, char *response, int rlen, int *response_code)
@@ -108,18 +107,18 @@ EXPORT_SYMBOL(__cpcmd);
 
 int cpcmd(const char *cmd, char *response, int rlen, int *response_code)
 {
+	unsigned long flags;
 	char *lowbuf;
 	int len;
-	unsigned long flags;
 
-	if ((virt_to_phys(response) != (unsigned long) response) ||
-			(((unsigned long)response + rlen) >> 31)) {
-		lowbuf = kmalloc(rlen, GFP_KERNEL | GFP_DMA);
+	if (is_vmalloc_or_module_addr(response)) {
+		lowbuf = kmalloc(rlen, GFP_KERNEL);
 		if (!lowbuf) {
 			printk(KERN_WARNING
 				"cpcmd: could not allocate response buffer\n");
 			pr_warning("The cpcmd kernel function failed to "
 				   "allocate a response buffer\n");
+			pr_warn("The cpcmd kernel function failed to allocate a response buffer\n");
 			return -ENOMEM;
 		}
 		spin_lock_irqsave(&cpcmd_lock, flags);

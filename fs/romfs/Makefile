@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the linux romfs filesystem routines.
 # Makefile for the linux RomFS filesystem routines.

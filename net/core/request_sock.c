@@ -138,8 +138,6 @@ void reqsk_queue_destroy(struct request_sock_queue *queue)
  * and it will increase in proportion to the memory of machine.
  * Note : Dont forget somaxconn that may limit backlog too.
  */
-int sysctl_max_syn_backlog = 256;
-EXPORT_SYMBOL(sysctl_max_syn_backlog);
 
 void reqsk_queue_alloc(struct request_sock_queue *queue)
 {

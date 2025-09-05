@@ -22,6 +22,7 @@ static __inline__ __attribute_const__ int get_order(unsigned long size)
 #endif	/* __ASSEMBLY__ */
 
 #endif	/* _ASM_GENERIC_PAGE_H */
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_GENERIC_PAGE_H
 #define __ASM_GENERIC_PAGE_H
 /*
@@ -47,9 +48,6 @@ static __inline__ __attribute_const__ int get_order(unsigned long size)
 #include <asm/setup.h>
 
 #ifndef __ASSEMBLY__
-
-#define get_user_page(vaddr)		__get_free_page(GFP_KERNEL)
-#define free_user_page(page, addr)	free_page(addr)
 
 #define clear_page(page)	memset((page), 0, PAGE_SIZE)
 #define copy_page(to,from)	memcpy((to), (from), PAGE_SIZE)

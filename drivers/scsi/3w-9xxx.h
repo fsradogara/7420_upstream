@@ -7,6 +7,8 @@
    Copyright (C) 2004-2008 Applied Micro Circuits Corporation.
    Written By: Adam Radford <linuxraid@lsi.com>
    Modifications By: Tom Couch <linuxraid@lsi.com>
+   Written By: Adam Radford <aradford@gmail.com>
+   Modifications By: Tom Couch
 
    Copyright (C) 2004-2009 Applied Micro Circuits Corporation.
    Copyright (C) 2010 LSI Corporation.
@@ -53,6 +55,7 @@
 
    For more information, goto:
    http://www.lsi.com
+   aradford@gmail.com
 */
 
 #ifndef _3W_9XXX_H

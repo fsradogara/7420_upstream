@@ -339,9 +339,8 @@ static int ehci_pci_setup(struct usb_hcd *hcd)
 	/* These workarounds need to be applied after ehci_setup() */
 	switch (pdev->vendor) {
 	case PCI_VENDOR_ID_NEC:
-		ehci->need_io_watchdog = 0;
-		break;
 	case PCI_VENDOR_ID_INTEL:
+	case PCI_VENDOR_ID_AMD:
 		ehci->need_io_watchdog = 0;
 		break;
 	case PCI_VENDOR_ID_NVIDIA:
@@ -614,6 +613,12 @@ static int ehci_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	return usb_hcd_pci_probe(pdev, id);
 }
 
+static void ehci_pci_remove(struct pci_dev *pdev)
+{
+	pci_clear_mwi(pdev);
+	usb_hcd_pci_remove(pdev);	
+}
+
 /* PCI driver selection metadata; PCI hotplugging uses this */
 static const struct pci_device_id pci_ids [] = { {
 	/* handle any USB 2.0 EHCI controller */
@@ -642,7 +647,7 @@ static struct pci_driver ehci_pci_driver = {
 	.shutdown = 	usb_hcd_pci_shutdown,
 };
 	.probe =	ehci_pci_probe,
-	.remove =	usb_hcd_pci_remove,
+	.remove =	ehci_pci_remove,
 	.shutdown = 	usb_hcd_pci_shutdown,
 
 #ifdef CONFIG_PM

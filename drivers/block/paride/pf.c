@@ -59,7 +59,7 @@
                         the slower the port i/o.  In some cases, setting
                         this to zero will speed up the device. (default -1)
 
-	    major	You may use this parameter to overide the
+	    major	You may use this parameter to override the
 			default major number (47) that this driver
 			will use.  Be sure to change the device
 			name as well.
@@ -158,7 +158,7 @@ enum {D_PRT, D_PRO, D_UNI, D_MOD, D_SLV, D_LUN, D_DLY};
 #include <asm/uaccess.h>
 
 #include <linux/mutex.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static DEFINE_MUTEX(pf_mutex);
 static DEFINE_SPINLOCK(pf_spin_lock);
@@ -303,6 +303,13 @@ static void __init pf_init_units(void)
 		struct gendisk *disk = alloc_disk(1);
 		if (!disk)
 			continue;
+		disk->queue = blk_init_queue(do_pf_request, &pf_spin_lock);
+		if (!disk->queue) {
+			put_disk(disk);
+			return;
+		}
+		blk_queue_max_segments(disk->queue, cluster);
+		blk_queue_bounce_limit(disk->queue, BLK_BOUNCE_HIGH);
 		pf->disk = disk;
 		pf->pi = &pf->pia;
 		pf->media_status = PF_NM;
@@ -830,7 +837,7 @@ static int pf_ready(void)
 	return (((status_reg(pf_current) & (STAT_BUSY | pf_mask)) == pf_mask));
 }
 
-static struct request_queue *pf_queue;
+static int pf_queue;
 
 static void pf_end_request(int uptodate)
 {
@@ -839,12 +846,34 @@ static void pf_end_request(int uptodate)
 		pf_req = NULL;
 	}
 static void pf_end_request(int err)
+static int set_next_request(void)
+{
+	struct pf_unit *pf;
+	struct request_queue *q;
+	int old_pos = pf_queue;
+
+	do {
+		pf = &units[pf_queue];
+		q = pf->present ? pf->disk->queue : NULL;
+		if (++pf_queue == PF_UNITS)
+			pf_queue = 0;
+		if (q) {
+			pf_req = blk_fetch_request(q);
+			if (pf_req)
+				break;
+		}
+	} while (pf_queue != old_pos);
+
+	return pf_req != NULL;
+}
+
+static void pf_end_request(blk_status_t err)
 {
 	if (pf_req && !__blk_end_request_cur(pf_req, err))
 		pf_req = NULL;
 }
 
-static void do_pf_request(struct request_queue * q)
+static void pf_request(void)
 {
 	if (pf_busy)
 		return;
@@ -865,6 +894,8 @@ repeat:
 		if (!pf_req)
 			return;
 	}
+	if (!pf_req && !set_next_request())
+		return;
 
 	pf_current = pf_req->rq_disk->private_data;
 	pf_block = blk_rq_pos(pf_req);
@@ -872,7 +903,7 @@ repeat:
 	pf_count = blk_rq_cur_sectors(pf_req);
 
 	if (pf_block + pf_count > get_capacity(pf_req->rq_disk)) {
-		pf_end_request(-EIO);
+		pf_end_request(BLK_STS_IOERR);
 		goto repeat;
 	}
 
@@ -890,8 +921,14 @@ repeat:
 		pf_busy = 0;
 		pf_end_request(0);
 		pf_end_request(-EIO);
+		pf_end_request(BLK_STS_IOERR);
 		goto repeat;
 	}
+}
+
+static void do_pf_request(struct request_queue *q)
+{
+	pf_request();
 }
 
 static int pf_next_buf(void)
@@ -925,6 +962,7 @@ static int pf_next_buf(void)
 
 static inline void next_request(int success)
 static inline void next_request(int err)
+static inline void next_request(blk_status_t err)
 {
 	unsigned long saved_flags;
 
@@ -932,7 +970,7 @@ static inline void next_request(int err)
 	pf_end_request(success);
 	pf_end_request(err);
 	pf_busy = 0;
-	do_pf_request(pf_queue);
+	pf_request();
 	spin_unlock_irqrestore(&pf_spin_lock, saved_flags);
 }
 
@@ -955,6 +993,7 @@ static void do_pf_read_start(void)
 		}
 		next_request(0);
 		next_request(-EIO);
+		next_request(BLK_STS_IOERR);
 		return;
 	}
 	pf_mask = STAT_DRQ;
@@ -975,6 +1014,7 @@ static void do_pf_read_drq(void)
 			}
 			next_request(0);
 			next_request(-EIO);
+			next_request(BLK_STS_IOERR);
 			return;
 		}
 		pi_read_block(pf_current->pi, pf_buf, 512);
@@ -1004,6 +1044,7 @@ static void do_pf_write_start(void)
 		}
 		next_request(0);
 		next_request(-EIO);
+		next_request(BLK_STS_IOERR);
 		return;
 	}
 
@@ -1018,6 +1059,7 @@ static void do_pf_write_start(void)
 			}
 			next_request(0);
 			next_request(-EIO);
+			next_request(BLK_STS_IOERR);
 			return;
 		}
 		pi_write_block(pf_current->pi, pf_buf, 512);
@@ -1043,6 +1085,7 @@ static void do_pf_write_done(void)
 	pi_disconnect(pf_current->pi);
 	next_request(1);
 		next_request(-EIO);
+		next_request(BLK_STS_IOERR);
 		return;
 	}
 	pi_disconnect(pf_current->pi);
@@ -1086,7 +1129,6 @@ static int __init pf_init(void)
 		if (!pf->present)
 			continue;
 		disk->private_data = pf;
-		disk->queue = pf_queue;
 		add_disk(disk);
 	}
 	return 0;
@@ -1101,10 +1143,10 @@ static void __exit pf_exit(void)
 		if (!pf->present)
 			continue;
 		del_gendisk(pf->disk);
+		blk_cleanup_queue(pf->disk->queue);
 		put_disk(pf->disk);
 		pi_release(pf->pi);
 	}
-	blk_cleanup_queue(pf_queue);
 }
 
 MODULE_LICENSE("GPL");

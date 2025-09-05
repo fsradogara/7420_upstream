@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/mm/mempool.c
  *
@@ -108,20 +109,16 @@ static inline void poison_element(mempool_t *pool, void *element)
 
 static void kasan_poison_element(mempool_t *pool, void *element)
 {
-	if (pool->alloc == mempool_alloc_slab)
-		kasan_slab_free(pool->pool_data, element);
-	if (pool->alloc == mempool_kmalloc)
-		kasan_kfree(element);
+	if (pool->alloc == mempool_alloc_slab || pool->alloc == mempool_kmalloc)
+		kasan_poison_kfree(element);
 	if (pool->alloc == mempool_alloc_pages)
 		kasan_free_pages(element, (unsigned long)pool->pool_data);
 }
 
-static void kasan_unpoison_element(mempool_t *pool, void *element)
+static void kasan_unpoison_element(mempool_t *pool, void *element, gfp_t flags)
 {
-	if (pool->alloc == mempool_alloc_slab)
-		kasan_slab_alloc(pool->pool_data, element);
-	if (pool->alloc == mempool_kmalloc)
-		kasan_krealloc(element, (size_t)pool->pool_data);
+	if (pool->alloc == mempool_alloc_slab || pool->alloc == mempool_kmalloc)
+		kasan_unpoison_slab(element);
 	if (pool->alloc == mempool_alloc_pages)
 		kasan_alloc_pages(element, (unsigned long)pool->pool_data);
 }
@@ -134,7 +131,7 @@ static void add_element(mempool_t *pool, void *element)
 	pool->elements[pool->curr_nr++] = element;
 }
 
-static void *remove_element(mempool_t *pool)
+static void *remove_element(mempool_t *pool, gfp_t flags)
 {
 	BUG_ON(pool->curr_nr <= 0);
 	return pool->elements[--pool->curr_nr];
@@ -145,8 +142,8 @@ static void free_pool(mempool_t *pool)
 	void *element = pool->elements[--pool->curr_nr];
 
 	BUG_ON(pool->curr_nr < 0);
+	kasan_unpoison_element(pool, element, flags);
 	check_element(pool, element);
-	kasan_unpoison_element(pool, element);
 	return element;
 }
 
@@ -164,7 +161,7 @@ void mempool_destroy(mempool_t *pool)
 		return;
 
 	while (pool->curr_nr) {
-		void *element = remove_element(pool);
+		void *element = remove_element(pool, GFP_KERNEL);
 		pool->free(element, pool->pool_data);
 	}
 	kfree(pool->elements);
@@ -274,7 +271,7 @@ int mempool_resize(mempool_t *pool, int new_min_nr)
 	spin_lock_irqsave(&pool->lock, flags);
 	if (new_min_nr <= pool->min_nr) {
 		while (new_min_nr < pool->curr_nr) {
-			element = remove_element(pool);
+			element = remove_element(pool, GFP_KERNEL);
 			spin_unlock_irqrestore(&pool->lock, flags);
 			pool->free(element, pool->pool_data);
 			spin_lock_irqsave(&pool->lock, flags);
@@ -355,11 +352,11 @@ EXPORT_SYMBOL(mempool_destroy);
  * fail if called from an IRQ context.)
  * Note: using __GFP_ZERO is not supported.
  */
-void * mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
+void *mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 {
 	void *element;
 	unsigned long flags;
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 	gfp_t gfp_temp;
 
 	might_sleep_if(gfp_mask & __GFP_WAIT);
@@ -381,7 +378,7 @@ repeat_alloc:
 
 	spin_lock_irqsave(&pool->lock, flags);
 	if (likely(pool->curr_nr)) {
-		element = remove_element(pool);
+		element = remove_element(pool, gfp_temp);
 		spin_unlock_irqrestore(&pool->lock, flags);
 		return element;
 	}

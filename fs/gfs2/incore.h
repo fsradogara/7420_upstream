@@ -273,9 +273,13 @@ enum {
 	DFL_DLM_RECOVERY	= 6,
 };
 
+/*
+ * We are using struct lm_lockname as an rhashtable key.  Avoid holes within
+ * the struct; padding at the end is fine.
+ */
 struct lm_lockname {
-	struct gfs2_sbd *ln_sbd;
 	u64 ln_number;
+	struct gfs2_sbd *ln_sbd;
 	unsigned int ln_type;
 };
 
@@ -329,8 +333,8 @@ struct gfs2_holder {
 
 	struct gfs2_glock *gh_gl;
 	struct pid *gh_owner_pid;
-	unsigned int gh_state;
-	unsigned gh_flags;
+	u16 gh_flags;
+	u16 gh_state;
 
 	int gh_error;
 	unsigned long gh_iflags; /* HIF_... */
@@ -342,6 +346,13 @@ enum {
 	GLF_STICKY			= 2,
 /* Number of quota types we support */
 #define GFS2_MAXQUOTAS 2
+
+struct gfs2_qadata { /* quota allocation data */
+	/* Quota stuff */
+	struct gfs2_quota_data *qa_qd[2 * GFS2_MAXQUOTAS];
+	struct gfs2_holder qa_qd_ghs[2 * GFS2_MAXQUOTAS];
+	unsigned int qa_qd_num;
+};
 
 /* Resource group multi-block reservation, in order of appearance:
 
@@ -361,11 +372,6 @@ struct gfs2_blkreserv {
 	struct gfs2_rbm rs_rbm;       /* Start of reservation */
 	u32 rs_free;                  /* how many blocks are still free */
 	u64 rs_inum;                  /* Inode number for reservation */
-
-	/* ancillary quota stuff */
-	struct gfs2_quota_data *rs_qa_qd[2 * GFS2_MAXQUOTAS];
-	struct gfs2_holder rs_qa_qd_ghs[2 * GFS2_MAXQUOTAS];
-	unsigned int rs_qa_qd_num;
 };
 
 /*
@@ -434,10 +440,10 @@ struct gfs2_glock {
 	GLF_LRU				= 13,
 	GLF_OBJECT			= 14, /* Used only for tracing */
 	GLF_BLOCKING			= 15,
+	GLF_INODE_CREATING		= 16, /* Inode creation occurring */
 };
 
 struct gfs2_glock {
-	struct hlist_bl_node gl_list;
 	unsigned long gl_flags;		/* GLF_... */
 	struct lm_lockname gl_name;
 
@@ -475,6 +481,7 @@ struct gfs2_glock {
 			loff_t end;
 		} gl_vm;
 	};
+	struct rcu_head gl_rcu;
 	struct rhash_head gl_node;
 };
 
@@ -521,6 +528,7 @@ enum {
 	GIF_SW_PAGED		= 3,
 	GIF_ORDERED		= 4,
 	GIF_FREE_VFS_INODE      = 5,
+	GIF_GLOP_PENDING	= 6,
 };
 
 struct gfs2_inode {
@@ -543,7 +551,8 @@ struct gfs2_inode {
 	struct gfs2_glock *i_gl; /* Move into i_gh? */
 	struct gfs2_holder i_iopen_gh;
 	struct gfs2_holder i_gh; /* for prepare/commit_write only */
-	struct gfs2_blkreserv *i_res; /* rgrp multi-block reservation */
+	struct gfs2_qadata *i_qadata; /* quota allocation data */
+	struct gfs2_blkreserv i_res; /* rgrp multi-block reservation */
 	struct gfs2_rgrpd *i_rgd;
 	u64 i_goal;	/* goal block for allocations */
 	struct rw_semaphore i_rw_mutex;
@@ -554,6 +563,7 @@ struct gfs2_inode {
 	u32 i_diskflags;
 	u8 i_height;
 	u8 i_depth;
+	u16 i_rahead;
 };
 
 /*
@@ -628,6 +638,12 @@ struct gfs2_quota_data {
 	struct rcu_head qd_rcu;
 };
 
+enum {
+	TR_TOUCHED = 1,
+	TR_ATTACHED = 2,
+	TR_ALLOCED = 3,
+};
+
 struct gfs2_trans {
 	unsigned long tr_ip;
 
@@ -643,6 +659,7 @@ struct gfs2_trans {
 	unsigned int tr_touched:1;
 	unsigned int tr_attached:1;
 	unsigned int tr_alloced:1;
+	unsigned long tr_flags;
 
 	unsigned int tr_num_buf_new;
 	unsigned int tr_num_databuf_new;
@@ -769,6 +786,8 @@ struct gfs2_args {
 	unsigned int ar_errors:2;               /* errors=withdraw | panic */
 	unsigned int ar_nobarrier:1;            /* do not send barriers */
 	unsigned int ar_rgrplvb:1;		/* use lvbs for rgrp info */
+	unsigned int ar_loccookie:1;		/* use location based readdir
+						   cookies */
 	int ar_commit;				/* Commit interval */
 	int ar_statfs_quantum;			/* The fast statfs interval */
 	int ar_quota_quantum;			/* The quota interval */
@@ -820,6 +839,7 @@ enum {
 	SDF_NOJOURNALID		= 6,
 	SDF_RORECOVERY		= 7, /* read only recovery */
 	SDF_SKIP_DLM_UNLOCK	= 8,
+	SDF_FORCE_AIL_FLUSH     = 9,
 };
 
 enum gfs2_freeze_state {
@@ -918,6 +938,7 @@ struct gfs2_sbd {
 	u64 sd_heightsize[GFS2_MAX_META_HEIGHT + 1];
 	u32 sd_max_jheight; /* Max height of journaled file's meta tree */
 	u64 sd_jheightsize[GFS2_MAX_META_HEIGHT + 1];
+	u32 sd_max_dents_per_leaf; /* Max number of dirents in a leaf block */
 
 	struct gfs2_args sd_args;	/* Mount arguments */
 	struct gfs2_tune sd_tune;	/* Filesystem tuning structure */
@@ -1088,6 +1109,7 @@ struct gfs2_sbd {
 	atomic_t sd_log_thresh1;
 	atomic_t sd_log_thresh2;
 	atomic_t sd_log_blks_free;
+	atomic_t sd_log_blks_needed;
 	wait_queue_head_t sd_log_waitq;
 	wait_queue_head_t sd_logd_waitq;
 
@@ -1110,7 +1132,6 @@ struct gfs2_sbd {
 	wait_queue_head_t sd_reserving_log_wait;
 
 	unsigned int sd_log_flush_head;
-	u64 sd_log_flush_wrapped;
 
 	struct list_head sd_ail1_list;
 	struct list_head sd_ail2_list;
@@ -1143,7 +1164,7 @@ struct gfs2_sbd {
 	atomic_t sd_freeze_state;
 	struct mutex sd_freeze_mutex;
 
-	char sd_fsname[GFS2_FSNAME_LEN];
+	char sd_fsname[GFS2_FSNAME_LEN + 3 * sizeof(int) + 2];
 	char sd_table_name[GFS2_FSNAME_LEN];
 	char sd_proto_name[GFS2_FSNAME_LEN];
 
@@ -1173,6 +1194,8 @@ static inline void gfs2_sbstats_inc(const struct gfs2_glock *gl, int which)
 	this_cpu_ptr(sdp->sd_lkstats)->lkstats[gl->gl_name.ln_type].stats[which]++;
 	preempt_enable();
 }
+
+extern struct gfs2_rgrpd *gfs2_glock2rgrp(struct gfs2_glock *gl);
 
 #endif /* __INCORE_DOT_H__ */
 

@@ -398,6 +398,8 @@ static inline void receive_chars(struct IsdnCardState *cs,
 			skb_queue_tail(& cs->hw.elsa.bcs->rqueue, skb);
 			memcpy(skb_put(skb, cs->hw.elsa.rcvcnt), cs->hw.elsa.rcvbuf,
 			       cs->hw.elsa.rcvcnt);
+			skb_put_data(skb, cs->hw.elsa.rcvbuf,
+				     cs->hw.elsa.rcvcnt);
 			skb_queue_tail(&cs->hw.elsa.bcs->rqueue, skb);
 		}
 		schedule_event(cs->hw.elsa.bcs, B_RCVBUFREADY);

@@ -60,6 +60,7 @@ int snd_cs5535audio_suspend(struct pci_dev *pci, pm_message_t state)
 {
 	struct snd_card *card = pci_get_drvdata(pci);
 static int snd_cs5535audio_suspend(struct device *dev)
+static int __maybe_unused snd_cs5535audio_suspend(struct device *dev)
 {
 	struct snd_card *card = dev_get_drvdata(dev);
 	struct cs5535audio *cs5535au = card->private_data;
@@ -91,7 +92,7 @@ int snd_cs5535audio_resume(struct pci_dev *pci)
 	return 0;
 }
 
-static int snd_cs5535audio_resume(struct device *dev)
+static int __maybe_unused snd_cs5535audio_resume(struct device *dev)
 {
 	struct snd_card *card = dev_get_drvdata(dev);
 	struct cs5535audio *cs5535au = card->private_data;

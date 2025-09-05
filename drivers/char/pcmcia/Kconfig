@@ -55,6 +55,17 @@ config IPWIRELESS
 	depends on PCMCIA && NETDEVICES
 	  (http://www.opensc-project.org/opensc).
 
+config SCR24X
+	tristate "SCR24x Chip Card Interface support"
+	depends on PCMCIA
+	help
+	  Enable support for the SCR24x PCMCIA Chip Card Interface.
+
+	  To compile this driver as a module, choose M here.
+	  The module will be called scr24x_cs..
+
+	  If unsure say N.
+
 config IPWIRELESS
 	tristate "IPWireless 3G UMTS PCMCIA card support"
 	depends on PCMCIA && NETDEVICES && TTY

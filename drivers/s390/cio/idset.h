@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  drivers/s390/cio/idset.h
  *
@@ -7,7 +8,7 @@
  */
 
 #ifndef S390_IDSET_H
-#define S390_IDSET_H S390_IDSET_H
+#define S390_IDSET_H
 
 #include <asm/schid.h>
 

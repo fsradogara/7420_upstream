@@ -501,10 +501,10 @@ sn_acpi_get_pcidev_info(struct pci_dev *dev, struct pcidev_info **pcidev_info,
 void
 sn_acpi_slot_fixup(struct pci_dev *dev)
 {
-	void __iomem *addr;
 	struct pcidev_info *pcidev_info = NULL;
 	struct sn_irq_info *sn_irq_info = NULL;
-	size_t image_size, size;
+	struct resource *res;
+	size_t size;
 
 	if (sn_acpi_get_pcidev_info(dev, &pcidev_info, &sn_irq_info)) {
 		panic("%s:  Failure obtaining pcidev_info for %s\n",
@@ -526,10 +526,20 @@ sn_acpi_slot_fixup(struct pci_dev *dev)
 		dev->resource[PCI_ROM_RESOURCE].end =
 					(unsigned long) addr + image_size - 1;
 		dev->resource[PCI_ROM_RESOURCE].flags |= IORESOURCE_ROM_BIOS_COPY;
+
+		res = &dev->resource[PCI_ROM_RESOURCE];
+
+		pci_disable_rom(dev);
+		if (res->parent)
+			release_resource(res);
+
+		res->start = pcidev_info->pdi_pio_mapped_addr[PCI_ROM_RESOURCE];
+		res->end = res->start + size - 1;
+		res->flags = IORESOURCE_MEM | IORESOURCE_ROM_SHADOW |
+			     IORESOURCE_PCI_FIXED;
 	}
 	sn_pci_fixup_slot(dev, pcidev_info, sn_irq_info);
 }
-
 EXPORT_SYMBOL(sn_acpi_slot_fixup);
 
 

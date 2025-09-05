@@ -132,7 +132,7 @@
 #include <asm/dma.h>
 #include <asm/system.h>
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/spinlock.h>
 #include <linux/blkdev.h>
 #include <linux/scatterlist.h>
@@ -402,7 +402,7 @@ static int probe_eisa_isa = 0;
 static int force_dma32 = 0;
 
 /* parameters for modprobe/insmod */
-module_param_array(irq, int, NULL, 0);
+module_param_hw_array(irq, int, irq, NULL, 0);
 module_param(disable, int, 0);
 module_param(reserve_mode, int, 0);
 module_param_array(reserve_list, int, NULL, 0);
@@ -2572,7 +2572,7 @@ static int gdth_internal_cache_cmd(gdth_ha_str *ha, Scsi_Cmnd *scp)
         inq.resp_aenc = 2;
         inq.add_length= 32;
         strcpy(inq.vendor,ha->oem_name);
-        sprintf(inq.product,"Host Drive  #%02d",t);
+        snprintf(inq.product, sizeof(inq.product), "Host Drive  #%02d",t);
         strcpy(inq.revision,"   ");
         gdth_copy_internal_data(ha, scp, (char*)&inq, sizeof(gdth_inq_data));
         break;
@@ -3099,7 +3099,6 @@ static gdth_evt_str *gdth_store_event(gdth_ha_str *ha, u16 source,
                                       u16 idx, gdth_evt_data *evt)
 {
     gdth_evt_str *e;
-    struct timeval tv;
 
     /* no GDTH_LOCK_HA() ! */
     TRACE2(("gdth_store_event() source %d idx %d\n", source, idx));
@@ -3115,8 +3114,7 @@ static gdth_evt_str *gdth_store_event(gdth_ha_str *ha, u16 source,
             !strcmp((char *)&ebuffer[elastidx].event_data.event_string,
             (char *)&evt->event_string)))) { 
         e = &ebuffer[elastidx];
-        do_gettimeofday(&tv);
-        e->last_stamp = tv.tv_sec;
+	e->last_stamp = (u32)ktime_get_real_seconds();
         ++e->same_count;
     } else {
         if (ebuffer[elastidx].event_source != 0) {  /* entry not free ? */
@@ -3132,8 +3130,7 @@ static gdth_evt_str *gdth_store_event(gdth_ha_str *ha, u16 source,
         e = &ebuffer[elastidx];
         e->event_source = source;
         e->event_idx = idx;
-        do_gettimeofday(&tv);
-        e->first_stamp = e->last_stamp = tv.tv_sec;
+	e->first_stamp = e->last_stamp = (u32)ktime_get_real_seconds();
         e->same_count = 1;
         e->event_data = *evt;
         e->application = 0;

@@ -1693,7 +1693,7 @@ static void isdn_net_tx_timeout(struct net_device *ndev)
 		 * ever called   --KG
 		 */
 	}
-	ndev->trans_start = jiffies;
+	netif_trans_update(ndev);
 	netif_wake_queue(ndev);
 }
 
@@ -1887,7 +1887,7 @@ isdn_net_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 			}
 		} else {
 			/* Device is connected to an ISDN channel */
-			ndev->trans_start = jiffies;
+			netif_trans_update(ndev);
 			if (!lp->dialstate) {
 				/* ISDN connection is established, try sending */
 				int ret;
@@ -3645,10 +3645,9 @@ isdn_net_newslave(char *parm)
 	char newname[10];
 
 	if (p) {
-		/* Slave-Name MUST not be empty */
-		if (!strlen(p + 1))
+		/* Slave-Name MUST not be empty or overflow 'newname' */
+		if (strscpy(newname, p + 1, sizeof(newname)) <= 0)
 			return NULL;
-		strcpy(newname, p + 1);
 		*p = 0;
 		/* Master must already exist */
 		if (!(n = isdn_net_findif(parm)))

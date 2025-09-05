@@ -32,6 +32,7 @@
 #include <linux/pid_namespace.h>
 #include <net/genetlink.h>
 #include <linux/atomic.h>
+#include <linux/sched/cputime.h>
 
 /*
  * Maximum length of a cpumask that can be specified in
@@ -43,12 +44,7 @@ static DEFINE_PER_CPU(__u32, taskstats_seqnum);
 static int family_registered;
 struct kmem_cache *taskstats_cache;
 
-static struct genl_family family = {
-	.id		= GENL_ID_GENERATE,
-	.name		= TASKSTATS_GENL_NAME,
-	.version	= TASKSTATS_GENL_VERSION,
-	.maxattr	= TASKSTATS_CMD_ATTR_MAX,
-};
+static struct genl_family family;
 
 static struct nla_policy taskstats_cmd_get_policy[TASKSTATS_CMD_ATTR_MAX+1]
 __read_mostly = {
@@ -61,6 +57,11 @@ static const struct nla_policy taskstats_cmd_get_policy[TASKSTATS_CMD_ATTR_MAX+1
 static struct nla_policy
 cgroupstats_cmd_get_policy[CGROUPSTATS_CMD_ATTR_MAX+1] __read_mostly = {
 static const struct nla_policy cgroupstats_cmd_get_policy[CGROUPSTATS_CMD_ATTR_MAX+1] = {
+/*
+ * We have to use TASKSTATS_CMD_ATTR_MAX here, it is the maxattr in the family.
+ * Make sure they are always aligned.
+ */
+static const struct nla_policy cgroupstats_cmd_get_policy[TASKSTATS_CMD_ATTR_MAX+1] = {
 	[CGROUPSTATS_CMD_ATTR_FD] = { .type = NLA_U32 },
 };
 
@@ -269,6 +270,8 @@ static int fill_stats_for_tgid(pid_t tgid, struct taskstats *stats)
 	struct task_struct *tsk, *first;
 	unsigned long flags;
 	int rc = -ESRCH;
+	u64 delta, utime, stime;
+	u64 start_time;
 
 	/*
 	 * Add additional stats from live tasks except zombie thread group
@@ -288,6 +291,7 @@ static int fill_stats_for_tgid(pid_t tgid, struct taskstats *stats)
 		memset(stats, 0, sizeof(*stats));
 
 	tsk = first;
+	start_time = ktime_get_ns();
 	do {
 		if (tsk->exit_state)
 			continue;
@@ -298,6 +302,16 @@ static int fill_stats_for_tgid(pid_t tgid, struct taskstats *stats)
 		 *	per-task-foo(stats, tsk);
 		 */
 		delayacct_add_tsk(stats, tsk);
+
+		/* calculate task elapsed time in nsec */
+		delta = start_time - tsk->start_time;
+		/* Convert to micro seconds */
+		do_div(delta, NSEC_PER_USEC);
+		stats->ac_etime += delta;
+
+		task_cputime(tsk, &utime, &stime);
+		stats->ac_utime += div_u64(utime, NSEC_PER_USEC);
+		stats->ac_stime += div_u64(stime, NSEC_PER_USEC);
 
 		stats->nvcsw += tsk->nvcsw;
 		stats->nivcsw += tsk->nivcsw;
@@ -444,10 +458,6 @@ static int parse(struct nlattr *na, struct cpumask *mask)
 	return ret;
 }
 
-#if defined(CONFIG_64BIT) && !defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
-#define TASKSTATS_NEEDS_PADDING 1
-#endif
-
 static struct taskstats *mk_reply(struct sk_buff *skb, int type, u32 pid)
 {
 	struct nlattr *na, *ret;
@@ -496,7 +506,8 @@ static struct taskstats *mk_reply(struct sk_buff *skb, int type, u32 pid)
 		nla_nest_cancel(skb, na);
 		goto err;
 	}
-	ret = nla_reserve(skb, TASKSTATS_TYPE_STATS, sizeof(struct taskstats));
+	ret = nla_reserve_64bit(skb, TASKSTATS_TYPE_STATS,
+				sizeof(struct taskstats), TASKSTATS_TYPE_NULL);
 	if (!ret) {
 		nla_nest_cancel(skb, na);
 		goto err;
@@ -635,10 +646,9 @@ static size_t taskstats_packet_size(void)
 	size_t size;
 
 	size = nla_total_size(sizeof(u32)) +
-		nla_total_size(sizeof(struct taskstats)) + nla_total_size(0);
-#ifdef TASKSTATS_NEEDS_PADDING
-	size += nla_total_size(0); /* Padding for alignment */
-#endif
+		nla_total_size_64bit(sizeof(struct taskstats)) +
+		nla_total_size(0);
+
 	return size;
 }
 
@@ -854,6 +864,15 @@ static const struct genl_ops taskstats_ops[] = {
 		.doit		= cgroupstats_user_cmd,
 		.policy		= cgroupstats_cmd_get_policy,
 	},
+};
+
+static struct genl_family family __ro_after_init = {
+	.name		= TASKSTATS_GENL_NAME,
+	.version	= TASKSTATS_GENL_VERSION,
+	.maxattr	= TASKSTATS_CMD_ATTR_MAX,
+	.module		= THIS_MODULE,
+	.ops		= taskstats_ops,
+	.n_ops		= ARRAY_SIZE(taskstats_ops),
 };
 
 /* Needed early in initialization */

@@ -16,9 +16,6 @@
  *  published by the Free Software Foundation.
  */
 
-#include <linux/stddef.h>
-#include <linux/kernel.h>
-#include <linux/linkage.h>
 #include <linux/compat.h>
 #include <linux/errno.h>
 #include <linux/time.h>
@@ -61,13 +58,11 @@
 #include <linux/mm.h>
 #include <linux/eventpoll.h>
 #include <linux/fs_struct.h>
+#include <linux/ncp_mount.h>
+#include <linux/nfs4_mount.h>
+#include <linux/syscalls.h>
 #include <linux/slab.h>
-#include <linux/pagemap.h>
-#include <linux/aio.h>
-
-#include <asm/uaccess.h>
-#include <asm/mmu_context.h>
-#include <asm/ioctls.h>
+#include <linux/uaccess.h>
 #include "internal.h"
 
 int compat_log = 1;
@@ -1072,7 +1067,7 @@ COMPAT_SYSCALL_DEFINE5(mount, const char __user *, dev_name,
 		       const void __user *, data)
 {
 	char *kernel_type;
-	unsigned long data_page;
+	void *options;
 	char *kernel_dev;
 	int retval;
 
@@ -1086,26 +1081,25 @@ COMPAT_SYSCALL_DEFINE5(mount, const char __user *, dev_name,
 	if (IS_ERR(kernel_dev))
 		goto out1;
 
-	retval = copy_mount_options(data, &data_page);
-	if (retval < 0)
+	options = copy_mount_options(data);
+	retval = PTR_ERR(options);
+	if (IS_ERR(options))
 		goto out2;
 
-	retval = -EINVAL;
-
-	if (kernel_type && data_page) {
+	if (kernel_type && options) {
 		if (!strcmp(kernel_type, NCPFS_NAME)) {
-			do_ncp_super_data_conv((void *)data_page);
+			do_ncp_super_data_conv(options);
 		} else if (!strcmp(kernel_type, NFS4_NAME)) {
-			if (do_nfs4_super_data_conv((void *) data_page))
+			retval = -EINVAL;
+			if (do_nfs4_super_data_conv(options))
 				goto out3;
 		}
 	}
 
-	retval = do_mount(kernel_dev, dir_name, kernel_type,
-			flags, (void*)data_page);
+	retval = do_mount(kernel_dev, dir_name, kernel_type, flags, options);
 
  out3:
-	free_page(data_page);
+	kfree(options);
  out2:
 	kfree(kernel_dev);
  out1:

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  linux/fs/hpfs/hpfs_fn.h
  *
@@ -20,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/smp_lock.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/blkdev.h>
 #include <asm/unaligned.h>
 
@@ -305,7 +307,7 @@ extern const struct file_operations hpfs_dir_ops;
 
 /* dnode.c */
 
-void hpfs_add_pos(struct inode *, loff_t *);
+int hpfs_add_pos(struct inode *, loff_t *);
 void hpfs_del_pos(struct inode *, loff_t *);
 struct hpfs_dirent *hpfs_add_de(struct super_block *, struct dnode *, unsigned char *, unsigned, secno);
 int hpfs_add_dirent(struct inode *, unsigned char *, unsigned, struct hpfs_dirent *, int);

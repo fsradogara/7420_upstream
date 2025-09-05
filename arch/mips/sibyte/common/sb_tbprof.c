@@ -59,6 +59,7 @@
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define SBPROF_TB_MAJOR 240
 

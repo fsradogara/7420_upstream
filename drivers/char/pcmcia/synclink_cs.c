@@ -87,7 +87,7 @@
 #define PUT_USER(error,value,addr) error = put_user(value,addr)
 #define COPY_TO_USER(error,dest,src,size) error = copy_to_user(dest,src,size) ? -EFAULT : 0
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static MGSL_PARAMS default_params = {
 	MGSL_MODE_HDLC,			/* unsigned long mode */
@@ -1358,6 +1358,7 @@ static void dcd_change(MGSLPC_INFO *info, struct tty_struct *tty)
 
 	if (info->flags & ASYNC_CHECK_CD) {
 	if (info->port.flags & ASYNC_CHECK_CD) {
+	if (tty_port_check_carrier(&info->port)) {
 		if (debug_level >= DEBUG_LEVEL_ISR)
 			printk("%s CD now %s...", info->device_name,
 			       (info->serial_signals & SerialSignal_DCD) ? "on" : "off");
@@ -1558,7 +1559,7 @@ static int startup(MGSLPC_INFO * info, struct tty_struct *tty)
 	if (info->flags & ASYNC_INITIALIZED)
 		printk("%s(%d):startup(%s)\n", __FILE__, __LINE__, info->device_name);
 
-	if (info->port.flags & ASYNC_INITIALIZED)
+	if (tty_port_initialized(&info->port))
 		return 0;
 
 	if (!info->tx_buf) {
@@ -1616,7 +1617,7 @@ static int startup(MGSLPC_INFO * info, struct tty_struct *tty)
 	if (tty)
 		clear_bit(TTY_IO_ERROR, &tty->flags);
 
-	info->port.flags |= ASYNC_INITIALIZED;
+	tty_port_set_initialized(&info->port, 1);
 
 	return 0;
 }
@@ -1632,7 +1633,7 @@ static void shutdown(MGSLPC_INFO * info, struct tty_struct *tty)
 {
 	unsigned long flags;
 
-	if (!(info->port.flags & ASYNC_INITIALIZED))
+	if (!tty_port_initialized(&info->port))
 		return;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1682,6 +1683,7 @@ static void mgslpc_program_hw(MGSLPC_INFO *info)
 
 	spin_lock_irqsave(&info->lock,flags);
 	if (!tty || tty->termios.c_cflag & HUPCL) {
+	if (!tty || C_HUPCL(tty)) {
 		info->serial_signals &= ~(SerialSignal_RTS | SerialSignal_DTR);
 		set_signals(info);
 	}
@@ -1693,7 +1695,7 @@ static void mgslpc_program_hw(MGSLPC_INFO *info)
 	if (tty)
 		set_bit(TTY_IO_ERROR, &tty->flags);
 
-	info->port.flags &= ~ASYNC_INITIALIZED;
+	tty_port_set_initialized(&info->port, 0);
 }
 
 static void mgslpc_program_hw(MGSLPC_INFO *info, struct tty_struct *tty)
@@ -1727,6 +1729,7 @@ static void mgslpc_program_hw(MGSLPC_INFO *info, struct tty_struct *tty)
 
 	spin_unlock_irqrestore(&info->lock,flags);
 	if (info->netcount || (tty && (tty->termios.c_cflag & CREAD)))
+	if (info->netcount || (tty && C_CREAD(tty)))
 		rx_start(info);
 
 	spin_unlock_irqrestore(&info->lock, flags);
@@ -1835,6 +1838,8 @@ static void mgslpc_change_params(MGSLPC_INFO *info, struct tty_struct *tty)
 		info->port.flags &= ~ASYNC_CHECK_CD;
 	else
 		info->port.flags |= ASYNC_CHECK_CD;
+	tty_port_set_cts_flow(&info->port, cflag & CRTSCTS);
+	tty_port_set_check_carrier(&info->port, ~cflag & CLOCAL);
 
 	/* process tty input control flags */
 
@@ -2148,6 +2153,7 @@ static void mgslpc_throttle(struct tty_struct * tty)
 	 	set_signals(info);
 		spin_unlock_irqrestore(&info->lock,flags);
 	if (tty->termios.c_cflag & CRTSCTS) {
+	if (C_CRTSCTS(tty)) {
 		spin_lock_irqsave(&info->lock, flags);
 		info->serial_signals &= ~SerialSignal_RTS;
 		set_signals(info);
@@ -2183,6 +2189,7 @@ static void mgslpc_unthrottle(struct tty_struct * tty)
 	 	set_signals(info);
 		spin_unlock_irqrestore(&info->lock,flags);
 	if (tty->termios.c_cflag & CRTSCTS) {
+	if (C_CRTSCTS(tty)) {
 		spin_lock_irqsave(&info->lock, flags);
 		info->serial_signals |= SerialSignal_RTS;
 		set_signals(info);
@@ -2798,7 +2805,7 @@ static int mgslpc_ioctl(struct tty_struct *tty,
 	if ((cmd != TIOCGSERIAL) && (cmd != TIOCSSERIAL) &&
 	    (cmd != TIOCMIWAIT) && (cmd != TIOCGICOUNT)) {
 	    (cmd != TIOCMIWAIT)) {
-		if (tty->flags & (1 << TTY_IO_ERROR))
+		if (tty_io_error(tty))
 		    return -EIO;
 	}
 
@@ -2919,8 +2926,7 @@ static void mgslpc_set_termios(struct tty_struct *tty, struct ktermios *old_term
 	mgslpc_change_params(info, tty);
 
 	/* Handle transition to B0 status */
-	if (old_termios->c_cflag & CBAUD &&
-	    !(tty->termios.c_cflag & CBAUD)) {
+	if ((old_termios->c_cflag & CBAUD) && !C_BAUD(tty)) {
 		info->serial_signals &= ~(SerialSignal_RTS | SerialSignal_DTR);
 		spin_lock_irqsave(&info->lock, flags);
 		set_signals(info);
@@ -2939,11 +2945,10 @@ static void mgslpc_set_termios(struct tty_struct *tty, struct ktermios *old_term
 	 	set_signals(info);
 		spin_unlock_irqrestore(&info->lock,flags);
 	    tty->termios.c_cflag & CBAUD) {
+	if (!(old_termios->c_cflag & CBAUD) && C_BAUD(tty)) {
 		info->serial_signals |= SerialSignal_DTR;
-		if (!(tty->termios.c_cflag & CRTSCTS) ||
-		    !test_bit(TTY_THROTTLED, &tty->flags)) {
+		if (!C_CRTSCTS(tty) || !tty_throttled(tty))
 			info->serial_signals |= SerialSignal_RTS;
-		}
 		spin_lock_irqsave(&info->lock, flags);
 		set_signals(info);
 		spin_unlock_irqrestore(&info->lock, flags);
@@ -2953,6 +2958,7 @@ static void mgslpc_set_termios(struct tty_struct *tty, struct ktermios *old_term
 	if (old_termios->c_cflag & CRTSCTS &&
 	    !(tty->termios->c_cflag & CRTSCTS)) {
 	    !(tty->termios.c_cflag & CRTSCTS)) {
+	if (old_termios->c_cflag & CRTSCTS && !C_CRTSCTS(tty)) {
 		tty->hw_stopped = 0;
 		tx_release(tty);
 	}
@@ -3017,7 +3023,7 @@ static void mgslpc_close(struct tty_struct *tty, struct file * filp)
 	if (tty_port_close_start(port, tty, filp) == 0)
 		goto cleanup;
 
-	if (port->flags & ASYNC_INITIALIZED)
+	if (tty_port_initialized(port))
 		mgslpc_wait_until_sent(tty, info->timeout);
 
 	mgslpc_flush_buffer(tty);
@@ -3075,6 +3081,7 @@ static void mgslpc_wait_until_sent(struct tty_struct *tty, int timeout)
 
 	if (!(info->flags & ASYNC_INITIALIZED))
 	if (!(info->port.flags & ASYNC_INITIALIZED))
+	if (!tty_port_initialized(&info->port))
 		goto exit;
 
 	orig_jiffies = jiffies;
@@ -5073,7 +5080,7 @@ static netdev_tx_t hdlcdev_xmit(struct sk_buff *skb,
 	dev_kfree_skb(skb);
 
 	/* save start time for transmit timeout detection */
-	dev->trans_start = jiffies;
+	netif_trans_update(dev);
 
 	/* start hardware transmitter if necessary */
 	spin_lock_irqsave(&info->lock,flags);
@@ -5153,7 +5160,7 @@ static int hdlcdev_open(struct net_device *dev)
 	tty_kref_put(tty);
 
 	/* enable network layer transmit */
-	dev->trans_start = jiffies;
+	netif_trans_update(dev);
 	netif_start_queue(dev);
 
 	/* inform generic HDLC layer of current DCD status */
@@ -5380,7 +5387,7 @@ static void hdlcdev_rx(MGSLPC_INFO *info, char *buf, int size)
 		return;
 	}
 
-	memcpy(skb_put(skb, size), buf, size);
+	skb_put_data(skb, buf, size);
 
 	skb->protocol = hdlc_type_trans(skb, dev);
 
@@ -5397,7 +5404,6 @@ static void hdlcdev_rx(MGSLPC_INFO *info, char *buf, int size)
 static const struct net_device_ops hdlcdev_ops = {
 	.ndo_open       = hdlcdev_open,
 	.ndo_stop       = hdlcdev_close,
-	.ndo_change_mtu = hdlc_change_mtu,
 	.ndo_start_xmit = hdlc_start_xmit,
 	.ndo_do_ioctl   = hdlcdev_ioctl,
 	.ndo_tx_timeout = hdlcdev_tx_timeout,

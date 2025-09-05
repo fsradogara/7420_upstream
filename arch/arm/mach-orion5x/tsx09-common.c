@@ -17,6 +17,7 @@
 #include <linux/serial_reg.h>
 #include "tsx09-common.h"
 #include <mach/orion5x.h>
+#include "orion5x.h"
 #include "tsx09-common.h"
 #include "common.h"
 

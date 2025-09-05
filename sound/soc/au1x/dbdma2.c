@@ -237,8 +237,8 @@ static int au1xpsc_pcm_hw_params(struct snd_pcm_substream *substream,
 	stype = substream->stream;
 	pcd = to_dmadata(substream);
 
-	DBG("runtime->dma_area = 0x%08lx dma_addr_t = 0x%08lx dma_size = %d "
-	    "runtime->min_align %d\n",
+	DBG("runtime->dma_area = 0x%08lx dma_addr_t = 0x%08lx dma_size = %zu "
+	    "runtime->min_align %lu\n",
 		(unsigned long)runtime->dma_area,
 		(unsigned long)runtime->dma_addr, runtime->dma_bytes,
 		runtime->min_align);
@@ -350,7 +350,7 @@ struct snd_pcm_ops au1xpsc_pcm_ops = {
 	return 0;
 }
 
-static struct snd_pcm_ops au1xpsc_pcm_ops = {
+static const struct snd_pcm_ops au1xpsc_pcm_ops = {
 	.open		= au1xpsc_pcm_open,
 	.close		= au1xpsc_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,

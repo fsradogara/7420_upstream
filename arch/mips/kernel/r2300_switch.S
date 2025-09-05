@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * r2300_switch.S: R2300 specific task switching code.
  *
@@ -13,6 +14,7 @@
  */
 #include <asm/asm.h>
 #include <asm/cachectl.h>
+#include <asm/export.h>
 #include <asm/fpregdef.h>
 #include <asm/mipsregs.h>
 #include <asm/asm-offsets.h>

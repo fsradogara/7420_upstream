@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/sclp.c
  *     core function to access sclp interface
@@ -110,13 +111,6 @@ static struct timer_list sclp_request_timer;
 
 /* Timer for queued requests. */
 static struct timer_list sclp_queue_timer;
-
-/* Internal state: is the driver initialized? */
-static volatile enum sclp_init_state_t {
-	sclp_init_state_uninitialized,
-	sclp_init_state_initializing,
-	sclp_init_state_initialized
-} sclp_init_state = sclp_init_state_uninitialized;
 
 /* Internal state: is a request active at the sclp? */
 static volatile enum sclp_running_state_t {
@@ -620,9 +614,8 @@ sclp_sync_wait(void)
 	old_tick = local_tick_disable();
 	trace_hardirqs_on();
 	__ctl_store(cr0, 0, 0);
-	cr0_sync = cr0;
-	cr0_sync &= 0xffff00a0;
-	cr0_sync |= 0x00000200;
+	cr0_sync = cr0 & ~CR0_IRQ_SUBCLASS_MASK;
+	cr0_sync |= 1UL << (63 - 54);
 	__ctl_load(cr0_sync, 0, 0);
 	__raw_local_irq_stosm(0x01);
 	__arch_local_irq_stosm(0x01);
@@ -1195,26 +1188,26 @@ static const struct dev_pm_ops sclp_pm_ops = {
 	.restore	= sclp_restore,
 };
 
-static ssize_t sclp_show_console_pages(struct device_driver *dev, char *buf)
+static ssize_t con_pages_show(struct device_driver *dev, char *buf)
 {
 	return sprintf(buf, "%i\n", sclp_console_pages);
 }
 
-static DRIVER_ATTR(con_pages, S_IRUSR, sclp_show_console_pages, NULL);
+static DRIVER_ATTR_RO(con_pages);
 
-static ssize_t sclp_show_con_drop(struct device_driver *dev, char *buf)
+static ssize_t con_drop_show(struct device_driver *dev, char *buf)
 {
 	return sprintf(buf, "%i\n", sclp_console_drop);
 }
 
-static DRIVER_ATTR(con_drop, S_IRUSR, sclp_show_con_drop, NULL);
+static DRIVER_ATTR_RO(con_drop);
 
-static ssize_t sclp_show_console_full(struct device_driver *dev, char *buf)
+static ssize_t con_full_show(struct device_driver *dev, char *buf)
 {
 	return sprintf(buf, "%lu\n", sclp_console_full);
 }
 
-static DRIVER_ATTR(con_full, S_IRUSR, sclp_show_console_full, NULL);
+static DRIVER_ATTR_RO(con_full);
 
 static struct attribute *sclp_drv_attrs[] = {
 	&driver_attr_con_pages.attr,

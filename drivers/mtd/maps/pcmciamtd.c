@@ -56,6 +56,7 @@ struct pcmciamtd_dev {
 	struct pcmcia_device	*p_dev;
 	dev_node_t	node;		/* device node */
 	caddr_t		win_base;	/* ioremapped address of PCMCIA window */
+	void __iomem	*win_base;	/* ioremapped address of PCMCIA window */
 	unsigned int	win_size;	/* size of window */
 	unsigned int	offset;		/* offset into card the window currently points at */
 	struct map_info	pcmcia_map;
@@ -128,7 +129,7 @@ static caddr_t remap_window(struct map_info *map, unsigned long to)
 /* read/write{8,16} copy_{from,to} routines with window remapping
  * to access whole card
  */
-static caddr_t remap_window(struct map_info *map, unsigned long to)
+static void __iomem *remap_window(struct map_info *map, unsigned long to)
 {
 	struct pcmciamtd_dev *dev = (struct pcmciamtd_dev *)map->map_priv_1;
 	struct resource *win = (struct resource *) map->map_priv_2;
@@ -155,7 +156,7 @@ static caddr_t remap_window(struct map_info *map, unsigned long to)
 
 static map_word pcmcia_read8_remap(struct map_info *map, unsigned long ofs)
 {
-	caddr_t addr;
+	void __iomem *addr;
 	map_word d = {{0}};
 
 	addr = remap_window(map, ofs);
@@ -171,7 +172,7 @@ static map_word pcmcia_read8_remap(struct map_info *map, unsigned long ofs)
 
 static map_word pcmcia_read16_remap(struct map_info *map, unsigned long ofs)
 {
-	caddr_t addr;
+	void __iomem *addr;
 	map_word d = {{0}};
 
 	addr = remap_window(map, ofs);
@@ -194,7 +195,7 @@ static void pcmcia_copy_from_remap(struct map_info *map, void *to, unsigned long
 	pr_debug("to = %p from = %lu len = %zd\n", to, from, len);
 	while(len) {
 		int toread = win_size - (from & (win_size-1));
-		caddr_t addr;
+		void __iomem *addr;
 
 		if(toread > len)
 			toread = len;
@@ -215,7 +216,7 @@ static void pcmcia_copy_from_remap(struct map_info *map, void *to, unsigned long
 
 static void pcmcia_write8_remap(struct map_info *map, map_word d, unsigned long adr)
 {
-	caddr_t addr = remap_window(map, adr);
+	void __iomem *addr = remap_window(map, adr);
 
 	if(!addr)
 		return;
@@ -228,7 +229,7 @@ static void pcmcia_write8_remap(struct map_info *map, map_word d, unsigned long 
 
 static void pcmcia_write16_remap(struct map_info *map, map_word d, unsigned long adr)
 {
-	caddr_t addr = remap_window(map, adr);
+	void __iomem *addr = remap_window(map, adr);
 	if(!addr)
 		return;
 
@@ -247,7 +248,7 @@ static void pcmcia_copy_to_remap(struct map_info *map, unsigned long to, const v
 	pr_debug("to = %lu from = %p len = %zd\n", to, from, len);
 	while(len) {
 		int towrite = win_size - (to & (win_size-1));
-		caddr_t addr;
+		void __iomem *addr;
 
 		if(towrite > len)
 			towrite = len;
@@ -272,7 +273,7 @@ static void pcmcia_copy_to_remap(struct map_info *map, unsigned long to, const v
 
 static map_word pcmcia_read8(struct map_info *map, unsigned long ofs)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 	map_word d = {{0}};
 
 	if(DEV_REMOVED(map))
@@ -288,7 +289,7 @@ static map_word pcmcia_read8(struct map_info *map, unsigned long ofs)
 
 static map_word pcmcia_read16(struct map_info *map, unsigned long ofs)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 	map_word d = {{0}};
 
 	if(DEV_REMOVED(map))
@@ -304,7 +305,7 @@ static map_word pcmcia_read16(struct map_info *map, unsigned long ofs)
 
 static void pcmcia_copy_from(struct map_info *map, void *to, unsigned long from, ssize_t len)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 
 	if(DEV_REMOVED(map))
 		return;
@@ -318,7 +319,7 @@ static void pcmcia_copy_from(struct map_info *map, void *to, unsigned long from,
 static void pcmcia_write8(struct map_info *map, u8 d, unsigned long adr)
 static void pcmcia_write8(struct map_info *map, map_word d, unsigned long adr)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 
 	if(DEV_REMOVED(map))
 		return;
@@ -337,7 +338,7 @@ static void pcmcia_write16(struct map_info *map, u16 d, unsigned long adr)
 
 static void pcmcia_write16(struct map_info *map, map_word d, unsigned long adr)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 
 	if(DEV_REMOVED(map))
 		return;
@@ -352,7 +353,7 @@ static void pcmcia_write16(struct map_info *map, map_word d, unsigned long adr)
 
 static void pcmcia_copy_to(struct map_info *map, unsigned long to, const void *from, ssize_t len)
 {
-	caddr_t win_base = (caddr_t)map->map_priv_2;
+	void __iomem *win_base = (void __iomem *)map->map_priv_2;
 
 	if(DEV_REMOVED(map))
 		return;

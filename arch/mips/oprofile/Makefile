@@ -1,5 +1,6 @@
 EXTRA_CFLAGS := -Werror
 
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_OPROFILE) += oprofile.o
 
 DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \

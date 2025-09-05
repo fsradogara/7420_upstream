@@ -74,6 +74,7 @@ list of volume location server IP addresses:
 	insmod kafs.o rootcell=cambridge.redhat.com:172.16.18.73:172.16.18.91
 	modprobe af_rxrpc
 	modprobe rxkad
+	modprobe rxrpc
 	modprobe kafs rootcell=cambridge.redhat.com:172.16.18.73:172.16.18.91
 
 The first module is the AF_RXRPC network protocol driver.  This provides the

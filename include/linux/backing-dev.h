@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * include/linux/backing-dev.h
  *
@@ -76,13 +77,19 @@ void bdi_destroy(struct backing_dev_info *bdi);
 #include <linux/backing-dev-defs.h>
 #include <linux/slab.h>
 
-int __must_check bdi_init(struct backing_dev_info *bdi);
-void bdi_exit(struct backing_dev_info *bdi);
+static inline struct backing_dev_info *bdi_get(struct backing_dev_info *bdi)
+{
+	kref_get(&bdi->refcnt);
+	return bdi;
+}
 
-__printf(3, 4)
-int bdi_register(struct backing_dev_info *bdi, struct device *parent,
-		const char *fmt, ...);
-int bdi_register_dev(struct backing_dev_info *bdi, dev_t dev);
+void bdi_put(struct backing_dev_info *bdi);
+
+__printf(2, 3)
+int bdi_register(struct backing_dev_info *bdi, const char *fmt, ...);
+int bdi_register_va(struct backing_dev_info *bdi, const char *fmt,
+		    va_list args);
+int bdi_register_owner(struct backing_dev_info *bdi, struct device *owner);
 void bdi_unregister(struct backing_dev_info *bdi);
 
 static inline void __add_bdi_stat(struct backing_dev_info *bdi,
@@ -101,6 +108,11 @@ static inline void inc_bdi_stat(struct backing_dev_info *bdi,
 		enum bdi_stat_item item)
 int __must_check bdi_setup_and_register(struct backing_dev_info *, char *);
 void bdi_destroy(struct backing_dev_info *bdi);
+struct backing_dev_info *bdi_alloc_node(gfp_t gfp_mask, int node_id);
+static inline struct backing_dev_info *bdi_alloc(gfp_t gfp_mask)
+{
+	return bdi_alloc_node(gfp_mask, NUMA_NO_NODE);
+}
 
 void wb_start_writeback(struct bdi_writeback *wb, long nr_pages,
 			bool range_cyclic, enum wb_reason reason);
@@ -130,13 +142,7 @@ static inline bool bdi_has_dirty_io(struct backing_dev_info *bdi)
 static inline void __add_wb_stat(struct bdi_writeback *wb,
 				 enum wb_stat_item item, s64 amount)
 {
-	__percpu_counter_add(&wb->stat[item], amount, WB_STAT_BATCH);
-}
-
-static inline void __inc_wb_stat(struct bdi_writeback *wb,
-				 enum wb_stat_item item)
-{
-	__add_wb_stat(wb, item, 1);
+	percpu_counter_add_batch(&wb->stat[item], amount, WB_STAT_BATCH);
 }
 
 static inline void inc_wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
@@ -164,6 +170,7 @@ static inline void __dec_wb_stat(struct bdi_writeback *wb,
 				 enum wb_stat_item item)
 {
 	__add_wb_stat(wb, item, -1);
+	__add_wb_stat(wb, item, 1);
 }
 
 static inline void dec_wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
@@ -191,17 +198,12 @@ static inline s64 bdi_stat_sum(struct backing_dev_info *bdi,
 		enum bdi_stat_item item)
 	__dec_wb_stat(wb, item);
 	local_irq_restore(flags);
+	__add_wb_stat(wb, item, -1);
 }
 
 static inline s64 wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
 {
 	return percpu_counter_read_positive(&wb->stat[item]);
-}
-
-static inline s64 __wb_stat_sum(struct bdi_writeback *wb,
-				enum wb_stat_item item)
-{
-	return percpu_counter_sum_positive(&wb->stat[item]);
 }
 
 static inline s64 wb_stat_sum(struct bdi_writeback *wb, enum wb_stat_item item)
@@ -215,6 +217,7 @@ static inline s64 wb_stat_sum(struct bdi_writeback *wb, enum wb_stat_item item)
 	local_irq_restore(flags);
 
 	return sum;
+	return percpu_counter_sum_positive(&wb->stat[item]);
 }
 
 extern void bdi_writeout_inc(struct backing_dev_info *bdi);
@@ -352,7 +355,7 @@ static inline struct backing_dev_info *inode_to_bdi(struct inode *inode)
 	sb = inode->i_sb;
 #ifdef CONFIG_BLOCK
 	if (sb_is_blkdev_sb(sb))
-		return blk_get_backing_dev_info(I_BDEV(inode));
+		return I_BDEV(inode)->bd_bdi;
 #endif
 	return sb->s_bdi;
 }
@@ -367,7 +370,7 @@ static inline int wb_congested(struct bdi_writeback *wb, int cong_bits)
 }
 
 long congestion_wait(int sync, long timeout);
-long wait_iff_congested(struct zone *zone, int sync, long timeout);
+long wait_iff_congested(struct pglist_data *pgdat, int sync, long timeout);
 int pdflush_proc_obsolete(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp, loff_t *ppos);
 

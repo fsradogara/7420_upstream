@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/m32r/mm/fault.c
  *
@@ -24,6 +25,7 @@
 #include <asm/m32r.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
 #include <asm/hardirq.h>

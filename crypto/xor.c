@@ -26,6 +26,10 @@
 #include <linux/preempt.h>
 #include <asm/xor.h>
 
+#ifndef XOR_SELECT_TEMPLATE
+#define XOR_SELECT_TEMPLATE(x) (x)
+#endif
+
 /* The xor routines to use.  */
 static struct xor_block_template *active_template;
 
@@ -124,6 +128,15 @@ calibrate_xor_blocks(void)
 	struct xor_block_template *f, *fastest;
 
 	b1 = (void *) __get_free_pages(GFP_KERNEL, 2);
+	fastest = XOR_SELECT_TEMPLATE(NULL);
+
+	if (fastest) {
+		printk(KERN_INFO "xor: automatically using best "
+				 "checksumming function   %-10s\n",
+		       fastest->name);
+		goto out;
+	}
+
 	/*
 	 * Note: Since the memory is not actually used for _anything_ but to
 	 * test the XOR speed, we don't really want kmemcheck to warn about
@@ -140,12 +153,6 @@ calibrate_xor_blocks(void)
 	 * If this arch/cpu has a short-circuited selection, don't loop through
 	 * all the possible functions, just test the best one
 	 */
-
-	fastest = NULL;
-
-#ifdef XOR_SELECT_TEMPLATE
-		fastest = XOR_SELECT_TEMPLATE(fastest);
-#endif
 
 #define xor_speed(templ)	do_xor_speed((templ), b1, b2)
 
@@ -165,15 +172,20 @@ calibrate_xor_blocks(void)
 			if (f->speed > fastest->speed)
 				fastest = f;
 	}
+	printk(KERN_INFO "xor: measuring software checksum speed\n");
+	XOR_TRY_TEMPLATES;
+	fastest = template_list;
+	for (f = fastest; f; f = f->next)
+		if (f->speed > fastest->speed)
+			fastest = f;
 
 	printk(KERN_INFO "xor: using function: %s (%d.%03d MB/sec)\n",
 	       fastest->name, fastest->speed / 1000, fastest->speed % 1000);
 
 #undef xor_speed
 
- out:
 	free_pages((unsigned long)b1, 2);
-
+out:
 	active_template = fastest;
 	return 0;
 }

@@ -36,7 +36,6 @@ static char *device;
 #define KMSG_COMPONENT "zfcp"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
-#include <linux/miscdevice.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -690,7 +689,7 @@ static int zfcp_setup_adapter_work_queue(struct zfcp_adapter *adapter)
 
 	snprintf(name, sizeof(name), "zfcp_q_%s",
 		 dev_name(&adapter->ccw_device->dev));
-	adapter->work_queue = create_singlethread_workqueue(name);
+	adapter->work_queue = alloc_ordered_workqueue(name, WQ_MEM_RECLAIM);
 
 	if (adapter->work_queue)
 		return 0;
@@ -800,6 +799,8 @@ struct zfcp_adapter *zfcp_adapter_enqueue(struct ccw_device *ccw_device)
 	INIT_WORK(&adapter->ns_up_work, zfcp_fc_sym_name_update);
 
 	adapter->next_port_scan = jiffies;
+
+	adapter->erp_action.adapter = adapter;
 
 	if (zfcp_qdio_setup(adapter))
 		goto failed;
@@ -1154,6 +1155,9 @@ void zfcp_port_dequeue(struct zfcp_port *port)
 	port->dev.parent = &adapter->ccw_device->dev;
 	port->dev.groups = zfcp_port_attr_groups;
 	port->dev.release = zfcp_port_release;
+
+	port->erp_action.adapter = adapter;
+	port->erp_action.port = port;
 
 	if (dev_set_name(&port->dev, "0x%016llx", (unsigned long long)wwpn)) {
 		kfree(port);

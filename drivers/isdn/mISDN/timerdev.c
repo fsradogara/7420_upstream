@@ -27,6 +27,8 @@
 
 static int	*debug;
 #include <linux/mutex.h>
+#include <linux/sched/signal.h>
+
 #include "core.h"
 
 static DEFINE_MUTEX(mISDN_mutex);

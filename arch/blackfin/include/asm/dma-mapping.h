@@ -84,12 +84,11 @@ _dma_sync(dma_addr_t addr, size_t size, enum dma_data_direction dir)
 		__dma_sync(addr, size, dir);
 }
 
-static inline dma_addr_t
-dma_map_single(struct device *dev, void *ptr, size_t size,
-	       enum dma_data_direction dir)
+extern const struct dma_map_ops bfin_dma_ops;
+
+static inline const struct dma_map_ops *get_arch_dma_ops(struct bus_type *bus)
 {
-	_dma_sync((dma_addr_t)ptr, size, dir);
-	return (dma_addr_t) ptr;
+	return &bfin_dma_ops;
 }
 
 static inline dma_addr_t

@@ -51,7 +51,7 @@
 #define ACPI_AC_CLASS			"ac_adapter"
 #define ACPI_BATTERY_CLASS		"battery"
 #include <linux/power_supply.h>
-#include <linux/dmi.h>
+#include <linux/platform_data/x86/apple.h>
 
 #include "sbshc.h"
 #include "battery.h"
@@ -480,11 +480,11 @@ static int acpi_battery_set_alarm(struct acpi_battery *battery)
 		if ((value & 0xf000) != sel) {
 			value &= 0x0fff;
 			value |= sel;
-		ret = acpi_smbus_write(sbs->hc, SMBUS_WRITE_WORD,
+			ret = acpi_smbus_write(sbs->hc, SMBUS_WRITE_WORD,
 					 ACPI_SBS_MANAGER,
 					 0x01, (u8 *)&value, 2);
-		if (ret)
-			goto end;
+			if (ret)
+				goto end;
 		}
 	}
 	ret = acpi_smbus_write(sbs->hc, SMBUS_WRITE_WORD, ACPI_SBS_BATTERY,
@@ -818,6 +818,7 @@ static struct file_operations acpi_ac_state_fops = {
 };
 
 #endif
+static const struct device_attribute alarm_attr = {
 	.attr = {.name = "alarm", .mode = 0644},
 	.show = acpi_battery_alarm_show,
 	.store = acpi_battery_alarm_store,
@@ -1079,8 +1080,6 @@ static int acpi_sbs_add(struct acpi_device *device)
 	int result = 0;
 	int id;
 
-	dmi_check_system(acpi_sbs_dmi_table);
-
 	sbs = kzalloc(sizeof(struct acpi_sbs), GFP_KERNEL);
 	if (!sbs) {
 		result = -ENOMEM;
@@ -1123,7 +1122,7 @@ static int acpi_sbs_remove(struct acpi_device *device, int type)
 
 	result = 0;
 
-	if (!sbs_manager_broken) {
+	if (!x86_apple_machine) {
 		result = acpi_manager_get_info(sbs);
 		if (!result) {
 			sbs->manager_present = 1;

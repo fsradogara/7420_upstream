@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __NET_SCHED_RED_H
 #define __NET_SCHED_RED_H
 
@@ -278,7 +279,7 @@ static inline unsigned long red_calc_qavg_from_idle_time(struct red_parms *p)
 
 static inline int red_is_idling(const struct red_vars *v)
 {
-	return v->qidlestart.tv64 != 0;
+	return v->qidlestart != 0;
 }
 
 static inline void red_start_of_idle_period(struct red_vars *v)
@@ -288,7 +289,7 @@ static inline void red_start_of_idle_period(struct red_vars *v)
 
 static inline void red_end_of_idle_period(struct red_vars *v)
 {
-	v->qidlestart.tv64 = 0;
+	v->qidlestart = 0;
 }
 
 static inline void red_restart(struct red_vars *v)

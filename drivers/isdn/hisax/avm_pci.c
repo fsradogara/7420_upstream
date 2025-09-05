@@ -447,6 +447,9 @@ HDLC_irq(struct BCState *bcs, u_int stat) {
 						memcpy(skb_put(skb, bcs->hw.hdlc.rcvidx),
 							bcs->hw.hdlc.rcvbuf, bcs->hw.hdlc.rcvidx);
 						       bcs->hw.hdlc.rcvbuf, bcs->hw.hdlc.rcvidx);
+						skb_put_data(skb,
+							     bcs->hw.hdlc.rcvbuf,
+							     bcs->hw.hdlc.rcvidx);
 						skb_queue_tail(&bcs->rqueue, skb);
 					}
 					bcs->hw.hdlc.rcvidx = 0;

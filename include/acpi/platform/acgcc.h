@@ -7,6 +7,7 @@
 /*
  * Copyright (C) 2000 - 2008, Intel Corp.
  * Copyright (C) 2000 - 2015, Intel Corp.
+ * Copyright (C) 2000 - 2017, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,6 +49,22 @@
 /* Function name is used for debug output. Non-ANSI, compiler-dependent */
 
 #define ACPI_GET_FUNCTION_NAME          __FUNCTION__
+/*
+ * Use compiler specific <stdarg.h> is a good practice for even when
+ * -nostdinc is specified (i.e., ACPI_USE_STANDARD_HEADERS undefined.
+ */
+#ifndef va_arg
+#ifdef ACPI_USE_BUILTIN_STDARG
+typedef __builtin_va_list va_list;
+#define va_start(v, l)          __builtin_va_start(v, l)
+#define va_end(v)               __builtin_va_end(v)
+#define va_arg(v, l)            __builtin_va_arg(v, l)
+#define va_copy(d, s)           __builtin_va_copy(d, s)
+#else
+#include <stdarg.h>
+#endif
+#endif
+
 #define ACPI_INLINE             __inline__
 
 /* Function name is used for debug output. Non-ANSI, compiler-dependent */
@@ -69,19 +86,12 @@
  */
 #define ACPI_UNUSED_VAR __attribute__ ((unused))
 
-/*
- * Some versions of gcc implement strchr() with a buggy macro. So,
- * undef it here. Prevents error messages of this form (usually from the
- * file getopt.c):
- *
- * error: logical '&&' with non-zero constant will always evaluate as true
- */
-#ifdef strchr
-#undef strchr
-#endif
-
 /* GCC supports __VA_ARGS__ in macros */
 
 #define COMPILER_VA_MACRO               1
+
+/* GCC supports native multiply/shift on 32-bit platforms */
+
+#define ACPI_USE_NATIVE_MATH64
 
 #endif				/* __ACGCC_H__ */

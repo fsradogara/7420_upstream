@@ -1,10 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/blkdev.h>
 #include <linux/blkpg.h>
 #include <linux/blktrace_api.h>
 #include <linux/cdrom.h>
 #include <linux/compat.h>
 #include <linux/elevator.h>
-#include <linux/fd.h>
 #include <linux/hdreg.h>
 #include <linux/syscalls.h>
 #include <linux/smp_lock.h>
@@ -85,20 +85,18 @@ static int compat_hdio_ioctl(struct inode *inode, struct file *file,
 static int compat_hdio_ioctl(struct block_device *bdev, fmode_t mode,
 		unsigned int cmd, unsigned long arg)
 {
-	mm_segment_t old_fs = get_fs();
-	unsigned long kval;
-	unsigned int __user *uvp;
+	unsigned long __user *p;
 	int error;
 
 	set_fs(KERNEL_DS);
 	error = blkdev_driver_ioctl(inode, file, disk,
+	p = compat_alloc_user_space(sizeof(unsigned long));
 	error = __blkdev_driver_ioctl(bdev, mode,
-				cmd, (unsigned long)(&kval));
-	set_fs(old_fs);
-
+				cmd, (unsigned long)p);
 	if (error == 0) {
-		uvp = compat_ptr(arg);
-		if (put_user(kval, uvp))
+		unsigned int __user *uvp = compat_ptr(arg);
+		unsigned long v;
+		if (get_user(v, p) || put_user(v, uvp))
 			error = -EFAULT;
 	}
 	return error;
@@ -661,23 +659,6 @@ static int compat_blkdev_driver_ioctl(struct block_device *bdev, fmode_t mode,
 	case HDIO_DRIVE_CMD:
 	/* 0x330 is reserved -- it used to be HDIO_GETGEO_BIG */
 	case 0x330:
-	/* 0x02 -- Floppy ioctls */
-	case FDMSGON:
-	case FDMSGOFF:
-	case FDSETEMSGTRESH:
-	case FDFLUSH:
-	case FDWERRORCLR:
-	case FDSETMAXERRS:
-	case FDGETMAXERRS:
-	case FDGETDRVTYP:
-	case FDEJECT:
-	case FDCLRPRM:
-	case FDFMTBEG:
-	case FDFMTEND:
-	case FDRESET:
-	case FDTWADDLE:
-	case FDFMTTRK:
-	case FDRAWCMD:
 	/* CDROM stuff */
 	case CDROMPAUSE:
 	case CDROMRESUME:
@@ -819,7 +800,6 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	struct block_device *bdev = inode->i_bdev;
 	struct gendisk *disk = bdev->bd_disk;
 	fmode_t mode = file->f_mode;
-	struct backing_dev_info *bdi;
 	loff_t size;
 	unsigned int max_sectors;
 
@@ -846,7 +826,7 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKALIGNOFF:
 		return compat_put_int(arg, bdev_alignment_offset(bdev));
 	case BLKDISCARDZEROES:
-		return compat_put_uint(arg, bdev_discard_zeroes_data(bdev));
+		return compat_put_uint(arg, 0);
 	case BLKFLSBUF:
 	case BLKROSET:
 	case BLKDISCARD:
@@ -888,9 +868,8 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKFRAGET:
 		if (!arg)
 			return -EINVAL;
-		bdi = blk_get_backing_dev_info(bdev);
 		return compat_put_long(arg,
-				       (bdi->ra_pages * PAGE_CACHE_SIZE) / 512);
+			       (bdev->bd_bdi->ra_pages * PAGE_SIZE) / 512);
 	case BLKROGET: /* compatible */
 		return compat_put_int(arg, bdev_read_only(bdev) != 0);
 	case BLKBSZGET_32: /* get the logical block size (cf. BLKSSZGET) */
@@ -908,8 +887,7 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKFRASET:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EACCES;
-		bdi = blk_get_backing_dev_info(bdev);
-		bdi->ra_pages = (arg * 512) / PAGE_CACHE_SIZE;
+		bdev->bd_bdi->ra_pages = (arg * 512) / PAGE_SIZE;
 		return 0;
 	case BLKGETSIZE:
 		size = i_size_read(bdev->bd_inode);

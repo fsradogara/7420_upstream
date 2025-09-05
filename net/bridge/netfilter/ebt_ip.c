@@ -68,19 +68,19 @@ ebt_ip_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		if (pptr == NULL)
 			return EBT_NOMATCH;
 		return false;
-	if (info->bitmask & EBT_IP_TOS &&
-	   FWINV(info->tos != ih->tos, EBT_IP_TOS))
+	if ((info->bitmask & EBT_IP_TOS) &&
+	    NF_INVF(info, EBT_IP_TOS, info->tos != ih->tos))
 		return false;
-	if (info->bitmask & EBT_IP_SOURCE &&
-	   FWINV((ih->saddr & info->smsk) !=
-	   info->saddr, EBT_IP_SOURCE))
+	if ((info->bitmask & EBT_IP_SOURCE) &&
+	    NF_INVF(info, EBT_IP_SOURCE,
+		    (ih->saddr & info->smsk) != info->saddr))
 		return false;
 	if ((info->bitmask & EBT_IP_DEST) &&
-	   FWINV((ih->daddr & info->dmsk) !=
-	   info->daddr, EBT_IP_DEST))
+	    NF_INVF(info, EBT_IP_DEST,
+		    (ih->daddr & info->dmsk) != info->daddr))
 		return false;
 	if (info->bitmask & EBT_IP_PROTO) {
-		if (FWINV(info->protocol != ih->protocol, EBT_IP_PROTO))
+		if (NF_INVF(info, EBT_IP_PROTO, info->protocol != ih->protocol))
 			return false;
 		if (!(info->bitmask & EBT_IP_DPORT) &&
 		    !(info->bitmask & EBT_IP_SPORT))
@@ -118,6 +118,17 @@ static int ebt_ip_check(const char *tablename, unsigned int hookmask,
 	if (datalen != EBT_ALIGN(sizeof(struct ebt_ip_info)))
 		return -EINVAL;
 			return false;
+			if (NF_INVF(info, EBT_IP_DPORT,
+				    dst < info->dport[0] ||
+				    dst > info->dport[1]))
+				return false;
+		}
+		if (info->bitmask & EBT_IP_SPORT) {
+			u32 src = ntohs(pptr->src);
+			if (NF_INVF(info, EBT_IP_SPORT,
+				    src < info->sport[0] ||
+				    src > info->sport[1]))
+				return false;
 		}
 	}
 	return true;

@@ -38,7 +38,7 @@
 #include <asm/prom.h>
 #include <asm/spu.h>
 #include <asm/spu_priv1.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "spufs.h"
 
@@ -114,7 +114,7 @@ spufs_new_inode(struct super_block *sb, umode_t mode)
 	inode->i_mode = mode;
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
-	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
 out:
 	return inode;
 }
@@ -204,6 +204,7 @@ static void spufs_prune_dir(struct dentry *dir)
 	shrink_dcache_parent(dir);
 	mutex_unlock(&dir->d_inode->i_mutex);
 	mutex_lock(&d_inode(dir)->i_mutex);
+	inode_lock(d_inode(dir));
 	list_for_each_entry_safe(dentry, tmp, &dir->d_subdirs, d_child) {
 		spin_lock(&dentry->d_lock);
 		if (simple_positive(dentry)) {
@@ -220,7 +221,7 @@ static void spufs_prune_dir(struct dentry *dir)
 		}
 	}
 	shrink_dcache_parent(dir);
-	mutex_unlock(&d_inode(dir)->i_mutex);
+	inode_unlock(d_inode(dir));
 }
 
 /* Caller must hold parent->i_mutex */
@@ -307,9 +308,9 @@ static int spufs_dir_close(struct inode *inode, struct file *file)
 	parent = d_inode(dir->d_parent);
 	ctx = SPUFS_I(d_inode(dir))->i_ctx;
 
-	mutex_lock_nested(&parent->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(parent, I_MUTEX_PARENT);
 	ret = spufs_rmdir(parent, dir);
-	mutex_unlock(&parent->i_mutex);
+	inode_unlock(parent);
 	WARN_ON(ret);
 
 	/* We have to give up the mm_struct */
@@ -326,6 +327,7 @@ const struct file_operations spufs_context_fops = {
 	.readdir	= dcache_readdir,
 	.fsync		= simple_sync_file,
 	.iterate	= dcache_readdir,
+	.iterate_shared	= dcache_readdir,
 	.fsync		= noop_fsync,
 };
 EXPORT_SYMBOL_GPL(spufs_context_fops);
@@ -364,7 +366,7 @@ spufs_mkdir(struct inode *dir, struct dentry *dentry, unsigned int flags,
 	inode->i_op = &simple_dir_inode_operations;
 	inode->i_fop = &simple_dir_operations;
 
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 
 	dget(dentry);
 	inc_nlink(dir);
@@ -407,7 +409,7 @@ out:
 static int spufs_context_open(struct dentry *dentry, struct vfsmount *mnt)
 		spufs_rmdir(dir, dentry);
 
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 
 	return ret;
 }
@@ -661,8 +663,10 @@ spufs_mkgang(struct inode *dir, struct dentry *dentry, umode_t mode)
 	gang = alloc_spu_gang();
 	SPUFS_I(inode)->i_ctx = NULL;
 	SPUFS_I(inode)->i_gang = gang;
-	if (!gang)
+	if (!gang) {
+		ret = -ENOMEM;
 		goto out_iput;
+	}
 
 	inode->i_op = &simple_dir_inode_operations;
 	inode->i_fop = &simple_dir_operations;
@@ -859,6 +863,24 @@ static const match_table_t spufs_tokens = {
 	{ Opt_err,    NULL  },
 };
 
+static int spufs_show_options(struct seq_file *m, struct dentry *root)
+{
+	struct spufs_sb_info *sbi = spufs_get_sb_info(root->d_sb);
+	struct inode *inode = root->d_inode;
+
+	if (!uid_eq(inode->i_uid, GLOBAL_ROOT_UID))
+		seq_printf(m, ",uid=%u",
+			   from_kuid_munged(&init_user_ns, inode->i_uid));
+	if (!gid_eq(inode->i_gid, GLOBAL_ROOT_GID))
+		seq_printf(m, ",gid=%u",
+			   from_kgid_munged(&init_user_ns, inode->i_gid));
+	if ((inode->i_mode & S_IALLUGO) != 0775)
+		seq_printf(m, ",mode=%o", inode->i_mode);
+	if (sbi->debug)
+		seq_puts(m, ",debug");
+	return 0;
+}
+
 static int
 spufs_parse_options(struct super_block *sb, char *options, struct inode *root)
 {
@@ -989,18 +1011,16 @@ spufs_fill_super(struct super_block *sb, void *data, int silent)
 		.destroy_inode = spufs_destroy_inode,
 		.statfs = simple_statfs,
 		.evict_inode = spufs_evict_inode,
-		.show_options = generic_show_options,
+		.show_options = spufs_show_options,
 	};
-
-	save_mount_options(sb, data);
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
 	sb->s_maxbytes = MAX_LFS_FILESIZE;
-	sb->s_blocksize = PAGE_CACHE_SIZE;
-	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
+	sb->s_blocksize = PAGE_SIZE;
+	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = SPUFS_MAGIC;
 	sb->s_op = &s_ops;
 	sb->s_fs_info = info;
@@ -1042,7 +1062,7 @@ static int __init spufs_init(void)
 	ret = -ENOMEM;
 	spufs_inode_cache = kmem_cache_create("spufs_inode_cache",
 			sizeof(struct spufs_inode_info), 0,
-			SLAB_HWCACHE_ALIGN, spufs_init_once);
+			SLAB_HWCACHE_ALIGN|SLAB_ACCOUNT, spufs_init_once);
 
 	if (!spufs_inode_cache)
 		goto out;

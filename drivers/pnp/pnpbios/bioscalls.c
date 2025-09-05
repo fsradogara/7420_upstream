@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * bioscalls.c - the lowlevel layer of the PnPBIOS driver
  */
@@ -68,6 +69,7 @@ set_limit(gdt[(selname) >> 3], size); \
 
 static struct desc_struct bad_bios_desc;
 	struct desc_struct *gdt = get_cpu_gdt_table((cpu)); \
+	struct desc_struct *gdt = get_cpu_gdt_rw((cpu)); \
 	set_desc_base(&gdt[(selname) >> 3], (u32)(address)); \
 	set_desc_limit(&gdt[(selname) >> 3], (size) - 1); \
 } while(0)
@@ -111,8 +113,8 @@ static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 		return PNP_FUNCTION_NOT_SUPPORTED;
 
 	cpu = get_cpu();
-	save_desc_40 = get_cpu_gdt_table(cpu)[0x40 / 8];
-	get_cpu_gdt_table(cpu)[0x40 / 8] = bad_bios_desc;
+	save_desc_40 = get_cpu_gdt_rw(cpu)[0x40 / 8];
+	get_cpu_gdt_rw(cpu)[0x40 / 8] = bad_bios_desc;
 
 	/* On some boxes IRQ's during PnP BIOS calls are deadly.  */
 	spin_lock_irqsave(&pnp_bios_lock, flags);
@@ -150,7 +152,7 @@ static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 			     :"memory");
 	spin_unlock_irqrestore(&pnp_bios_lock, flags);
 
-	get_cpu_gdt_table(cpu)[0x40 / 8] = save_desc_40;
+	get_cpu_gdt_rw(cpu)[0x40 / 8] = save_desc_40;
 	put_cpu();
 
 	/* If we get here and this is set then the PnP BIOS faulted on us. */
@@ -508,7 +510,7 @@ void pnpbios_calls_init(union pnp_bios_install_struct *header)
 		set_base(gdt[GDT_ENTRY_PNPBIOS_DS],
 			 __va(header->fields.pm16dseg));
 	for_each_possible_cpu(i) {
-		struct desc_struct *gdt = get_cpu_gdt_table(i);
+		struct desc_struct *gdt = get_cpu_gdt_rw(i);
 		if (!gdt)
 			continue;
 		set_desc_base(&gdt[GDT_ENTRY_PNPBIOS_CS32],

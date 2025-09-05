@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Functions related to mapping data to requests
  */
 #include <linux/kernel.h>
+#include <linux/sched/task_stack.h>
 #include <linux/module.h>
 #include <linux/bio.h>
 #include <linux/blkdev.h>
@@ -13,32 +15,20 @@
 
 #include "blk.h"
 
-static bool iovec_gap_to_prv(struct request_queue *q,
-			     struct iovec *prv, struct iovec *cur)
+/*
+ * Append a bio to a passthrough request.  Only works can be merged into
+ * the request based on the driver constraints.
+ */
+int blk_rq_append_bio(struct request *rq, struct bio *bio)
 {
-	unsigned long prev_end;
+	blk_queue_bounce(rq->q, &bio);
 
-	if (!queue_virt_boundary(q))
-		return false;
+	if (!rq->bio) {
+		blk_rq_bio_prep(rq->q, rq, bio);
+	} else {
+		if (!ll_back_merge_fn(rq->q, rq, bio))
+			return -EINVAL;
 
-	if (prv->iov_base == NULL && prv->iov_len == 0)
-		/* prv is not set - don't check */
-		return false;
-
-	prev_end = (unsigned long)(prv->iov_base + prv->iov_len);
-
-	return (((unsigned long)cur->iov_base & queue_virt_boundary(q)) ||
-		prev_end & queue_virt_boundary(q));
-}
-
-int blk_rq_append_bio(struct request_queue *q, struct request *rq,
-		      struct bio *bio)
-{
-	if (!rq->bio)
-		blk_rq_bio_prep(q, rq, bio);
-	else if (!ll_back_merge_fn(q, rq, bio))
-		return -EINVAL;
-	else {
 		rq->biotail->bi_next = bio;
 		rq->biotail = bio;
 
@@ -49,8 +39,10 @@ int blk_rq_append_bio(struct request_queue *q, struct request *rq,
 EXPORT_SYMBOL(blk_rq_append_bio);
 		rq->__data_len += bio->bi_iter.bi_size;
 	}
+
 	return 0;
 }
+EXPORT_SYMBOL(blk_rq_append_bio);
 
 static int __blk_rq_unmap_user(struct bio *bio)
 {
@@ -86,12 +78,35 @@ static int __blk_rq_map_user(struct request_queue *q, struct request *rq,
 		bio = bio_map_user(q, NULL, uaddr, len, reading);
 	else
 		bio = bio_copy_user(q, uaddr, len, reading);
+static int __blk_rq_map_user_iov(struct request *rq,
+		struct rq_map_data *map_data, struct iov_iter *iter,
+		gfp_t gfp_mask, bool copy)
+{
+	struct request_queue *q = rq->q;
+	struct bio *bio, *orig_bio;
+	int ret;
+
+	if (copy)
+		bio = bio_copy_user_iov(q, map_data, iter, gfp_mask);
+	else
+		bio = bio_map_user_iov(q, iter, gfp_mask);
 
 	if (IS_ERR(bio))
 		return PTR_ERR(bio);
 
 	orig_bio = bio;
 	blk_queue_bounce(q, &bio);
+	bio->bi_opf &= ~REQ_OP_MASK;
+	bio->bi_opf |= req_op(rq);
+
+	if (map_data && map_data->null_mapped)
+		bio_set_flag(bio, BIO_NULL_MAPPED);
+
+	iov_iter_advance(iter, bio->bi_iter.bi_size);
+	if (map_data)
+		map_data->offset += bio->bi_iter.bi_size;
+
+	orig_bio = bio;
 
 	/*
 	 * We link the bounce buffer in and could have to traverse it
@@ -192,8 +207,20 @@ EXPORT_SYMBOL(blk_rq_map_user);
  *    a kernel bounce buffer is used.
  *
  *    A matching blk_rq_unmap_user() must be issued at the end of io, while
+	ret = blk_rq_append_bio(rq, bio);
+	bio_get(bio);
+	if (ret) {
+		bio_endio(bio);
+		__blk_rq_unmap_user(orig_bio);
+		bio_put(bio);
+		return ret;
+	}
+
+	return 0;
+}
+
 /**
- * blk_rq_map_user_iov - map user data to a request, for REQ_TYPE_BLOCK_PC usage
+ * blk_rq_map_user_iov - map user data to a request, for passthrough requests
  * @q:		request queue where request should be inserted
  * @rq:		request to map data to
  * @map_data:   pointer to the rq_map_data holding pages (if necessary)
@@ -239,16 +266,21 @@ int blk_rq_map_user_iov(struct request_queue *q, struct request *rq,
 			struct rq_map_data *map_data,
 			const struct iov_iter *iter, gfp_t gfp_mask)
 {
-	struct bio *bio;
-	int unaligned = 0;
+	bool copy = false;
+	unsigned long align = q->dma_pad_mask | queue_dma_alignment(q);
+	struct bio *bio = NULL;
 	struct iov_iter i;
-	struct iovec iov, prv = {.iov_base = NULL, .iov_len = 0};
+	int ret;
 
-	if (!iter || !iter->count)
-		return -EINVAL;
+	if (!iter_is_iovec(iter))
+		goto fail;
 
-	iov_for_each(iov, i, *iter) {
-		unsigned long uaddr = (unsigned long) iov.iov_base;
+	if (map_data)
+		copy = true;
+	else if (iov_iter_alignment(iter) & align)
+		copy = true;
+	else if (queue_virt_boundary(q))
+		copy = queue_virt_boundary(q) & iov_iter_gap_alignment(iter);
 
 		if (!iov.iov_len)
 			return -EINVAL;
@@ -299,7 +331,24 @@ int blk_rq_map_user_iov(struct request_queue *q, struct request *rq,
 	rq->buffer = rq->data = NULL;
 	return 0;
 }
+	i = *iter;
+	do {
+		ret =__blk_rq_map_user_iov(rq, map_data, &i, gfp_mask, copy);
+		if (ret)
+			goto unmap_rq;
+		if (!bio)
+			bio = rq->bio;
+	} while (iov_iter_count(&i));
+
+	if (!bio_flagged(bio, BIO_USER_MAPPED))
+		rq->rq_flags |= RQF_COPY_USER;
 	return 0;
+
+unmap_rq:
+	__blk_rq_unmap_user(bio);
+fail:
+	rq->bio = NULL;
+	return -EINVAL;
 }
 EXPORT_SYMBOL(blk_rq_map_user_iov);
 
@@ -354,6 +403,7 @@ EXPORT_SYMBOL(blk_rq_unmap_user);
 /**
  * blk_rq_map_kern - map kernel data to a request, for REQ_BLOCK_PC usage
  * blk_rq_map_kern - map kernel data to a request, for REQ_TYPE_BLOCK_PC usage
+ * blk_rq_map_kern - map kernel data to a request, for passthrough requests
  * @q:		request queue where request should be inserted
  * @rq:		request to fill
  * @kbuf:	the kernel buffer
@@ -405,21 +455,23 @@ int blk_rq_map_kern(struct request_queue *q, struct request *rq, void *kbuf,
 		bio->bi_rw |= (1 << BIO_RW);
 	if (!reading)
 		bio->bi_rw |= REQ_WRITE;
+	bio->bi_opf &= ~REQ_OP_MASK;
+	bio->bi_opf |= req_op(rq);
 
 	if (do_copy)
-		rq->cmd_flags |= REQ_COPY_USER;
+		rq->rq_flags |= RQF_COPY_USER;
 
 	blk_rq_bio_prep(q, rq, bio);
 	blk_queue_bounce(q, &rq->bio);
 	rq->buffer = rq->data = NULL;
 	ret = blk_rq_append_bio(q, rq, bio);
+	ret = blk_rq_append_bio(rq, bio);
 	if (unlikely(ret)) {
 		/* request is too big */
 		bio_put(bio);
 		return ret;
 	}
 
-	blk_queue_bounce(q, &rq->bio);
 	return 0;
 }
 EXPORT_SYMBOL(blk_rq_map_kern);

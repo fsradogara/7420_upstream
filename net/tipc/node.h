@@ -4,6 +4,7 @@
  * Copyright (c) 2000-2006, Ericsson AB
  * Copyright (c) 2005, Wind River Systems
  * Copyright (c) 2000-2006, 2014-2015, Ericsson AB
+ * Copyright (c) 2000-2006, 2014-2016, Ericsson AB
  * Copyright (c) 2005, 2010-2014, Wind River Systems
  * All rights reserved.
  *
@@ -48,30 +49,20 @@
 #include "bearer.h"
 #include "msg.h"
 
-/* Out-of-range value for node signature */
-#define INVALID_NODE_SIG	0x10000
-
-#define INVALID_BEARER_ID -1
-
-/* Flags used to take different actions according to flag type
- * TIPC_NOTIFY_NODE_DOWN: notify node is down
- * TIPC_NOTIFY_NODE_UP: notify node is up
- * TIPC_DISTRIBUTE_NAME: publish or withdraw link state name type
- */
-enum {
-	TIPC_NOTIFY_NODE_DOWN		= (1 << 3),
-	TIPC_NOTIFY_NODE_UP		= (1 << 4),
-	TIPC_NOTIFY_LINK_UP		= (1 << 6),
-	TIPC_NOTIFY_LINK_DOWN		= (1 << 7)
-};
-
 /* Optional capabilities supported by this code version
  */
 enum {
-	TIPC_BCAST_SYNCH = (1 << 1)
+	TIPC_BCAST_SYNCH      = (1 << 1),
+	TIPC_BCAST_STATE_NACK = (1 << 2),
+	TIPC_BLOCK_FLOWCTL    = (1 << 3),
+	TIPC_BCAST_RCAST      = (1 << 4)
 };
 
-#define TIPC_NODE_CAPABILITIES TIPC_BCAST_SYNCH
+#define TIPC_NODE_CAPABILITIES (TIPC_BCAST_SYNCH | \
+				TIPC_BCAST_STATE_NACK | \
+				TIPC_BCAST_RCAST | \
+				TIPC_BLOCK_FLOWCTL)
+#define INVALID_BEARER_ID -1
 
 struct tipc_link_entry {
 	struct tipc_link *link;
@@ -241,50 +232,29 @@ void tipc_node_check_dest(struct net *net, u32 onode,
 			  struct tipc_media_addr *maddr,
 			  bool *respond, bool *dupl_addr);
 void tipc_node_delete_links(struct net *net, int bearer_id);
-void tipc_node_attach_link(struct tipc_node *n_ptr, struct tipc_link *l_ptr);
-void tipc_node_detach_link(struct tipc_node *n_ptr, struct tipc_link *l_ptr);
-bool tipc_node_is_up(struct tipc_node *n);
 int tipc_node_get_linkname(struct net *net, u32 bearer_id, u32 node,
 			   char *linkname, size_t len);
-void tipc_node_unlock(struct tipc_node *node);
 int tipc_node_xmit(struct net *net, struct sk_buff_head *list, u32 dnode,
 		   int selector);
 int tipc_node_xmit_skb(struct net *net, struct sk_buff *skb, u32 dest,
 		       u32 selector);
+void tipc_node_subscribe(struct net *net, struct list_head *subscr, u32 addr);
+void tipc_node_unsubscribe(struct net *net, struct list_head *subscr, u32 addr);
+void tipc_node_broadcast(struct net *net, struct sk_buff *skb);
 int tipc_node_add_conn(struct net *net, u32 dnode, u32 port, u32 peer_port);
 void tipc_node_remove_conn(struct net *net, u32 dnode, u32 port);
+int tipc_node_get_mtu(struct net *net, u32 addr, u32 sel);
+u16 tipc_node_get_capabilities(struct net *net, u32 addr);
 int tipc_nl_node_dump(struct sk_buff *skb, struct netlink_callback *cb);
+int tipc_nl_node_dump_link(struct sk_buff *skb, struct netlink_callback *cb);
+int tipc_nl_node_reset_link_stats(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_node_get_link(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_node_set_link(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_peer_rm(struct sk_buff *skb, struct genl_info *info);
 
-static inline void tipc_node_lock(struct tipc_node *node)
-{
-	spin_lock_bh(&node->lock);
-}
-
-static inline struct tipc_link *node_active_link(struct tipc_node *n, int sel)
-{
-	int bearer_id = n->active_links[sel & 1];
-
-	if (unlikely(bearer_id == INVALID_BEARER_ID))
-		return NULL;
-
-	return n->links[bearer_id].link;
-}
-
-static inline unsigned int tipc_node_get_mtu(struct net *net, u32 addr, u32 sel)
-{
-	struct tipc_node *n;
-	int bearer_id;
-	unsigned int mtu = MAX_MSG_SIZE;
-
-	n = tipc_node_find(net, addr);
-	if (unlikely(!n))
-		return mtu;
-
-	bearer_id = n->active_links[sel & 1];
-	if (likely(bearer_id != INVALID_BEARER_ID))
-		mtu = n->links[bearer_id].mtu;
-	tipc_node_put(n);
-	return mtu;
-}
-
+int tipc_nl_node_set_monitor(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_node_get_monitor(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_node_dump_monitor(struct sk_buff *skb, struct netlink_callback *cb);
+int tipc_nl_node_dump_monitor_peer(struct sk_buff *skb,
+				   struct netlink_callback *cb);
 #endif

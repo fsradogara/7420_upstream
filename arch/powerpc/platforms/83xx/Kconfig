@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 menuconfig PPC_83xx
 	bool "83xx-based boards"
 	depends on 6xx && PPC_MULTIPLATFORM
@@ -134,7 +135,6 @@ endif
 # used for usb & gpio
 config PPC_MPC831x
 	bool
-	select ARCH_WANT_OPTIONAL_GPIOLIB
 
 # used for math-emu
 config PPC_MPC832x
@@ -150,9 +150,7 @@ config PPC_MPC837x
 # used for usb & gpio
 config PPC_MPC834x
 	bool
-	select ARCH_WANT_OPTIONAL_GPIOLIB
 
 # used for usb & gpio
 config PPC_MPC837x
 	bool
-	select ARCH_WANT_OPTIONAL_GPIOLIB

@@ -19,6 +19,7 @@
  *      Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <linux/umh.h>
 #include <linux/gfp.h>
 #include <linux/stddef.h>
 #include <linux/errno.h>

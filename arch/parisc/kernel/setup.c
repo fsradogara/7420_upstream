@@ -38,8 +38,12 @@
 #undef PCI_DEBUG
 #include <linux/proc_fs.h>
 #include <linux/export.h>
+#include <linux/sched.h>
+#include <linux/sched/clock.h>
+#include <linux/start_kernel.h>
 
 #include <asm/processor.h>
+#include <asm/sections.h>
 #include <asm/pdc.h>
 #include <asm/led.h>
 #include <asm/machdep.h>	/* for pa7300lc_init() proto */
@@ -47,6 +51,7 @@
 #include <asm/io.h>
 #include <asm/setup.h>
 #include <asm/unwind.h>
+#include <asm/smp.h>
 
 static char __initdata command_line[COMMAND_LINE_SIZE];
 
@@ -120,7 +125,6 @@ void __init dma_ops_init(void)
 }
 #endif
 
-extern int init_per_cpu(int cpuid);
 extern void collect_boot_cpu_data(void);
 
 void __init setup_arch(char **cmdline_p)
@@ -148,6 +152,13 @@ void __init setup_arch(char **cmdline_p)
 #endif
 	printk(KERN_CONT ".\n");
 
+	/*
+	 * Check if initial kernel page mappings are sufficient.
+	 * panic early if not, else we may access kernel functions
+	 * and variables which can't be reached.
+	 */
+	if (__pa((unsigned long) &_end) >= KERNEL_INITIAL_SIZE)
+		panic("KERNEL_INITIAL_ORDER too small!");
 
 	pdc_console_init();
 
@@ -177,6 +188,7 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;	/* we use do_take_over_console() later ! */
 #endif
 
+	clear_sched_clock_stable();
 }
 
 /*
@@ -335,6 +347,10 @@ static int __init parisc_init(void)
 	/* tell PDC we're Linux. Nevermind failure. */
 	pdc_stable_write(0x40, &osid, sizeof(osid));
 	
+	/* start with known state */
+	flush_cache_all_local();
+	flush_tlb_all_local(NULL);
+
 	processor_init();
 	printk(KERN_INFO "CPU(s): %d x %s at %d.%06d MHz\n",
 			boot_cpu_data.cpu_count,
@@ -397,9 +413,8 @@ arch_initcall(parisc_init);
 
 arch_initcall(parisc_init);
 
-void start_parisc(void)
+void __init start_parisc(void)
 {
-	extern void start_kernel(void);
 	extern void early_trap_init(void);
 
 	int ret, cpunum;

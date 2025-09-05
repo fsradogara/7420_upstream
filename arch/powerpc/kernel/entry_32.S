@@ -36,6 +36,7 @@
 #undef SHOW_SYSCALLS
 #undef SHOW_SYSCALLS_TASK
 #include <asm/ptrace.h>
+#include <asm/export.h>
 
 /*
  * MSR_KERNEL is > 0x10000 on 4xx/Book-E since it include MSR_CE.
@@ -45,6 +46,13 @@
 #else
 #define LOAD_MSR_KERNEL(r, x)	li r,(x)
 #endif
+
+/*
+ * Align to 4k in order to ensure that all functions modyfing srr0/srr1
+ * fit into one page in order to not encounter a TLB miss between the
+ * modification of srr0/srr1 and the associated rfi.
+ */
+	.align	12
 
 #ifdef CONFIG_BOOKE
 	.globl	mcheck_transfer_to_handler
@@ -184,6 +192,12 @@ transfer_to_handler:
 	addi	r12,r12,-1
 	stw	r12,4(r11)
 #endif
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+	CURRENT_THREAD_INFO(r9, r1)
+	tophys(r9, r9)
+	ACCOUNT_CPU_USER_ENTRY(r9, r11, r12)
+#endif
+
 	b	3f
 
 2:	/* if from kernel, check interrupted DOZE/NAP mode and
@@ -208,6 +222,9 @@ transfer_to_handler_cont:
 	mflr	r9
 	lwz	r11,0(r9)		/* virtual address of handler */
 	lwz	r9,4(r9)		/* where to go when done */
+#ifdef CONFIG_PPC_8xx_PERF_EVENT
+	mtspr	SPRN_NRI, r0
+#endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	lis	r12,reenable_mmu@h
 	ori	r12,r12,reenable_mmu@l
@@ -295,7 +312,9 @@ stack_ovf:
 	lis	r9,StackOverflow@ha
 	addi	r9,r9,StackOverflow@l
 	LOAD_MSR_KERNEL(r10,MSR_KERNEL)
-	FIX_SRR1(r10,r12)
+#ifdef CONFIG_PPC_8xx_PERF_EVENT
+	mtspr	SPRN_NRI, r0
+#endif
 	mtspr	SPRN_SRR0,r9
 	mtspr	SPRN_SRR1,r10
 	SYNC
@@ -426,6 +445,13 @@ BEGIN_FTR_SECTION
 	lwarx	r7,0,r1
 END_FTR_SECTION_IFSET(CPU_FTR_NEED_PAIRED_STWCX)
 	stwcx.	r0,0,r1			/* to clear the reservation */
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+	andi.	r4,r8,MSR_PR
+	beq	3f
+	CURRENT_THREAD_INFO(r4, r1)
+	ACCOUNT_CPU_USER_EXIT(r4, r5, r7)
+3:
+#endif
 	lwz	r4,_LINK(r1)
 	lwz	r5,_CCR(r1)
 	mtlr	r4
@@ -435,6 +461,9 @@ END_FTR_SECTION_IFSET(CPU_FTR_NEED_PAIRED_STWCX)
 	FIX_SRR1(r8, r0)
 	lwz	r2,GPR2(r1)
 	lwz	r1,GPR1(r1)
+#ifdef CONFIG_PPC_8xx_PERF_EVENT
+	mtspr	SPRN_NRI, r0
+#endif
 	mtspr	SPRN_SRR0,r7
 	mtspr	SPRN_SRR1,r8
 	SYNC
@@ -667,6 +696,10 @@ ppc_swapcontext:
 handle_page_fault:
 	stw	r4,_DAR(r1)
 	addi	r3,r1,STACK_FRAME_OVERHEAD
+#ifdef CONFIG_6xx
+	andis.  r0,r5,DSISR_DABRMATCH@h
+	bne-    handle_dabr_fault
+#endif
 	bl	do_page_fault
 	cmpwi	r3,0
 	beq+	ret_from_except
@@ -679,6 +712,17 @@ handle_page_fault:
 	lwz	r4,_DAR(r1)
 	bl	bad_page_fault
 	b	ret_from_except_full
+
+#ifdef CONFIG_6xx
+	/* We have a data breakpoint exception - handle it */
+handle_dabr_fault:
+	SAVE_NVGPRS(r1)
+	lwz	r0,_TRAP(r1)
+	clrrwi	r0,r0,1
+	stw	r0,_TRAP(r1)
+	bl      do_break
+	b	ret_from_except_full
+#endif
 
 /*
  * This routine switches between two different tasks.  The process
@@ -788,6 +832,9 @@ fast_exception_return:
 	lwz	r10,_LINK(r11)
 	mtlr	r10
 	REST_GPR(10, r11)
+#ifdef CONFIG_PPC_8xx_PERF_EVENT
+	mtspr	SPRN_NRI, r0
+#endif
 	mtspr	SPRN_SRR1,r9
 	mtspr	SPRN_SRR0,r12
 	REST_GPR(9, r11)
@@ -871,6 +918,10 @@ restore_user:
 	lwz	r0,THREAD+THREAD_DBCR0(r2)
 	andis.	r10,r0,DBCR0_IDM@h
 	bnel-	load_dbcr0
+#endif
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+	CURRENT_THREAD_INFO(r9, r1)
+	ACCOUNT_CPU_USER_EXIT(r9, r10, r11)
 #endif
 
 #ifdef CONFIG_PREEMPT
@@ -1053,7 +1104,9 @@ END_FTR_SECTION_IFSET(CPU_FTR_NEED_PAIRED_STWCX)
 exc_exit_restart:
 	lwz	r9,_MSR(r1)
 	lwz	r12,_NIP(r1)
-	FIX_SRR1(r9,r10)
+#ifdef CONFIG_PPC_8xx_PERF_EVENT
+	mtspr	SPRN_NRI, r0
+#endif
 	mtspr	SPRN_SRR0,r12
 	mtspr	SPRN_SRR1,r9
 	REST_4GPRS(9, r1)
@@ -1422,7 +1475,6 @@ _GLOBAL(enter_rtas)
 1:	tophys(r9,r1)
 	lwz	r8,INT_FRAME_SIZE+4(r9)	/* get return address */
 	lwz	r9,8(r9)	/* original msr value */
-	FIX_SRR1(r9,r0)
 	addi	r1,r1,INT_FRAME_SIZE
 	li	r0,0
 	mtspr	SPRN_SPRG2,r0

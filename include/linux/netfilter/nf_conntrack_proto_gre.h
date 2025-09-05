@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _CONNTRACK_PROTO_GRE_H
 #define _CONNTRACK_PROTO_GRE_H
 #include <asm/byteorder.h>
@@ -64,6 +65,8 @@ struct gre_hdr_pptp {
 	__be32 ack;		/* seq number of highest packet received by */
 				/*  sender in this session */
 };
+#include <net/gre.h>
+#include <net/pptp.h>
 
 struct nf_ct_gre {
 	unsigned int stream_timeout;

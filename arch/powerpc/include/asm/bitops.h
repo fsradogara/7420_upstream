@@ -79,6 +79,18 @@ static __inline__ void set_bit(int nr, volatile unsigned long *addr)
 #define PPC_BIT(bit)		(1UL << PPC_BITLSHIFT(bit))
 #define PPC_BITMASK(bs, be)	((PPC_BIT(bs) - PPC_BIT(be)) | PPC_BIT(bs))
 
+/* Put a PPC bit into a "normal" bit position */
+#define PPC_BITEXTRACT(bits, ppc_bit, dst_bit)			\
+	((((bits) >> PPC_BITLSHIFT(ppc_bit)) & 1) << (dst_bit))
+
+#define PPC_BITLSHIFT32(be)	(32 - 1 - (be))
+#define PPC_BIT32(bit)		(1UL << PPC_BITLSHIFT32(bit))
+#define PPC_BITMASK32(bs, be)	((PPC_BIT32(bs) - PPC_BIT32(be))|PPC_BIT32(bs))
+
+#define PPC_BITLSHIFT8(be)	(8 - 1 - (be))
+#define PPC_BIT8(bit)		(1UL << PPC_BITLSHIFT8(bit))
+#define PPC_BITMASK8(bs, be)	((PPC_BIT8(bs) - PPC_BIT8(be))|PPC_BIT8(bs))
+
 #include <asm/barrier.h>
 
 /* Macro for generating the ***_bits() functions */
@@ -308,6 +320,34 @@ static __inline__ void set_bits(unsigned long mask, unsigned long *addr)
 	return test_and_change_bits(BIT_MASK(nr), addr + BIT_WORD(nr)) != 0;
 }
 
+#ifdef CONFIG_PPC64
+static __inline__ unsigned long clear_bit_unlock_return_word(int nr,
+						volatile unsigned long *addr)
+{
+	unsigned long old, t;
+	unsigned long *p = (unsigned long *)addr + BIT_WORD(nr);
+	unsigned long mask = BIT_MASK(nr);
+
+	__asm__ __volatile__ (
+	PPC_RELEASE_BARRIER
+"1:"	PPC_LLARX(%0,0,%3,0) "\n"
+	"andc %1,%0,%2\n"
+	PPC405_ERR77(0,%3)
+	PPC_STLCX "%1,0,%3\n"
+	"bne- 1b\n"
+	: "=&r" (old), "=&r" (t)
+	: "r" (mask), "r" (p)
+	: "cc", "memory");
+
+	return old;
+}
+
+/* This is a special function for mm/filemap.c */
+#define clear_bit_unlock_is_negative_byte(nr, addr)			\
+	(clear_bit_unlock_return_word(nr, addr) & BIT_MASK(PG_waiters))
+
+#endif /* CONFIG_PPC64 */
+
 #include <asm-generic/bitops/non-atomic.h>
 
 static __inline__ void __clear_bit_unlock(int nr, volatile unsigned long *addr)
@@ -321,22 +361,11 @@ static __inline__ void __clear_bit_unlock(int nr, volatile unsigned long *addr)
  * Return the zero-based bit position (LE, not IBM bit numbering) of
  * the most significant 1-bit in a double word.
  */
-static __inline__ __attribute__((const))
-int __ilog2(unsigned long x)
-{
-	int lz;
+#define __ilog2(x)	ilog2(x)
 
-	asm (PPC_CNTLZL "%0,%1" : "=r" (lz) : "r" (x));
-	return BITS_PER_LONG - 1 - lz;
-}
+#include <asm-generic/bitops/ffz.h>
 
-static inline __attribute__((const))
-int __ilog2_u32(u32 n)
-{
-	int bit;
-	asm ("cntlzw %0,%1" : "=r" (bit) : "r" (n));
-	return 31 - bit;
-}
+#include <asm-generic/bitops/builtin-__ffs.h>
 
 #ifdef __powerpc64__
 static inline __attribute__((const))
@@ -386,6 +415,7 @@ static __inline__ int ffs(int x)
 	unsigned long i = (unsigned long)x;
 	return __ilog2(i & -i) + 1;
 }
+#include <asm-generic/bitops/builtin-ffs.h>
 
 /*
  * fls: find last (most-significant) bit set.
@@ -393,33 +423,15 @@ static __inline__ int ffs(int x)
  */
 static __inline__ int fls(unsigned int x)
 {
-	int lz;
-
-	asm ("cntlzw %0,%1" : "=r" (lz) : "r" (x));
-	return 32 - lz;
+	return 32 - __builtin_clz(x);
 }
 
-static __inline__ unsigned long __fls(unsigned long x)
-{
-	return __ilog2(x);
-}
+#include <asm-generic/bitops/builtin-__fls.h>
 
-/*
- * 64-bit can do this using one cntlzd (count leading zeroes doubleword)
- * instruction; for 32-bit we use the generic version, which does two
- * 32-bit fls calls.
- */
-#ifdef __powerpc64__
 static __inline__ int fls64(__u64 x)
 {
-	int lz;
-
-	asm ("cntlzd %0,%1" : "=r" (lz) : "r" (x));
-	return 64 - lz;
+	return 64 - __builtin_clzll(x);
 }
-#else
-#include <asm-generic/bitops/fls64.h>
-#endif /* __powerpc64__ */
 
 #include <asm-generic/bitops/hweight.h>
 #include <asm-generic/bitops/find.h>

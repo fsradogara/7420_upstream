@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef S390_IO_SCH_H
 #define S390_IO_SCH_H
 
@@ -184,7 +185,6 @@ struct ccw_device_private {
 	u8 imask;		/* lpm mask for SNID/SID/SPGID */
 	int iretry;		/* retry counter SNID/SID/SPGID */
 	struct ccw_dev_id dev_id;	/* device id */
-	struct subchannel_id schid;	/* subchannel number */
 	struct ccw_request req;		/* internal I/O request */
 	int iretry;
 	u8 pgid_valid_mask;	/* mask of valid PGIDs */
@@ -196,6 +196,8 @@ struct ccw_device_private {
 				   not operable */
 	u8 path_gone_mask;	/* mask of paths, that became unavailable */
 	u8 path_new_mask;	/* mask of paths, that became available */
+	u8 path_broken_mask;	/* mask of paths, which were found to be
+				   unusable */
 	struct {
 		unsigned int fast:1;	/* post with "channel end" */
 		unsigned int repall:1;	/* report every interrupt status */

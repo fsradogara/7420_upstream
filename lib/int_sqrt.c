@@ -1,6 +1,7 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2013 Davidlohr Bueso <davidlohr.bueso@hp.com>
  *

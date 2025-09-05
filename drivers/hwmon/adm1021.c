@@ -275,7 +275,7 @@ static ssize_t show_alarm(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%u\n", (data->alarms >> index) & 1);
 }
 
-static ssize_t show_alarms(struct device *dev,
+static ssize_t alarms_show(struct device *dev,
 			   struct device_attribute *attr,
 			   char *buf)
 {
@@ -353,16 +353,16 @@ static ssize_t set_temp_min(struct device *dev,
 	return count;
 }
 
-static ssize_t show_low_power(struct device *dev,
+static ssize_t low_power_show(struct device *dev,
 			      struct device_attribute *devattr, char *buf)
 {
 	struct adm1021_data *data = adm1021_update_device(dev);
 	return sprintf(buf, "%d\n", data->low_power);
 }
 
-static ssize_t set_low_power(struct device *dev,
-			     struct device_attribute *devattr,
-			     const char *buf, size_t count)
+static ssize_t low_power_store(struct device *dev,
+			       struct device_attribute *devattr,
+			       const char *buf, size_t count)
 {
 	struct adm1021_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
@@ -421,6 +421,8 @@ static struct attribute *adm1021_attributes[] = {
 	&sensor_dev_attr_temp2_fault.dev_attr.attr,
 	&dev_attr_alarms.attr,
 static DEVICE_ATTR(low_power, S_IWUSR | S_IRUGO, show_low_power, set_low_power);
+static DEVICE_ATTR_RO(alarms);
+static DEVICE_ATTR_RW(low_power);
 
 static struct attribute *adm1021_attributes[] = {
 	&sensor_dev_attr_temp1_max.dev_attr.attr,

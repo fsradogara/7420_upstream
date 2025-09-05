@@ -3,6 +3,7 @@
 .p2align 5
 .globl ECRYPT_encrypt_bytes
 ECRYPT_encrypt_bytes:
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/linkage.h>
 
 # enter salsa20_encrypt_bytes

@@ -45,7 +45,7 @@
 #include <linux/namei.h>
 #include <linux/security.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "internal.h"
 

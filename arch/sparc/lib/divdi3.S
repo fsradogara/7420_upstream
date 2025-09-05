@@ -32,6 +32,7 @@ __clz_tab:
 	.size	 __clz_tab,256
 	.global .udiv
 
+#include <asm/export.h>
 	.text
 	.align 4
 	.globl __divdi3
@@ -296,3 +297,4 @@ __divdi3:
 .LL81:
 	ret
 	restore
+EXPORT_SYMBOL(__divdi3)

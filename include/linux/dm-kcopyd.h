@@ -20,6 +20,7 @@
 #define DM_KCOPYD_MAX_REGIONS 8
 
 #define DM_KCOPYD_IGNORE_ERROR 1
+#define DM_KCOPYD_WRITE_SEQ    2
 
 /*
  * To use kcopyd you must first create a dm_kcopyd_client object.

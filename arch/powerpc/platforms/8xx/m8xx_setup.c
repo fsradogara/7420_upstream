@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  Copyright (C) 1995  Linus Torvalds
  *  Adapted from 'alpha' version by Gary Thomas
@@ -25,7 +26,7 @@
 #include <asm/fs_pd.h>
 #include <mm/mmu_decl.h>
 
-#include <sysdev/mpc8xx_pic.h>
+#include "pic.h"
 
 #include "mpc8xx.h"
 
@@ -204,7 +205,7 @@ void mpc8xx_get_rtc_time(struct rtc_time *tm)
 	return;
 }
 
-void mpc8xx_restart(char *cmd)
+void __noreturn mpc8xx_restart(char *cmd)
 {
 	car8xx_t __iomem *clk_r = immr_map(im_clkrst);
 
@@ -260,5 +261,6 @@ void __init mpc8xx_pics_init(void)
 	irq = cpm_pic_init();
 	if (irq != NO_IRQ)
 		set_irq_chained_handler(irq, cpm_cascade);
+	if (irq)
 		irq_set_chained_handler(irq, cpm_cascade);
 }

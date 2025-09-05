@@ -34,8 +34,7 @@ static struct map_desc ts72xx_io_desc[] __initdata = {
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <linux/m48t86.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 
 #include <mach/hardware.h>
@@ -168,7 +167,7 @@ static struct platform_device ts72xx_flash = {
 static void ts72xx_nand_hwcontrol(struct mtd_info *mtd,
 				  int cmd, unsigned int ctrl)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 
 	if (ctrl & NAND_CTRL_CHANGE) {
 		void __iomem *addr = chip->IO_ADDR_R;
@@ -190,7 +189,7 @@ static void ts72xx_nand_hwcontrol(struct mtd_info *mtd,
 
 static int ts72xx_nand_device_ready(struct mtd_info *mtd)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	void __iomem *addr = chip->IO_ADDR_R;
 
 	addr += (1 << TS72XX_NAND_BUSY_ADDR_LINE);
@@ -273,6 +272,11 @@ static void __init ts72xx_register_flash(void)
 	}
 }
 
+/*************************************************************************
+ * RTC M48T86
+ *************************************************************************/
+#define TS72XX_RTC_INDEX_PHYS_BASE	(EP93XX_CS1_PHYS_BASE + 0x00800000)
+#define TS72XX_RTC_DATA_PHYS_BASE	(EP93XX_CS1_PHYS_BASE + 0x01700000)
 
 static unsigned char ts72xx_rtc_readbyte(unsigned long addr)
 {
@@ -326,15 +330,16 @@ static struct platform_device ts72xx_eth_device = {
 	.resource	= ts72xx_eth_resource,
 	.readbyte	= ts72xx_rtc_readbyte,
 	.writebyte	= ts72xx_rtc_writebyte,
+static struct resource ts72xx_rtc_resources[] = {
+	DEFINE_RES_MEM(TS72XX_RTC_INDEX_PHYS_BASE, 0x01),
+	DEFINE_RES_MEM(TS72XX_RTC_DATA_PHYS_BASE, 0x01),
 };
 
 static struct platform_device ts72xx_rtc_device = {
 	.name		= "rtc-m48t86",
 	.id		= -1,
-	.dev		= {
-		.platform_data	= &ts72xx_rtc_ops,
-	},
-	.num_resources	= 0,
+	.resource	= ts72xx_rtc_resources,
+	.num_resources 	= ARRAY_SIZE(ts72xx_rtc_resources),
 };
 
 static struct resource ts72xx_wdt_resources[] = {
@@ -361,6 +366,28 @@ static struct ep93xx_eth_data __initdata ts72xx_eth_data = {
 	.phy_id		= 1,
 };
 
+#if IS_ENABLED(CONFIG_FPGA_MGR_TS73XX)
+
+/* Relative to EP93XX_CS1_PHYS_BASE */
+#define TS73XX_FPGA_LOADER_BASE		0x03c00000
+
+static struct resource ts73xx_fpga_resources[] = {
+	{
+		.start	= EP93XX_CS1_PHYS_BASE + TS73XX_FPGA_LOADER_BASE,
+		.end	= EP93XX_CS1_PHYS_BASE + TS73XX_FPGA_LOADER_BASE + 1,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+static struct platform_device ts73xx_fpga_device = {
+	.name	= "ts73xx-fpga-mgr",
+	.id	= -1,
+	.resource = ts73xx_fpga_resources,
+	.num_resources = ARRAY_SIZE(ts73xx_fpga_resources),
+};
+
+#endif
+
 static void __init ts72xx_init_machine(void)
 {
 	ep93xx_init_devices();
@@ -376,6 +403,10 @@ static void __init ts72xx_init_machine(void)
 	platform_device_register(&ts72xx_wdt_device);
 
 	ep93xx_register_eth(&ts72xx_eth_data, 1);
+#if IS_ENABLED(CONFIG_FPGA_MGR_TS73XX)
+	if (board_is_ts7300())
+		platform_device_register(&ts73xx_fpga_device);
+#endif
 }
 
 MACHINE_START(TS72XX, "Technologic Systems TS-72xx SBC")

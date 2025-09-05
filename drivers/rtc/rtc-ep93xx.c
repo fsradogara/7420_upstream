@@ -47,8 +47,6 @@ static int ep93xx_get_swcomp(struct device *dev, unsigned short *preload,
 #define  EP93XX_RTC_SWCOMP_INT_MASK	 0x0000ffff
 #define  EP93XX_RTC_SWCOMP_INT_SHIFT	 0
 
-#define DRV_VERSION "0.3"
-
 /*
  * struct device dev.platform_data is used to store our private data
  * because struct rtc_device does not have a variable to hold it.

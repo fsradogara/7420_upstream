@@ -9,6 +9,7 @@ extern pmd_t *top_pmd;
 static inline pmd_t *pmd_off(pgd_t *pgd, unsigned long virt)
 {
 	return pmd_offset(pgd, virt);
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifdef CONFIG_MMU
 #include <linux/list.h>
 #include <linux/vmalloc.h>

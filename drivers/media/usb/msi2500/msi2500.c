@@ -501,7 +501,6 @@ static int msi2500_isoc_init(struct msi2500_dev *dev)
 	for (i = 0; i < MAX_ISO_BUFS; i++) {
 		urb = usb_alloc_urb(ISO_FRAMES_PER_DESC, GFP_KERNEL);
 		if (urb == NULL) {
-			dev_err(dev->dev, "Failed to allocate urb %d\n", i);
 			msi2500_isoc_cleanup(dev);
 			return -ENOMEM;
 		}
@@ -608,10 +607,9 @@ static int msi2500_querycap(struct file *file, void *fh,
 
 /* Videobuf2 operations */
 static int msi2500_queue_setup(struct vb2_queue *vq,
-			       const void *parg,
 			       unsigned int *nbuffers,
 			       unsigned int *nplanes, unsigned int sizes[],
-			       void *alloc_ctxs[])
+			       struct device *alloc_devs[])
 {
 	struct msi2500_dev *dev = vb2_get_drv_priv(vq);
 
@@ -832,8 +830,6 @@ static int msi2500_set_usb_adc(struct msi2500_dev *dev)
 		goto err;
 
 	ret = msi2500_ctrl_msg(dev, CMD_WREG, reg3);
-	if (ret)
-		goto err;
 err:
 	return ret;
 }
@@ -893,7 +889,7 @@ static void msi2500_stop_streaming(struct vb2_queue *vq)
 	mutex_unlock(&dev->v4l2_lock);
 }
 
-static struct vb2_ops msi2500_vb2_ops = {
+static const struct vb2_ops msi2500_vb2_ops = {
 	.queue_setup            = msi2500_queue_setup,
 	.buf_queue              = msi2500_buf_queue,
 	.start_streaming        = msi2500_start_streaming,
@@ -1139,7 +1135,7 @@ static const struct v4l2_file_operations msi2500_fops = {
 	.unlocked_ioctl           = video_ioctl2,
 };
 
-static struct video_device msi2500_template = {
+static const struct video_device msi2500_template = {
 	.name                     = "Mirics MSi3101 SDR Dongle",
 	.release                  = video_device_release_empty,
 	.fops                     = &msi2500_fops,
@@ -1304,7 +1300,7 @@ err:
 }
 
 /* USB device ID list */
-static struct usb_device_id msi2500_id_table[] = {
+static const struct usb_device_id msi2500_id_table[] = {
 	{USB_DEVICE(0x1df7, 0x2500)}, /* Mirics MSi3101 SDR Dongle */
 	{USB_DEVICE(0x2040, 0xd300)}, /* Hauppauge WinTV 133559 LF */
 	{}

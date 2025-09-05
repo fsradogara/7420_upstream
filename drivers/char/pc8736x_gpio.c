@@ -22,6 +22,7 @@
 #include <linux/platform_device.h>
 #include <linux/smp_lock.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define DEVNAME "pc8736x_gpio"
 

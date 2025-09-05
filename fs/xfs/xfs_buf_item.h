@@ -148,7 +148,7 @@ void	xfs_buf_item_init(struct xfs_buf *, struct xfs_mount *);
 int	xfs_buf_item_init(struct xfs_buf *, struct xfs_mount *);
 void	xfs_buf_item_relse(struct xfs_buf *);
 void	xfs_buf_item_log(xfs_buf_log_item_t *, uint, uint);
-uint	xfs_buf_item_dirty(xfs_buf_log_item_t *);
+bool	xfs_buf_item_dirty_format(struct xfs_buf_log_item *);
 void	xfs_buf_attach_iodone(struct xfs_buf *,
 			      void(*)(struct xfs_buf *, xfs_log_item_t *),
 			      xfs_log_item_t *);
@@ -167,6 +167,9 @@ xfs_buf_item_flush_log_debug(
 
 #endif	/* __KERNEL__ */
 void	xfs_buf_iodone(struct xfs_buf *, struct xfs_log_item *);
+bool	xfs_buf_resubmit_failed_buffers(struct xfs_buf *,
+					struct xfs_log_item *,
+					struct list_head *);
 
 extern kmem_zone_t	*xfs_buf_item_zone;
 

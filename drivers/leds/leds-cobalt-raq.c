@@ -149,3 +149,4 @@ static int __init cobalt_raq_led_init(void)
 
 module_init(cobalt_raq_led_init);
 device_initcall(cobalt_raq_led_init);
+builtin_platform_driver(cobalt_raq_led_driver);

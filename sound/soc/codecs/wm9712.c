@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/regmap.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/ac97_codec.h>
@@ -28,7 +29,6 @@
 
 #define WM9712_VERSION "0.4"
 #include <sound/tlv.h>
-#include "wm9712.h"
 
 #define WM9712_VENDOR_ID 0x574d4c12
 #define WM9712_VENDOR_ID_MASK 0xffffffff
@@ -39,10 +39,44 @@ struct wm9712_priv {
 	struct mutex lock;
 };
 
-static unsigned int ac97_read(struct snd_soc_codec *codec,
-	unsigned int reg);
-static int ac97_write(struct snd_soc_codec *codec,
-	unsigned int reg, unsigned int val);
+static const struct reg_default wm9712_reg_defaults[] = {
+	{ 0x02, 0x8000 },
+	{ 0x04, 0x8000 },
+	{ 0x06, 0x8000 },
+	{ 0x08, 0x0f0f },
+	{ 0x0a, 0xaaa0 },
+	{ 0x0c, 0xc008 },
+	{ 0x0e, 0x6808 },
+	{ 0x10, 0xe808 },
+	{ 0x12, 0xaaa0 },
+	{ 0x14, 0xad00 },
+	{ 0x16, 0x8000 },
+	{ 0x18, 0xe808 },
+	{ 0x1a, 0x3000 },
+	{ 0x1c, 0x8000 },
+	{ 0x20, 0x0000 },
+	{ 0x22, 0x0000 },
+	{ 0x26, 0x000f },
+	{ 0x28, 0x0605 },
+	{ 0x2a, 0x0410 },
+	{ 0x2c, 0xbb80 },
+	{ 0x2e, 0xbb80 },
+	{ 0x32, 0xbb80 },
+	{ 0x34, 0x2000 },
+	{ 0x4c, 0xf83e },
+	{ 0x4e, 0xffff },
+	{ 0x50, 0x0000 },
+	{ 0x52, 0x0000 },
+	{ 0x56, 0xf83e },
+	{ 0x58, 0x0008 },
+	{ 0x5c, 0x0000 },
+	{ 0x60, 0xb032 },
+	{ 0x62, 0x3e00 },
+	{ 0x64, 0x0000 },
+	{ 0x76, 0x0006 },
+	{ 0x78, 0x0001 },
+	{ 0x7a, 0x0000 },
+};
 
 /*
  * WM9712 register cache
@@ -70,6 +104,27 @@ static const u16 wm9712_reg[] = {
 /* virtual HP mixers regs */
 #define HPL_MIXER	0x80
 #define HPR_MIXER	0x82
+static bool wm9712_volatile_reg(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case AC97_REC_GAIN:
+		return true;
+	default:
+		return regmap_ac97_default_volatile(dev, reg);
+	}
+}
+
+static const struct regmap_config wm9712_regmap_config = {
+	.reg_bits = 16,
+	.reg_stride = 2,
+	.val_bits = 16,
+	.max_register = 0x7e,
+	.cache_type = REGCACHE_RBTREE,
+
+	.volatile_reg = wm9712_volatile_reg,
+
+	.reg_defaults = wm9712_reg_defaults,
+	.num_reg_defaults = ARRAY_SIZE(wm9712_reg_defaults),
 };
 
 #define HPL_MIXER	0x0
@@ -269,7 +324,7 @@ static int wm9712_hp_mixer_put(struct snd_kcontrol *kcontrol,
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
 	unsigned int mixer, mask, shift, old;
-	struct snd_soc_dapm_update update;
+	struct snd_soc_dapm_update update = { 0 };
 	bool change;
 
 	mixer = mc->shift >> 8;
@@ -661,18 +716,16 @@ static int ac97_prepare(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_codec *codec = dai->codec;
 	int reg;
-	u16 vra;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
-	vra = ac97_read(codec, AC97_EXTENDED_STATUS);
-	ac97_write(codec, AC97_EXTENDED_STATUS, vra | 0x1);
+	snd_soc_update_bits(codec, AC97_EXTENDED_STATUS, 0x1, 0x1);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		reg = AC97_PCM_FRONT_DAC_RATE;
 	else
 		reg = AC97_PCM_LR_ADC_RATE;
 
-	return ac97_write(codec, reg, runtime->rate);
+	return snd_soc_write(codec, reg, runtime->rate);
 }
 
 static int ac97_aux_prepare(struct snd_pcm_substream *substream)
@@ -686,18 +739,15 @@ static int ac97_aux_prepare(struct snd_pcm_substream *substream,
 			    struct snd_soc_dai *dai)
 {
 	struct snd_soc_codec *codec = dai->codec;
-	u16 vra, xsle;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
-	vra = ac97_read(codec, AC97_EXTENDED_STATUS);
-	ac97_write(codec, AC97_EXTENDED_STATUS, vra | 0x1);
-	xsle = ac97_read(codec, AC97_PCI_SID);
-	ac97_write(codec, AC97_PCI_SID, xsle | 0x8000);
+	snd_soc_update_bits(codec, AC97_EXTENDED_STATUS, 0x1, 0x1);
+	snd_soc_update_bits(codec, AC97_PCI_SID, 0x8000, 0x8000);
 
 	if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
 		return -ENODEV;
 
-	return ac97_write(codec, AC97_PCM_SURR_DAC_RATE, runtime->rate);
+	return snd_soc_write(codec, AC97_PCM_SURR_DAC_RATE, runtime->rate);
 }
 
 #define WM9712_AC97_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_11025 |\
@@ -766,12 +816,12 @@ static int wm9712_set_bias_level(struct snd_soc_codec *codec,
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		ac97_write(codec, AC97_POWERDOWN, 0x0000);
+		snd_soc_write(codec, AC97_POWERDOWN, 0x0000);
 		break;
 	case SND_SOC_BIAS_OFF:
 		/* disable everything including AC link */
-		ac97_write(codec, AC97_EXTENDED_MSTATUS, 0xffff);
-		ac97_write(codec, AC97_POWERDOWN, 0xffff);
+		snd_soc_write(codec, AC97_EXTENDED_MSTATUS, 0xffff);
+		snd_soc_write(codec, AC97_POWERDOWN, 0xffff);
 		break;
 	}
 	codec->bias_level = level;
@@ -826,8 +876,7 @@ static int wm9712_soc_resume(struct platform_device *pdev)
 static int wm9712_soc_resume(struct snd_soc_codec *codec)
 {
 	struct wm9712_priv *wm9712 = snd_soc_codec_get_drvdata(codec);
-	int i, ret;
-	u16 *cache = codec->reg_cache;
+	int ret;
 
 	ret = snd_ac97_reset(wm9712->ac97, true, WM9712_VENDOR_ID,
 		WM9712_VENDOR_ID_MASK);
@@ -903,6 +952,8 @@ static int wm9712_soc_probe(struct platform_device *pdev)
 			soc_ac97_ops->write(wm9712->ac97, i, cache[i>>1]);
 		}
 	}
+	if (ret == 0)
+		regcache_sync(codec->component.regmap);
 
 	return ret;
 }
@@ -910,6 +961,7 @@ static int wm9712_soc_probe(struct platform_device *pdev)
 static int wm9712_soc_probe(struct snd_soc_codec *codec)
 {
 	struct wm9712_priv *wm9712 = snd_soc_codec_get_drvdata(codec);
+	struct regmap *regmap;
 	int ret;
 
 	wm9712->ac97 = snd_soc_new_ac97_codec(codec, WM9712_VENDOR_ID,
@@ -920,8 +972,16 @@ static int wm9712_soc_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
+	regmap = regmap_init_ac97(wm9712->ac97, &wm9712_regmap_config);
+	if (IS_ERR(regmap)) {
+		ret = PTR_ERR(regmap);
+		goto err_free_ac97_codec;
+	}
+
+	snd_soc_codec_init_regmap(codec, regmap);
+
 	/* set alc mux to none */
-	ac97_write(codec, AC97_VIDEO, ac97_read(codec, AC97_VIDEO) | 0x3000);
+	snd_soc_update_bits(codec, AC97_VIDEO, 0x3000, 0x3000);
 
 	wm9712_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	wm9712_add_controls(codec);
@@ -973,35 +1033,35 @@ struct snd_soc_codec_device soc_codec_dev_wm9712 = {
 };
 EXPORT_SYMBOL_GPL(soc_codec_dev_wm9712);
 	return 0;
+err_free_ac97_codec:
+	snd_soc_free_ac97_codec(wm9712->ac97);
+	return ret;
 }
 
 static int wm9712_soc_remove(struct snd_soc_codec *codec)
 {
 	struct wm9712_priv *wm9712 = snd_soc_codec_get_drvdata(codec);
 
+	snd_soc_codec_exit_regmap(codec);
 	snd_soc_free_ac97_codec(wm9712->ac97);
 	return 0;
 }
 
-static struct snd_soc_codec_driver soc_codec_dev_wm9712 = {
+static const struct snd_soc_codec_driver soc_codec_dev_wm9712 = {
 	.probe = 	wm9712_soc_probe,
 	.remove = 	wm9712_soc_remove,
 	.resume =	wm9712_soc_resume,
-	.read = ac97_read,
-	.write = ac97_write,
 	.set_bias_level = wm9712_set_bias_level,
 	.suspend_bias_off = true,
-	.reg_cache_size = ARRAY_SIZE(wm9712_reg),
-	.reg_word_size = sizeof(u16),
-	.reg_cache_step = 2,
-	.reg_cache_default = wm9712_reg,
 
-	.controls = wm9712_snd_ac97_controls,
-	.num_controls = ARRAY_SIZE(wm9712_snd_ac97_controls),
-	.dapm_widgets = wm9712_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(wm9712_dapm_widgets),
-	.dapm_routes = wm9712_audio_map,
-	.num_dapm_routes = ARRAY_SIZE(wm9712_audio_map),
+	.component_driver = {
+		.controls		= wm9712_snd_ac97_controls,
+		.num_controls		= ARRAY_SIZE(wm9712_snd_ac97_controls),
+		.dapm_widgets		= wm9712_dapm_widgets,
+		.num_dapm_widgets	= ARRAY_SIZE(wm9712_dapm_widgets),
+		.dapm_routes		= wm9712_audio_map,
+		.num_dapm_routes	= ARRAY_SIZE(wm9712_audio_map),
+	},
 };
 
 static int wm9712_probe(struct platform_device *pdev)

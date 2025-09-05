@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/sysv/namei.c
  *
@@ -34,7 +35,7 @@ static int sysv_hash(const struct dentry *dentry, struct qstr *qstr)
 	   function. */
 	if (qstr->len > SYSV_NAMELEN) {
 		qstr->len = SYSV_NAMELEN;
-		qstr->hash = full_name_hash(qstr->name, qstr->len);
+		qstr->hash = full_name_hash(dentry, qstr->name, qstr->len);
 	}
 	return 0;
 }
@@ -137,7 +138,7 @@ static int sysv_link(struct dentry * old_dentry, struct inode * dir,
 	atomic_inc(&inode->i_count);
 	struct inode *inode = d_inode(old_dentry);
 
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode->i_ctime = current_time(inode);
 	inode_inc_link_count(inode);
 	ihold(inode);
 
@@ -232,7 +233,8 @@ static int sysv_rmdir(struct inode * dir, struct dentry * dentry)
  * higher-level routines.
  */
 static int sysv_rename(struct inode * old_dir, struct dentry * old_dentry,
-		  struct inode * new_dir, struct dentry * new_dentry)
+		       struct inode * new_dir, struct dentry * new_dentry,
+		       unsigned int flags)
 {
 	struct inode * old_inode = old_dentry->d_inode;
 	struct inode * new_inode = new_dentry->d_inode;
@@ -243,6 +245,9 @@ static int sysv_rename(struct inode * old_dir, struct dentry * old_dentry,
 	struct page * old_page;
 	struct sysv_dir_entry * old_de;
 	int err = -ENOENT;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
 
 	old_de = sysv_find_entry(old_dentry, &old_page);
 	if (!old_de)
@@ -269,7 +274,7 @@ static int sysv_rename(struct inode * old_dir, struct dentry * old_dentry,
 			goto out_dir;
 		inode_inc_link_count(old_inode);
 		sysv_set_link(new_de, new_page, old_inode);
-		new_inode->i_ctime = CURRENT_TIME_SEC;
+		new_inode->i_ctime = current_time(new_inode);
 		if (dir_de)
 			drop_nlink(new_inode);
 		inode_dec_link_count(new_inode);
@@ -305,11 +310,11 @@ static int sysv_rename(struct inode * old_dir, struct dentry * old_dentry,
 out_dir:
 	if (dir_de) {
 		kunmap(dir_page);
-		page_cache_release(dir_page);
+		put_page(dir_page);
 	}
 out_old:
 	kunmap(old_page);
-	page_cache_release(old_page);
+	put_page(old_page);
 out:
 	return err;
 }

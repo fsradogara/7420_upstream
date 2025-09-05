@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * UHCI-specific debugging code. Invaluable when something
  * goes wrong, but don't get in my face.
@@ -797,6 +798,8 @@ static loff_t uhci_debug_lseek(struct file *file, loff_t off, int whence)
 		return -EINVAL;
 
 	return (file->f_pos = new);
+	struct uhci_debug *up = file->private_data;
+	return no_seek_end_llseek_size(file, off, whence, up->size);
 }
 
 static ssize_t uhci_debug_read(struct file *file, char __user *buf,

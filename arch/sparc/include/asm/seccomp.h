@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_SECCOMP_H
 
 #include <linux/thread_info.h> /* already defines TIF_32BIT */

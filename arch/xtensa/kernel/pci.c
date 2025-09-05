@@ -469,7 +469,8 @@ __pci_mmap_set_pgprot(struct pci_dev *dev, struct vm_area_struct *vma,
  *
  * Returns a negative error code on failure, zero on success.
  */
-int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
+int pci_mmap_page_range(struct pci_dev *dev, int bar,
+			struct vm_area_struct *vma,
 			enum pci_mmap_state mmap_state,
 			int write_combine)
 {
@@ -479,7 +480,7 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 	if (ret < 0)
 		return ret;
 
-	__pci_mmap_set_pgprot(dev, vma, mmap_state, write_combine);
+	vma->vm_page_prot = pgprot_device(vma->vm_page_prot);
 
 	ret = io_remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			         vma->vm_end - vma->vm_start,vma->vm_page_prot);

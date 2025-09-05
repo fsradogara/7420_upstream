@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/ext4/xattr_security.c
  * Handler for storing security labels as extended attributes.
@@ -76,23 +77,20 @@ ext4_init_security(handle_t *handle, struct inode *inode, struct inode *dir)
 
 struct xattr_handler ext4_xattr_security_handler = {
 ext4_xattr_security_get(const struct xattr_handler *handler,
-			struct dentry *dentry, const char *name,
-			void *buffer, size_t size)
+			struct dentry *unused, struct inode *inode,
+			const char *name, void *buffer, size_t size)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext4_xattr_get(d_inode(dentry), EXT4_XATTR_INDEX_SECURITY,
+	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_SECURITY,
 			      name, buffer, size);
 }
 
 static int
 ext4_xattr_security_set(const struct xattr_handler *handler,
-			struct dentry *dentry, const char *name,
-			const void *value, size_t size, int flags)
+			struct dentry *unused, struct inode *inode,
+			const char *name, const void *value,
+			size_t size, int flags)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext4_xattr_set(d_inode(dentry), EXT4_XATTR_INDEX_SECURITY,
+	return ext4_xattr_set(inode, EXT4_XATTR_INDEX_SECURITY,
 			      name, value, size, flags);
 }
 
@@ -125,7 +123,6 @@ ext4_init_security(handle_t *handle, struct inode *inode, struct inode *dir,
 
 const struct xattr_handler ext4_xattr_security_handler = {
 	.prefix	= XATTR_SECURITY_PREFIX,
-	.list	= ext4_xattr_security_list,
 	.get	= ext4_xattr_security_get,
 	.set	= ext4_xattr_security_set,
 };

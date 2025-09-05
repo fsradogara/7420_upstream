@@ -63,6 +63,10 @@ s64 ieee754sp_tlong(union ieee754sp x)
 		ieee754_setcx(IEEE754_INVALID_OPERATION);
 		return ieee754di_indef();
 
+	case IEEE754_CLASS_INF:
+		ieee754_setcx(IEEE754_INVALID_OPERATION);
+		return ieee754di_overflow(xs);
+
 	case IEEE754_CLASS_ZERO:
 		return 0;
 
@@ -89,7 +93,7 @@ s64 ieee754sp_tlong(union ieee754sp x)
 		int odd;
 
 		ieee754_setcx(IEEE754_INVALID_OPERATION);
-		return ieee754di_indef();
+		return ieee754di_overflow(xs);
 	}
 	/* oh gawd */
 	if (xe > SP_FBITS) {
@@ -151,7 +155,7 @@ s64 ieee754sp_tlong(union ieee754sp x)
 		if (round || sticky)
 			SETCX(IEEE754_INEXACT);
 			ieee754_setcx(IEEE754_INVALID_OPERATION);
-			return ieee754di_indef();
+			return ieee754di_overflow(xs);
 		}
 		if (round || sticky)
 			ieee754_setcx(IEEE754_INEXACT);

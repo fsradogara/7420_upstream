@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for key management
 #
@@ -21,9 +22,12 @@ obj-$(CONFIG_KEYS_COMPAT) += compat.o
 obj-$(CONFIG_PROC_FS) += proc.o
 obj-$(CONFIG_SYSCTL) += sysctl.o
 obj-$(CONFIG_KEYS_COMPAT) += compat.o
+compat-obj-$(CONFIG_KEY_DH_OPERATIONS) += compat_dh.o
+obj-$(CONFIG_KEYS_COMPAT) += compat.o $(compat-obj-y)
 obj-$(CONFIG_PROC_FS) += proc.o
 obj-$(CONFIG_SYSCTL) += sysctl.o
 obj-$(CONFIG_PERSISTENT_KEYRINGS) += persistent.o
+obj-$(CONFIG_KEY_DH_OPERATIONS) += dh.o
 
 #
 # Key types

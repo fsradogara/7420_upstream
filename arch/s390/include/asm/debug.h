@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  include/asm-s390/debug.h
  *   S/390 debug facility
@@ -45,6 +46,7 @@ struct __debug_entry{
 #include <linux/spinlock.h>
 #include <linux/kernel.h>
 #include <linux/time.h>
+#include <linux/refcount.h>
 #include <uapi/asm/debug.h>
 
 #define DEBUG_MAX_LEVEL            6  /* debug levels range from 0 to 6 */
@@ -66,7 +68,7 @@ struct debug_view;
 typedef struct debug_info {	
 	struct debug_info* next;
 	struct debug_info* prev;
-	atomic_t ref_count;
+	refcount_t ref_count;
 	spinlock_t lock;			
 	int level;
 	int nr_areas;

@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/bug.h>
 #include <linux/io.h>
 #include <linux/types.h>
 #include <linux/kdebug.h>
 #include <linux/signal.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task_stack.h>
 #include <linux/uaccess.h>
 #include <asm/system.h>
 
@@ -20,7 +23,10 @@ static void handle_BUG(struct pt_regs *regs)
 #include <linux/hardirq.h>
 #include <linux/kernel.h>
 #include <linux/kexec.h>
-#include <linux/module.h>
+#include <linux/sched/signal.h>
+
+#include <linux/extable.h>
+#include <linux/module.h>	/* print_modules */
 #include <asm/unwinder.h>
 #include <asm/traps.h>
 

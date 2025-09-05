@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/hfsplus/dir.c
  *
@@ -377,8 +378,14 @@ next:
 out:
 		file->private_data = rd;
 		rd->file = file;
+		spin_lock(&HFSPLUS_I(inode)->open_dir_lock);
 		list_add(&rd->list, &HFSPLUS_I(inode)->open_dir_list);
+		spin_unlock(&HFSPLUS_I(inode)->open_dir_lock);
 	}
+	/*
+	 * Can be done after the list insertion; exclusion with
+	 * hfsplus_delete_cat() is provided by directory lock.
+	 */
 	memcpy(&rd->key, fd.key, sizeof(struct hfsplus_cat_key));
 out:
 	kfree(strbuf);
@@ -392,8 +399,9 @@ static int hfsplus_dir_release(struct inode *inode, struct file *file)
 	if (rd) {
 		list_del(&rd->list);
 		mutex_lock(&inode->i_mutex);
+		spin_lock(&HFSPLUS_I(inode)->open_dir_lock);
 		list_del(&rd->list);
-		mutex_unlock(&inode->i_mutex);
+		spin_unlock(&HFSPLUS_I(inode)->open_dir_lock);
 		kfree(rd);
 	}
 	return 0;
@@ -506,7 +514,7 @@ static int hfsplus_link(struct dentry *src_dentry, struct inode *dst_dir,
 	inc_nlink(inode);
 	hfsplus_instantiate(dst_dentry, inode, cnid);
 	ihold(inode);
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode->i_ctime = current_time(inode);
 	mark_inode_dirty(inode);
 	sbi->file_count++;
 	hfsplus_mark_mdb_dirty(dst_dir->i_sb);
@@ -621,7 +629,7 @@ static int hfsplus_rmdir(struct inode *dir, struct dentry *dentry)
 	if (res)
 		return res;
 		sbi->file_count--;
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode->i_ctime = current_time(inode);
 	mark_inode_dirty(inode);
 out:
 	mutex_unlock(&sbi->vh_mutex);
@@ -642,7 +650,7 @@ static int hfsplus_rmdir(struct inode *dir, struct dentry *dentry)
 	if (res)
 		goto out;
 	clear_nlink(inode);
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode->i_ctime = current_time(inode);
 	hfsplus_delete_inode(inode);
 	mark_inode_dirty(inode);
 	return 0;
@@ -794,9 +802,13 @@ static int hfsplus_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 }
 
 static int hfsplus_rename(struct inode *old_dir, struct dentry *old_dentry,
-			  struct inode *new_dir, struct dentry *new_dentry)
+			  struct inode *new_dir, struct dentry *new_dentry,
+			  unsigned int flags)
 {
 	int res;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
 
 	/* Unlink destination if it already exists */
 	if (new_dentry->d_inode) {
@@ -843,10 +855,7 @@ const struct file_operations hfsplus_dir_operations = {
 	.symlink		= hfsplus_symlink,
 	.mknod			= hfsplus_mknod,
 	.rename			= hfsplus_rename,
-	.setxattr		= generic_setxattr,
-	.getxattr		= generic_getxattr,
 	.listxattr		= hfsplus_listxattr,
-	.removexattr		= generic_removexattr,
 #ifdef CONFIG_HFSPLUS_FS_POSIX_ACL
 	.get_acl		= hfsplus_get_posix_acl,
 	.set_acl		= hfsplus_set_posix_acl,
@@ -856,7 +865,7 @@ const struct file_operations hfsplus_dir_operations = {
 const struct file_operations hfsplus_dir_operations = {
 	.fsync		= hfsplus_file_fsync,
 	.read		= generic_read_dir,
-	.iterate	= hfsplus_readdir,
+	.iterate_shared	= hfsplus_readdir,
 	.unlocked_ioctl = hfsplus_ioctl,
 	.llseek		= generic_file_llseek,
 	.release	= hfsplus_dir_release,

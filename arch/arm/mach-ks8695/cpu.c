@@ -33,11 +33,11 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <mach/regs-sys.h>
+#include "regs-sys.h"
 #include <mach/regs-misc.h>
 
 
-static struct __initdata map_desc ks8695_io_desc[] = {
+static struct map_desc ks8695_io_desc[] __initdata = {
 	{
 		.virtual	= KS8695_IO_VA,
 		.virtual	= (unsigned long)KS8695_IO_VA,

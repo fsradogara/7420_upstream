@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	Copyright (C) 1992, 1998 Linus Torvalds, Ingo Molnar
  *
@@ -11,7 +12,6 @@
 #include <linux/kernel_stat.h>
 #include <linux/interrupt.h>
 #include <linux/seq_file.h>
-#include <linux/module.h>
 #include <linux/delay.h>
 #include <asm/uaccess.h>
 #include <asm/io_apic.h>
@@ -45,8 +45,8 @@ void ack_bad_irq(unsigned int irq)
 #include <linux/ftrace.h>
 #include <linux/uaccess.h>
 #include <linux/smp.h>
+#include <linux/sched/task_stack.h>
 #include <asm/io_apic.h>
-#include <asm/idle.h>
 #include <asm/apic.h>
 
 int sysctl_panic_on_stackoverflow;
@@ -311,8 +311,7 @@ asmlinkage void do_softirq(void)
 	if (user_mode(regs))
 		return;
 
-	if (regs->sp >= curbase + sizeof(struct thread_info) +
-				  sizeof(struct pt_regs) + STACK_TOP_MARGIN &&
+	if (regs->sp >= curbase + sizeof(struct pt_regs) + STACK_TOP_MARGIN &&
 	    regs->sp <= curbase + THREAD_SIZE)
 		return;
 

@@ -72,8 +72,8 @@ int jffs2_init_security(struct inode *inode, struct inode *dir,
 
 /* ---- XATTR Handler for "security.*" ----------------- */
 static int jffs2_security_getxattr(const struct xattr_handler *handler,
-				   struct dentry *dentry, const char *name,
-				   void *buffer, size_t size)
+				   struct dentry *unused, struct inode *inode,
+				   const char *name, void *buffer, size_t size)
 {
 	if (!strcmp(name, ""))
 		return -EINVAL;
@@ -84,12 +84,14 @@ static int jffs2_security_getxattr(const struct xattr_handler *handler,
 static int jffs2_security_setxattr(struct inode *inode, const char *name, const void *buffer,
 				   size_t size, int flags)
 	return do_jffs2_getxattr(d_inode(dentry), JFFS2_XPREFIX_SECURITY,
+	return do_jffs2_getxattr(inode, JFFS2_XPREFIX_SECURITY,
 				 name, buffer, size);
 }
 
 static int jffs2_security_setxattr(const struct xattr_handler *handler,
-				   struct dentry *dentry, const char *name,
-				   const void *buffer, size_t size, int flags)
+				   struct dentry *unused, struct inode *inode,
+				   const char *name, const void *buffer,
+				   size_t size, int flags)
 {
 	if (!strcmp(name, ""))
 		return -EINVAL;
@@ -119,9 +121,12 @@ static size_t jffs2_security_listxattr(const struct xattr_handler *handler,
 }
 
 struct xattr_handler jffs2_security_xattr_handler = {
+	return do_jffs2_setxattr(inode, JFFS2_XPREFIX_SECURITY,
+				 name, buffer, size, flags);
+}
+
 const struct xattr_handler jffs2_security_xattr_handler = {
 	.prefix = XATTR_SECURITY_PREFIX,
-	.list = jffs2_security_listxattr,
 	.set = jffs2_security_setxattr,
 	.get = jffs2_security_getxattr
 };

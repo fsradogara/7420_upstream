@@ -36,11 +36,6 @@ struct s3c24xx_gpio_led {
 	struct s3c24xx_led_platdata	*pdata;
 };
 
-static inline struct s3c24xx_gpio_led *pdev_to_gpio(struct platform_device *dev)
-{
-	return platform_get_drvdata(dev);
-}
-
 static inline struct s3c24xx_gpio_led *to_gpio(struct led_classdev *led_cdev)
 {
 	return container_of(led_cdev, struct s3c24xx_gpio_led, cdev);
@@ -102,8 +97,6 @@ static int s3c24xx_led_probe(struct platform_device *dev)
 			   GFP_KERNEL);
 	if (!led)
 		return -ENOMEM;
-
-	platform_set_drvdata(dev, led);
 
 	led->cdev.brightness_set = s3c24xx_led_set;
 	led->cdev.default_trigger = pdata->def_trigger;
@@ -199,6 +192,7 @@ static void __exit s3c24xx_led_exit(void)
 
 module_init(s3c24xx_led_init);
 module_exit(s3c24xx_led_exit);
+	ret = devm_led_classdev_register(&dev->dev, &led->cdev);
 	if (ret < 0)
 		dev_err(&dev->dev, "led_classdev_register failed\n");
 
@@ -207,7 +201,6 @@ module_exit(s3c24xx_led_exit);
 
 static struct platform_driver s3c24xx_led_driver = {
 	.probe		= s3c24xx_led_probe,
-	.remove		= s3c24xx_led_remove,
 	.driver		= {
 		.name		= "s3c24xx_led",
 	},

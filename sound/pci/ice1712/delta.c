@@ -175,7 +175,7 @@ static int ap_cs8427_probeaddr(struct snd_i2c_bus *bus, unsigned short addr)
 	return -ENOENT;
 }
 
-static struct snd_i2c_ops ap_cs8427_i2c_ops = {
+static const struct snd_i2c_ops ap_cs8427_i2c_ops = {
 	.sendbytes = ap_cs8427_sendbytes,
 	.readbytes = ap_cs8427_readbytes,
 	.probeaddr = ap_cs8427_probeaddr,
@@ -440,6 +440,7 @@ static int snd_ice1712_delta1010lt_wordclock_status_get(struct snd_kcontrol *kco
 
 static struct snd_kcontrol_new snd_ice1712_delta1010lt_wordclock_status __devinitdata =
 static struct snd_kcontrol_new snd_ice1712_delta1010lt_wordclock_status =
+static const struct snd_kcontrol_new snd_ice1712_delta1010lt_wordclock_status =
 {
 	.access =	(SNDRV_CTL_ELEM_ACCESS_READ),
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -454,6 +455,7 @@ static struct snd_kcontrol_new snd_ice1712_delta1010lt_wordclock_status =
 
 static struct snd_akm4xxx akm_audiophile __devinitdata = {
 static struct snd_akm4xxx akm_audiophile = {
+static const struct snd_akm4xxx akm_audiophile = {
 	.type = SND_AK4528,
 	.num_adcs = 2,
 	.num_dacs = 2,
@@ -464,6 +466,7 @@ static struct snd_akm4xxx akm_audiophile = {
 
 static struct snd_ak4xxx_private akm_audiophile_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_audiophile_priv = {
+static const struct snd_ak4xxx_private akm_audiophile_priv = {
 	.caddr = 2,
 	.cif = 0,
 	.data_mask = ICE1712_DELTA_AP_DOUT,
@@ -477,6 +480,7 @@ static struct snd_ak4xxx_private akm_audiophile_priv = {
 
 static struct snd_akm4xxx akm_delta410 __devinitdata = {
 static struct snd_akm4xxx akm_delta410 = {
+static const struct snd_akm4xxx akm_delta410 = {
 	.type = SND_AK4529,
 	.num_adcs = 2,
 	.num_dacs = 8,
@@ -487,6 +491,7 @@ static struct snd_akm4xxx akm_delta410 = {
 
 static struct snd_ak4xxx_private akm_delta410_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_delta410_priv = {
+static const struct snd_ak4xxx_private akm_delta410_priv = {
 	.caddr = 0,
 	.cif = 0,
 	.data_mask = ICE1712_DELTA_AP_DOUT,
@@ -500,6 +505,7 @@ static struct snd_ak4xxx_private akm_delta410_priv = {
 
 static struct snd_akm4xxx akm_delta1010lt __devinitdata = {
 static struct snd_akm4xxx akm_delta1010lt = {
+static const struct snd_akm4xxx akm_delta1010lt = {
 	.type = SND_AK4524,
 	.num_adcs = 8,
 	.num_dacs = 8,
@@ -511,6 +517,7 @@ static struct snd_akm4xxx akm_delta1010lt = {
 
 static struct snd_ak4xxx_private akm_delta1010lt_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_delta1010lt_priv = {
+static const struct snd_ak4xxx_private akm_delta1010lt_priv = {
 	.caddr = 2,
 	.cif = 0, /* the default level of the CIF pin from AK4524 */
 	.data_mask = ICE1712_DELTA_1010LT_DOUT,
@@ -524,6 +531,7 @@ static struct snd_ak4xxx_private akm_delta1010lt_priv = {
 
 static struct snd_akm4xxx akm_delta44 __devinitdata = {
 static struct snd_akm4xxx akm_delta66e = {
+static const struct snd_akm4xxx akm_delta66e = {
 	.type = SND_AK4524,
 	.num_adcs = 4,
 	.num_dacs = 4,
@@ -533,7 +541,7 @@ static struct snd_akm4xxx akm_delta66e = {
 	}
 };
 
-static struct snd_ak4xxx_private akm_delta66e_priv = {
+static const struct snd_ak4xxx_private akm_delta66e_priv = {
 	.caddr = 2,
 	.cif = 0, /* the default level of the CIF pin from AK4524 */
 	.data_mask = ICE1712_DELTA_66E_DOUT,
@@ -546,7 +554,7 @@ static struct snd_ak4xxx_private akm_delta66e_priv = {
 };
 
 
-static struct snd_akm4xxx akm_delta44 = {
+static const struct snd_akm4xxx akm_delta44 = {
 	.type = SND_AK4524,
 	.num_adcs = 4,
 	.num_dacs = 4,
@@ -558,6 +566,7 @@ static struct snd_akm4xxx akm_delta44 = {
 
 static struct snd_ak4xxx_private akm_delta44_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_delta44_priv = {
+static const struct snd_ak4xxx_private akm_delta44_priv = {
 	.caddr = 2,
 	.cif = 0, /* the default level of the CIF pin from AK4524 */
 	.data_mask = ICE1712_DELTA_CODEC_SERIAL_DATA,
@@ -571,6 +580,7 @@ static struct snd_ak4xxx_private akm_delta44_priv = {
 
 static struct snd_akm4xxx akm_vx442 __devinitdata = {
 static struct snd_akm4xxx akm_vx442 = {
+static const struct snd_akm4xxx akm_vx442 = {
 	.type = SND_AK4524,
 	.num_adcs = 4,
 	.num_dacs = 4,
@@ -582,6 +592,7 @@ static struct snd_akm4xxx akm_vx442 = {
 
 static struct snd_ak4xxx_private akm_vx442_priv __devinitdata = {
 static struct snd_ak4xxx_private akm_vx442_priv = {
+static const struct snd_ak4xxx_private akm_vx442_priv = {
 	.caddr = 2,
 	.cif = 0,
 	.data_mask = ICE1712_VX442_DOUT,

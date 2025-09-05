@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ALPHA_PCI_H
 #define __ALPHA_PCI_H
 
@@ -9,7 +10,6 @@
 #include <asm/machvec.h>
 #include <linux/scatterlist.h>
 #include <asm/machvec.h>
-#include <asm-generic/pci-bridge.h>
 
 /*
  * The following structure is used to manage multiple PCI busses.

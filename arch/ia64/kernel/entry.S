@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * arch/ia64/kernel/entry.S
  *
@@ -52,6 +53,7 @@
 
 #ifdef __IA64_ASM_PARAVIRTUALIZED_NATIVE
 #include <asm/ftrace.h>
+#include <asm/export.h>
 
 #include "minstate.h"
 
@@ -1479,12 +1481,14 @@ GLOBAL_ENTRY(unw_init_running)
 	mov rp=loc0
 	br.ret.sptk.many rp
 END(unw_init_running)
+EXPORT_SYMBOL(unw_init_running)
 
 #ifdef CONFIG_FUNCTION_TRACER
 #ifdef CONFIG_DYNAMIC_FTRACE
 GLOBAL_ENTRY(_mcount)
 	br ftrace_stub
 END(_mcount)
+EXPORT_SYMBOL(_mcount)
 
 .here:
 	br.ret.sptk.many b0
@@ -1911,5 +1915,8 @@ sys_call_table:
 	data8 sys_membarrier
 	data8 sys_kcmp				// 1345
 	data8 sys_mlock2
+	data8 sys_copy_file_range
+	data8 sys_preadv2
+	data8 sys_pwritev2
 
 	.org sys_call_table + 8*NR_syscalls	// guard against failures to increase NR_syscalls

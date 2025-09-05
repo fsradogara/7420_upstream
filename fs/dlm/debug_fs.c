@@ -13,7 +13,7 @@
 
 #include <linux/pagemap.h>
 #include <linux/seq_file.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 #include <linux/slab.h>
@@ -94,6 +94,7 @@ static void print_format1_lock(struct seq_file *s, struct dlm_lkb *lkb,
 
 static int print_resource(struct dlm_rsb *res, struct seq_file *s)
 	seq_puts(s, "\n");
+	seq_putc(s, '\n');
 }
 
 static void print_format1(struct dlm_rsb *res, struct seq_file *s)
@@ -155,7 +156,7 @@ static void print_format1(struct dlm_rsb *res, struct seq_file *s)
 			seq_printf(s, " (INVALID)");
 		seq_printf(s, "\n");
 			seq_puts(s, " (INVALID)");
-		seq_puts(s, "\n");
+		seq_putc(s, '\n');
 		if (seq_has_overflowed(s))
 			goto out;
 	}
@@ -230,7 +231,7 @@ static void print_lock(struct seq_file *s, struct dlm_lkb *lkb, struct dlm_rsb *
 			   lkb->lkb_id, print_lockmode(lkb->lkb_rqmode));
 		if (lkb->lkb_wait_type)
 			seq_printf(s, " wait_type: %d", lkb->lkb_wait_type);
-		seq_puts(s, "\n");
+		seq_putc(s, '\n');
 		if (seq_has_overflowed(s))
 			goto out;
 	}
@@ -524,7 +525,7 @@ static void print_format3(struct dlm_rsb *r, struct seq_file *s)
 		else
 			seq_printf(s, " %02x", (unsigned char)r->res_name[i]);
 	}
-	seq_puts(s, "\n");
+	seq_putc(s, '\n');
 	if (seq_has_overflowed(s))
 		goto out;
 
@@ -535,7 +536,7 @@ static void print_format3(struct dlm_rsb *r, struct seq_file *s)
 
 	for (i = 0; i < lvblen; i++)
 		seq_printf(s, " %02x", (unsigned char)r->res_lvbptr[i]);
-	seq_puts(s, "\n");
+	seq_putc(s, '\n');
 	if (seq_has_overflowed(s))
 		goto out;
 
@@ -598,8 +599,7 @@ static void print_format4(struct dlm_rsb *r, struct seq_file *s)
 		else
 			seq_printf(s, " %02x", (unsigned char)r->res_name[i]);
 	}
-	seq_puts(s, "\n");
-
+	seq_putc(s, '\n');
 	unlock_rsb(r);
 }
 
@@ -673,7 +673,7 @@ static void *table_seq_start(struct seq_file *seq, loff_t *pos)
 	if (bucket >= ls->ls_rsbtbl_size)
 		return NULL;
 
-	ri = kzalloc(sizeof(struct rsbtbl_iter), GFP_NOFS);
+	ri = kzalloc(sizeof(*ri), GFP_NOFS);
 	if (!ri)
 		return NULL;
 	if (n == 0)
@@ -844,20 +844,54 @@ static const struct file_operations format2_fops;
 static const struct file_operations format3_fops;
 static const struct file_operations format4_fops;
 
-static int table_open(struct inode *inode, struct file *file)
+static int table_open1(struct inode *inode, struct file *file)
 {
 	struct seq_file *seq;
-	int ret = -1;
+	int ret;
 
-	if (file->f_op == &format1_fops)
-		ret = seq_open(file, &format1_seq_ops);
-	else if (file->f_op == &format2_fops)
-		ret = seq_open(file, &format2_seq_ops);
-	else if (file->f_op == &format3_fops)
-		ret = seq_open(file, &format3_seq_ops);
-	else if (file->f_op == &format4_fops)
-		ret = seq_open(file, &format4_seq_ops);
+	ret = seq_open(file, &format1_seq_ops);
+	if (ret)
+		return ret;
 
+	seq = file->private_data;
+	seq->private = inode->i_private; /* the dlm_ls */
+	return 0;
+}
+
+static int table_open2(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq;
+	int ret;
+
+	ret = seq_open(file, &format2_seq_ops);
+	if (ret)
+		return ret;
+
+	seq = file->private_data;
+	seq->private = inode->i_private; /* the dlm_ls */
+	return 0;
+}
+
+static int table_open3(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq;
+	int ret;
+
+	ret = seq_open(file, &format3_seq_ops);
+	if (ret)
+		return ret;
+
+	seq = file->private_data;
+	seq->private = inode->i_private; /* the dlm_ls */
+	return 0;
+}
+
+static int table_open4(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq;
+	int ret;
+
+	ret = seq_open(file, &format4_seq_ops);
 	if (ret)
 		return ret;
 
@@ -876,7 +910,7 @@ static const struct file_operations rsb_fops = {
 
 static const struct file_operations format1_fops = {
 	.owner   = THIS_MODULE,
-	.open    = table_open,
+	.open    = table_open1,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release
@@ -956,7 +990,7 @@ static const struct file_operations locks_fops = {
 	.open    = locks_open,
 static const struct file_operations format2_fops = {
 	.owner   = THIS_MODULE,
-	.open    = table_open,
+	.open    = table_open2,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release
@@ -964,7 +998,7 @@ static const struct file_operations format2_fops = {
 
 static const struct file_operations format3_fops = {
 	.owner   = THIS_MODULE,
-	.open    = table_open,
+	.open    = table_open3,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release
@@ -972,7 +1006,7 @@ static const struct file_operations format3_fops = {
 
 static const struct file_operations format4_fops = {
 	.owner   = THIS_MODULE,
-	.open    = table_open,
+	.open    = table_open4,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release
@@ -1036,7 +1070,7 @@ void dlm_delete_debug_file(struct dlm_ls *ls)
 
 int dlm_create_debug_file(struct dlm_ls *ls)
 {
-	char name[DLM_LOCKSPACE_LEN+8];
+	char name[DLM_LOCKSPACE_LEN + 8];
 
 	/* format 1 */
 
@@ -1054,7 +1088,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 	/* format 2 */
 
 	memset(name, 0, sizeof(name));
-	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_locks", ls->ls_name);
+	snprintf(name, DLM_LOCKSPACE_LEN + 8, "%s_locks", ls->ls_name);
 
 	ls->ls_debug_locks_dentry = debugfs_create_file(name,
 							S_IFREG | S_IRUGO,
@@ -1067,7 +1101,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 	/* format 3 */
 
 	memset(name, 0, sizeof(name));
-	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_all", ls->ls_name);
+	snprintf(name, DLM_LOCKSPACE_LEN + 8, "%s_all", ls->ls_name);
 
 	ls->ls_debug_all_dentry = debugfs_create_file(name,
 						      S_IFREG | S_IRUGO,
@@ -1080,7 +1114,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 	/* format 4 */
 
 	memset(name, 0, sizeof(name));
-	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_toss", ls->ls_name);
+	snprintf(name, DLM_LOCKSPACE_LEN + 8, "%s_toss", ls->ls_name);
 
 	ls->ls_debug_toss_dentry = debugfs_create_file(name,
 						       S_IFREG | S_IRUGO,
@@ -1091,7 +1125,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 		goto fail;
 
 	memset(name, 0, sizeof(name));
-	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_waiters", ls->ls_name);
+	snprintf(name, DLM_LOCKSPACE_LEN + 8, "%s_waiters", ls->ls_name);
 
 	ls->ls_debug_waiters_dentry = debugfs_create_file(name,
 							  S_IFREG | S_IRUGO,

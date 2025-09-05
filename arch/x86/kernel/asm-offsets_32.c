@@ -20,16 +20,14 @@
 #include <asm/elf.h>
 
 #include <xen/interface/xen.h>
+// SPDX-License-Identifier: GPL-2.0
 #ifndef __LINUX_KBUILD_H
 # error "Please do not build this file directly, build asm-offsets.c instead"
 #endif
 
 #include <asm/ucontext.h>
 
-#include <linux/lguest.h>
-#include "../../../drivers/lguest/lg.h"
-
-#define __SYSCALL_I386(nr, sym, compat) [nr] = 1,
+#define __SYSCALL_I386(nr, sym, qual) [nr] = 1,
 static char syscalls[] = {
 #include <asm/syscalls_32.h>
 };
@@ -143,18 +141,14 @@ void foo(void)
 	OFFSET(LGUEST_DATA_irq_enabled, lguest_data, irq_enabled);
 	OFFSET(LGUEST_DATA_pgdir, lguest_data, pgdir);
 	OFFSET(LGUEST_DATA_irq_pending, lguest_data, irq_pending);
+	/* Offset from cpu_tss to SYSENTER_stack */
+	OFFSET(CPU_TSS_SYSENTER_stack, tss_struct, SYSENTER_stack);
+	/* Size of SYSENTER_stack */
+	DEFINE(SIZEOF_SYSENTER_stack, sizeof(((struct tss_struct *)0)->SYSENTER_stack));
 
+#ifdef CONFIG_CC_STACKPROTECTOR
 	BLANK();
-	OFFSET(LGUEST_PAGES_host_gdt_desc, lguest_pages, state.host_gdt_desc);
-	OFFSET(LGUEST_PAGES_host_idt_desc, lguest_pages, state.host_idt_desc);
-	OFFSET(LGUEST_PAGES_host_cr3, lguest_pages, state.host_cr3);
-	OFFSET(LGUEST_PAGES_host_sp, lguest_pages, state.host_sp);
-	OFFSET(LGUEST_PAGES_guest_gdt_desc, lguest_pages,state.guest_gdt_desc);
-	OFFSET(LGUEST_PAGES_guest_idt_desc, lguest_pages,state.guest_idt_desc);
-	OFFSET(LGUEST_PAGES_guest_gdt, lguest_pages, state.guest_gdt);
-	OFFSET(LGUEST_PAGES_regs_trapnum, lguest_pages, regs.trapnum);
-	OFFSET(LGUEST_PAGES_regs_errcode, lguest_pages, regs.errcode);
-	OFFSET(LGUEST_PAGES_regs, lguest_pages, regs);
+	OFFSET(stack_canary_offset, stack_canary, canary);
 #endif
 
 	BLANK();

@@ -130,7 +130,7 @@
 #include <linux/if_eql.h>
 #include <linux/pkt_sched.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static int eql_open(struct net_device *dev);
 static int eql_close(struct net_device *dev);

@@ -10,6 +10,7 @@
  * Miscellaneous linux stuff
  */
 
+#include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -31,6 +32,7 @@
 #include <linux/platform_device.h>
 #include <linux/adb.h>
 #include <linux/cuda.h>
+#include <linux/rtc.h>
 
 #include <asm/setup.h>
 #include <asm/bootinfo.h>
@@ -40,7 +42,6 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/pgtable.h>
-#include <asm/rtc.h>
 #include <asm/machdep.h>
 
 #include <asm/macintosh.h>
@@ -212,6 +213,7 @@ void __init config_mac(void)
 	if (!MACH_IS_MAC)
 		printk(KERN_ERR "ERROR: no Mac, but config_mac() called!! \n");
 		printk(KERN_ERR "ERROR: no Mac, but config_mac() called!!\n");
+		pr_err("ERROR: no Mac, but config_mac() called!!\n");
 
 	mach_sched_init = mac_sched_init;
 	mach_init_IRQ = mac_init_IRQ;
@@ -228,7 +230,7 @@ void __init config_mac(void)
 	mach_halt = mac_poweroff;
 	mach_power_off = mac_poweroff;
 	mach_max_dma_address = 0xffffffff;
-#if defined(CONFIG_INPUT_M68K_BEEP) || defined(CONFIG_INPUT_M68K_BEEP_MODULE)
+#if IS_ENABLED(CONFIG_INPUT_M68K_BEEP)
 	mach_beep = mac_mksound;
 #endif
 #ifdef CONFIG_HEARTBEAT
@@ -405,6 +407,7 @@ static struct mac_model mac_data_table[] = {
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
 		.nubus_type	= MAC_NUBUS
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
@@ -418,6 +421,7 @@ static struct mac_model mac_data_table[] = {
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
 		.nubus_type	= MAC_NUBUS
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -435,6 +439,7 @@ static struct mac_model mac_data_table[] = {
 
 	/*
 	 *	Classic models (guessing: similar to SE/30 ?? Nope, similar to LC ...)
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -454,6 +459,7 @@ static struct mac_model mac_data_table[] = {
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
 		.nubus_type	= MAC_NUBUS
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -498,6 +504,7 @@ static struct mac_model mac_data_table[] = {
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
 		.nubus_type	= MAC_NUBUS
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -511,6 +518,7 @@ static struct mac_model mac_data_table[] = {
 		.scsi_type	= MAC_SCSI_OLD,
 		.scc_type	= MAC_SCC_II,
 		.nubus_type	= MAC_NUBUS
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -534,6 +542,7 @@ static struct mac_model mac_data_table[] = {
 	 *	The 700, 900 and 950 have some I/O chips in the wrong place to
 	 *	confuse us. The 840AV has a SCSI location of its own (same as
 	 *	the 660AV).
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -686,7 +695,7 @@ static struct mac_model mac_data_table[] = {
 		.ident		= MAC_MODEL_P475,
 		.name		=  "Performa 475",
 		.name		= "Performa 460",
-		.adb_type	= MAC_ADB_IISI,
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -804,6 +813,7 @@ static struct mac_model mac_data_table[] = {
 	 */
 
 	/* The C610 may or may not have SONIC.  We probe to make sure */
+		.adb_type	= MAC_ADB_EGRET,
 		.via_type	= MAC_VIA_IICI,
 		.scsi_type	= MAC_SCSI_LC,
 		.scc_type	= MAC_SCC_II,
@@ -1129,6 +1139,7 @@ static void __init mac_identify(void)
 		printk(KERN_WARNING "No bootinfo model ID, using cpuid instead (hey, use Penguin!)\n");
 		printk(KERN_WARNING "No bootinfo model ID, using cpuid instead "
 		       "(obsolete bootloader?)\n");
+		pr_warn("No bootinfo model ID, using cpuid instead (obsolete bootloader?)\n");
 	}
 
 	macintosh_config = mac_data_table;
@@ -1177,7 +1188,7 @@ static void __init mac_identify(void)
 	 */
 	iop_preinit();
 
-	printk(KERN_INFO "Detected Macintosh model: %d\n", model);
+	pr_info("Detected Macintosh model: %d\n", model);
 
 	/*
 	 * Report booter data:
@@ -1224,7 +1235,7 @@ static void __init mac_identify(void)
 
 static void __init mac_report_hardware(void)
 {
-	printk(KERN_INFO "Apple Macintosh %s\n", macintosh_config->name);
+	pr_info("Apple Macintosh %s\n", macintosh_config->name);
 }
 
 static void mac_get_model(char *str)
@@ -1232,15 +1243,6 @@ static void mac_get_model(char *str)
 	strcpy(str, "Macintosh ");
 	strcat(str, macintosh_config->name);
 }
-
-static struct resource swim_rsrc = { .flags = IORESOURCE_MEM };
-
-static struct platform_device swim_pdev = {
-	.name		= "swim",
-	.id		= -1,
-	.num_resources	= 1,
-	.resource	= &swim_rsrc,
-};
 
 static const struct resource mac_scsi_iifx_rsrc[] __initconst = {
 	{
@@ -1306,26 +1308,6 @@ static const struct resource mac_scsi_ccl_rsrc[] __initconst = {
 	},
 };
 
-static struct platform_device esp_0_pdev = {
-	.name		= "mac_esp",
-	.id		= 0,
-};
-
-static struct platform_device esp_1_pdev = {
-	.name		= "mac_esp",
-	.id		= 1,
-};
-
-static struct platform_device sonic_pdev = {
-	.name		= "macsonic",
-	.id		= -1,
-};
-
-static struct platform_device mace_pdev = {
-	.name		= "macmace",
-	.id		= -1,
-};
-
 int __init mac_platform_init(void)
 {
 	u8 *swim_base;
@@ -1357,9 +1339,13 @@ int __init mac_platform_init(void)
 	}
 
 	if (swim_base) {
-		swim_rsrc.start = (resource_size_t) swim_base,
-		swim_rsrc.end   = (resource_size_t) swim_base + 0x2000,
-		platform_device_register(&swim_pdev);
+		struct resource swim_rsrc = {
+			.flags = IORESOURCE_MEM,
+			.start = (resource_size_t)swim_base,
+			.end   = (resource_size_t)swim_base + 0x2000,
+		};
+
+		platform_device_register_simple("swim", -1, &swim_rsrc, 1);
 	}
 
 	/*
@@ -1369,13 +1355,13 @@ int __init mac_platform_init(void)
 	switch (macintosh_config->scsi_type) {
 	case MAC_SCSI_QUADRA:
 	case MAC_SCSI_QUADRA3:
-		platform_device_register(&esp_0_pdev);
+		platform_device_register_simple("mac_esp", 0, NULL, 0);
 		break;
 	case MAC_SCSI_QUADRA2:
-		platform_device_register(&esp_0_pdev);
+		platform_device_register_simple("mac_esp", 0, NULL, 0);
 		if ((macintosh_config->ident == MAC_MODEL_Q900) ||
 		    (macintosh_config->ident == MAC_MODEL_Q950))
-			platform_device_register(&esp_1_pdev);
+			platform_device_register_simple("mac_esp", 1, NULL, 0);
 		break;
 	case MAC_SCSI_IIFX:
 		/* Addresses from The Guide to Mac Family Hardware.
@@ -1441,10 +1427,10 @@ int __init mac_platform_init(void)
 
 	switch (macintosh_config->ether_type) {
 	case MAC_ETHER_SONIC:
-		platform_device_register(&sonic_pdev);
+		platform_device_register_simple("macsonic", -1, NULL, 0);
 		break;
 	case MAC_ETHER_MACE:
-		platform_device_register(&mace_pdev);
+		platform_device_register_simple("macmace", -1, NULL, 0);
 		break;
 	}
 

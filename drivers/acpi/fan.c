@@ -122,7 +122,7 @@ static struct thermal_cooling_device_ops fan_cooling_ops = {
 #ifdef CONFIG_PM_SLEEP
 static int acpi_fan_suspend(struct device *dev);
 static int acpi_fan_resume(struct device *dev);
-static struct dev_pm_ops acpi_fan_pm = {
+static const struct dev_pm_ops acpi_fan_pm = {
 	.resume = acpi_fan_resume,
 	.freeze = acpi_fan_suspend,
 	.thaw = acpi_fan_resume,
@@ -205,8 +205,18 @@ static int fan_get_state_acpi4(struct acpi_device *device, unsigned long *state)
 
 	control = obj->package.elements[1].integer.value;
 	for (i = 0; i < fan->fps_count; i++) {
-		if (control == fan->fps[i].control)
+		/*
+		 * When Fine Grain Control is set, return the state
+		 * corresponding to maximum fan->fps[i].control
+		 * value compared to the current speed. Here the
+		 * fan->fps[] is sorted array with increasing speed.
+		 */
+		if (fan->fif.fine_grain_ctrl && control < fan->fps[i].control) {
+			i = (i > 0) ? i - 1 : 0;
 			break;
+		} else if (control == fan->fps[i].control) {
+			break;
+		}
 	}
 	if (i == fan->fps_count) {
 		dev_dbg(&device->dev, "Invalid control value returned\n");
@@ -558,7 +568,7 @@ static int acpi_fan_probe(struct platform_device *pdev)
 	} else {
 		result = acpi_device_update_power(device, NULL);
 		if (result) {
-			dev_err(&device->dev, "Setting initial power state\n");
+			dev_err(&device->dev, "Failed to set initial power state\n");
 			goto end;
 		}
 	}

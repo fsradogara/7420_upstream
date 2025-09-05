@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
+#include <linux/leds.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
@@ -34,9 +35,10 @@
 #include <mach/pxa27x_keypad.h>
 #include <mach/pxa3xx_nand.h>
 #include <mach/pxa3xx.h>
+#include "pxa3xx.h"
 #include <mach/audio.h>
 #include <linux/platform_data/video-pxafb.h>
-#include <mach/zylonite.h>
+#include "zylonite.h"
 #include <linux/platform_data/mmc-pxamci.h>
 #include <linux/platform_data/usb-ohci-pxa27x.h>
 #include <linux/platform_data/keypad-pxa27x.h>

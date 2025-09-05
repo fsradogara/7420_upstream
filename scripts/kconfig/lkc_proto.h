@@ -43,6 +43,7 @@ P(prop_get_type_name,const char *,(enum prop_type type));
 /* expr.c */
 P(expr_compare_type,int,(enum expr_type t1, enum expr_type t2));
 P(expr_print,void,(struct expr *e, void (*fn)(void *, struct symbol *, const char *), void *data, int prevtoken));
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <stdarg.h>
 
 /* confdata.c */

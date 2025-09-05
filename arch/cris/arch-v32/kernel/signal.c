@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2003, Axis Communications AB.
  */
 
 #include <linux/sched.h>
+#include <linux/sched/task_stack.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/kernel.h>
@@ -27,6 +29,7 @@ extern unsigned long cris_signal_return_page;
 /* Flag to check if a signal is blockable. */
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
+#include <linux/uaccess.h>
 #include <arch/hwregs/cpu_vect.h>
 
 extern unsigned long cris_signal_return_page;

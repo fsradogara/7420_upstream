@@ -1010,7 +1010,7 @@ mpc52xx_ata_resume(struct platform_device *op)
 
 #endif
 
-static struct of_device_id mpc52xx_ata_of_match[] = {
+static const struct of_device_id mpc52xx_ata_of_match[] = {
 	{ .compatible = "fsl,mpc5200-ata", },
 	{ .compatible = "mpc5200-ata", },
 	{},

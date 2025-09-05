@@ -211,6 +211,7 @@ struct inode *udf_new_inode(struct inode *dir, umode_t mode)
 	}
 
 	*err = 0;
+		iinfo->i_crtime = current_time(inode);
 	if (unlikely(insert_inode_locked(inode) < 0)) {
 		make_bad_inode(inode);
 		iput(inode);

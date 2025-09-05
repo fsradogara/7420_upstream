@@ -113,24 +113,13 @@ static int rtas_pci_read_config(struct pci_bus *bus,
 
 	return PCIBIOS_DEVICE_NOT_FOUND;
 	struct pci_dn *pdn;
-	bool found = false;
 	int ret;
 
-	/* Search only direct children of the bus */
 	*val = 0xFFFFFFFF;
-	busdn = pci_bus_to_OF_node(bus);
-	for (dn = busdn->child; dn; dn = dn->sibling) {
-		pdn = PCI_DN(dn);
-		if (pdn && pdn->devfn == devfn
-		    && of_device_is_available(dn)) {
-			found = true;
-			break;
-		}
-	}
 
-	if (!found)
-		return PCIBIOS_DEVICE_NOT_FOUND;
+	pdn = pci_get_pdn_by_devfn(bus, devfn);
 
+	/* Validity of pdn is checked in here */
 	ret = rtas_read_config(pdn, where, size, val);
 	if (*val == EEH_IO_ERROR_VALUE(size) &&
 	    eeh_dev_check_failure(pdn_to_eeh_dev(pdn)))
@@ -189,22 +178,10 @@ static int rtas_pci_write_config(struct pci_bus *bus,
 	}
 	return PCIBIOS_DEVICE_NOT_FOUND;
 	struct pci_dn *pdn;
-	bool found = false;
 
-	/* Search only direct children of the bus */
-	busdn = pci_bus_to_OF_node(bus);
-	for (dn = busdn->child; dn; dn = dn->sibling) {
-		pdn = PCI_DN(dn);
-		if (pdn && pdn->devfn == devfn
-		    && of_device_is_available(dn)) {
-			found = true;
-			break;
-		}
-	}
+	pdn = pci_get_pdn_by_devfn(bus, devfn);
 
-	if (!found)
-		return PCIBIOS_DEVICE_NOT_FOUND;
-
+	/* Validity of pdn is checked in here. */
 	return rtas_write_config(pdn, where, size, val);
 }
 

@@ -129,6 +129,36 @@ menuconfig WLAN
 
 if WLAN
 
+config WIRELESS_WDS
+	bool "mac80211-based legacy WDS support" if EXPERT
+	help
+	  This option enables the deprecated WDS support, the newer
+	  mac80211-based 4-addr AP/client support supersedes it with
+	  a much better feature set (HT, VHT, ...)
+
+	  We plan to remove this option and code, so if you find
+	  that you have to enable it, please let us know on the
+	  linux-wireless@vger.kernel.org mailing list, so we can
+	  help you migrate to 4-addr AP/client (or, if it's really
+	  necessary, give up on our plan of removing it).
+
+source "drivers/net/wireless/admtek/Kconfig"
+source "drivers/net/wireless/ath/Kconfig"
+source "drivers/net/wireless/atmel/Kconfig"
+source "drivers/net/wireless/broadcom/Kconfig"
+source "drivers/net/wireless/cisco/Kconfig"
+source "drivers/net/wireless/intel/Kconfig"
+source "drivers/net/wireless/intersil/Kconfig"
+source "drivers/net/wireless/marvell/Kconfig"
+source "drivers/net/wireless/mediatek/Kconfig"
+source "drivers/net/wireless/ralink/Kconfig"
+source "drivers/net/wireless/realtek/Kconfig"
+source "drivers/net/wireless/rsi/Kconfig"
+source "drivers/net/wireless/st/Kconfig"
+source "drivers/net/wireless/ti/Kconfig"
+source "drivers/net/wireless/zydas/Kconfig"
+source "drivers/net/wireless/quantenna/Kconfig"
+
 config PCMCIA_RAYCS
 	tristate "Aviator/Raytheon 2.4GHz wireless support"
 	depends on PCMCIA
@@ -611,44 +641,18 @@ config USB_ZD1201
 	  It has basic support for Linux wireless extensions and initial
 	  micro support for ethtool.
 
-config PRISM54
-	tristate 'Intersil Prism GT/Duette/Indigo PCI/Cardbus (DEPRECATED)'
-	depends on PCI
-	select WIRELESS_EXT
-	select WEXT_SPY
-	select WEXT_PRIV
-	select FW_LOADER
+config MAC80211_HWSIM
+	tristate "Simulated radio testing tool for mac80211"
+	depends on MAC80211
 	---help---
-	  This enables support for FullMAC PCI/Cardbus prism54 devices. This
-	  driver is now deprecated in favor for the SoftMAC driver, p54pci.
-	  p54pci supports FullMAC PCI/Cardbus devices as well.
+	  This driver is a developer testing tool that can be used to test
+	  IEEE 802.11 networking stack (mac80211) functionality. This is not
+	  needed for normal wireless LAN usage and is only for testing. See
+	  Documentation/networking/mac80211_hwsim for more information on how
+	  to use this tool.
 
-	  For more information refer to the p54 wiki:
-
-	  http://wireless.kernel.org/en/users/Drivers/p54
-
-	  Note: You need a motherboard with DMA support to use any of these cards
-
-	  When built as module you get the module prism54
-
-config USB_ZD1201
-	tristate "USB ZD1201 based Wireless device support"
-	depends on CFG80211 && USB
-	select WIRELESS_EXT
-	select WEXT_PRIV
-	select FW_LOADER
-	---help---
-	  Say Y if you want to use wireless LAN adapters based on the ZyDAS
-	  ZD1201 chip.
-
-	  This driver makes the adapter appear as a normal Ethernet interface,
-	  typically on wlan0.
-
-	  The zd1201 device requires external firmware to be loaded.
-	  This can be found at http://linux-lc100020.sourceforge.net/
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called zd1201.
+	  To compile this driver as a module, choose M here: the module will be
+	  called mac80211_hwsim.  If unsure, say N.
 
 config USB_NET_RNDIS_WLAN
 	tristate "Wireless RNDIS USB support"

@@ -25,7 +25,7 @@ static struct pxa3xx_mfp_addr_map pxa930_mfp_addr_map[] __initdata = {
 #include <linux/gpio-pxa.h>
 #include <linux/platform_device.h>
 
-#include <mach/pxa930.h>
+#include "pxa930.h"
 
 #include "devices.h"
 

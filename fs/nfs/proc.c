@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/nfs/proc.c
  *
@@ -156,6 +157,7 @@ nfs_proc_setattr(struct dentry *dentry, struct nfs_fattr *fattr,
 static int
 nfs_proc_lookup(struct inode *dir, struct qstr *name,
 		struct nfs_fh *fhandle, struct nfs_fattr *fattr)
+nfs_proc_lookup(struct inode *dir, const struct qstr *name,
 		struct nfs_fh *fhandle, struct nfs_fattr *fattr,
 		struct nfs4_label *label)
 {
@@ -364,7 +366,7 @@ out:
 }
   
 static int
-nfs_proc_remove(struct inode *dir, struct qstr *name)
+nfs_proc_remove(struct inode *dir, const struct qstr *name)
 {
 	struct nfs_removeargs arg = {
 		.fh = NFS_FH(dir),
@@ -448,7 +450,7 @@ nfs_proc_rename_done(struct rpc_task *task, struct inode *old_dir,
 }
 
 static int
-nfs_proc_link(struct inode *inode, struct inode *dir, struct qstr *name)
+nfs_proc_link(struct inode *inode, struct inode *dir, const struct qstr *name)
 {
 	struct nfs_linkargs	arg = {
 		.fromfh		= NFS_FH(inode),
@@ -586,7 +588,7 @@ out:
 }
 
 static int
-nfs_proc_rmdir(struct inode *dir, struct qstr *name)
+nfs_proc_rmdir(struct inode *dir, const struct qstr *name)
 {
 	struct nfs_diropargs	arg = {
 		.fh		= NFS_FH(dir),
@@ -619,6 +621,7 @@ nfs_proc_readdir(struct dentry *dentry, struct rpc_cred *cred,
 {
 	struct inode		*dir = dentry->d_inode;
 		 u64 cookie, struct page **pages, unsigned int count, int plus)
+		 u64 cookie, struct page **pages, unsigned int count, bool plus)
 {
 	struct inode		*dir = d_inode(dentry);
 	struct nfs_readdirargs	arg = {
@@ -800,7 +803,7 @@ nfs_proc_lock(struct file *filp, int cmd, struct file_lock *fl)
 	struct inode *inode = filp->f_path.dentry->d_inode;
 	struct inode *inode = file_inode(filp);
 
-	return nlmclnt_proc(NFS_SERVER(inode)->nlm_host, cmd, fl);
+	return nlmclnt_proc(NFS_SERVER(inode)->nlm_host, cmd, fl, NULL);
 }
 
 /* Helper functions for NFS lock bounds checking */

@@ -12,8 +12,9 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/mc146818rtc.h>
-#include <linux/bcd.h>
-#include <linux/timex.h>
+#include <linux/ioport.h>
+#include <linux/platform_device.h>
+
 #include <asm/rtc-regs.h>
 #include <asm/rtc.h>
 
@@ -147,6 +148,10 @@ int update_persistent_clock(struct timespec now)
 {
 	return set_rtc_mmss(now.tv_sec);
 }
+static const __initdata struct resource res[] = {
+	DEFINE_RES_IO(RTC_PORT(0), RTC_IO_EXTENT),
+	DEFINE_RES_IRQ(RTC_IRQ),
+};
 
 /*
  * calibrate the TSC clock against the RTC
@@ -192,4 +197,6 @@ void __init calibrate_clock(void)
 	RTCRA |= RTCRA_DVR;
 	RTCRA &= ~RTCRA_DVR;
 	RTCRB &= ~RTCRB_SET;
+
+	platform_device_register_simple("rtc_cmos", -1, res, ARRAY_SIZE(res));
 }

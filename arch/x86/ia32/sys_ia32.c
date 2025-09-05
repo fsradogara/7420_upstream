@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * sys_ia32.c: Conversion between 32bit and 64bit native syscalls. Based on
  *             sys_sparc32
@@ -89,7 +90,7 @@ asmlinkage long sys32_truncate64(char __user *filename,
 #include <linux/slab.h>
 #include <asm/mman.h>
 #include <asm/types.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/atomic.h>
 #include <asm/vgtod.h>
 #include <asm/sys_ia32.h>

@@ -357,7 +357,8 @@ static void fixup_sst38vf640x_sectorsize(struct mtd_info *mtd)
 	 * it should report a size of 8KBytes (0x0020*256).
 	 */
 	cfi->cfiq->EraseRegionInfo[0] = 0x002003ff;
-	pr_warning("%s: Bad 38VF640x CFI data; adjusting sector size from 64 to 8KiB\n", mtd->name);
+	pr_warn("%s: Bad 38VF640x CFI data; adjusting sector size from 64 to 8KiB\n",
+		mtd->name);
 }
 
 static void fixup_s29gl064n_sectors(struct mtd_info *mtd)
@@ -373,6 +374,8 @@ static void fixup_s29gl064n_sectors(struct mtd_info *mtd)
 
 static void fixup_s29gl032n_sectors(struct mtd_info *mtd, void *param)
 		pr_warning("%s: Bad S29GL064N CFI data; adjust from 64 to 128 sectors\n", mtd->name);
+		pr_warn("%s: Bad S29GL064N CFI data; adjust from 64 to 128 sectors\n",
+			mtd->name);
 	}
 }
 
@@ -413,6 +416,8 @@ static struct cfi_fixup jedec_fixup_table[] = {
 	{ MANUFACTURER_SST, SST49LF008A, fixup_use_fwh_lock, NULL, },
 	{ 0, 0, NULL, NULL }
 		pr_warning("%s: Bad S29GL032N CFI data; adjust from 127 to 63 sectors\n", mtd->name);
+		pr_warn("%s: Bad S29GL032N CFI data; adjust from 127 to 63 sectors\n",
+			mtd->name);
 	}
 }
 
@@ -426,7 +431,8 @@ static void fixup_s29ns512p_sectors(struct mtd_info *mtd)
 	 * which is not permitted by CFI.
 	 */
 	cfi->cfiq->EraseRegionInfo[0] = 0x020001ff;
-	pr_warning("%s: Bad S29NS512P CFI data; adjust to 512 sectors\n", mtd->name);
+	pr_warn("%s: Bad S29NS512P CFI data; adjust to 512 sectors\n",
+		mtd->name);
 }
 
 /* Used to fix CFI-Tables of chips without Extended Query Tables */
@@ -773,11 +779,9 @@ struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 
 				for (i=0; i<cfi->cfiq->NumEraseRegions / 2; i++) {
 					int j = (cfi->cfiq->NumEraseRegions-1)-i;
-					__u32 swap;
 
-					swap = cfi->cfiq->EraseRegionInfo[i];
-					cfi->cfiq->EraseRegionInfo[i] = cfi->cfiq->EraseRegionInfo[j];
-					cfi->cfiq->EraseRegionInfo[j] = swap;
+					swap(cfi->cfiq->EraseRegionInfo[i],
+					     cfi->cfiq->EraseRegionInfo[j]);
 				}
 			}
 			/* Set the default CFI lock/unlock addresses */

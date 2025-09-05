@@ -43,7 +43,7 @@ EXPORT_SYMBOL(rtc_lock);
 
 int __weak rtc_mips_set_time(unsigned long sec)
 {
-	return 0;
+	return -ENODEV;
 }
 
 int __weak rtc_mips_set_mmss(unsigned long nowtime)
@@ -127,6 +127,7 @@ void __init plat_timer_setup(void)
 {
 	BUG();
 }
+EXPORT_SYMBOL_GPL(mips_hpt_frequency);
 
 static __init int cpu_has_mfc0_count_bug(void)
 {

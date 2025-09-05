@@ -38,7 +38,7 @@
 
 #include <mach/corgi.h>
 #include <mach/pxa2xx-regs.h>
-#include <mach/sharpsl_pm.h>
+#include "sharpsl_pm.h"
 
 #include "generic.h"
 
@@ -206,7 +206,7 @@ static int corgi_should_wakeup(unsigned int resume_on_alarm)
 	return is_resume;
 }
 
-static unsigned long corgi_charger_wakeup(void)
+static bool corgi_charger_wakeup(void)
 {
 	return ~GPLR0 & ( GPIO_bit(CORGI_GPIO_AC_IN) | GPIO_bit(CORGI_GPIO_KEY_INT) | GPIO_bit(CORGI_GPIO_WAKEUP) );
 	unsigned long ret;
@@ -217,6 +217,9 @@ static unsigned long corgi_charger_wakeup(void)
 		| (!gpio_get_value(CORGI_GPIO_WAKEUP)
 		<< GPIO_bit(CORGI_GPIO_WAKEUP));
 	return ret;
+	return !gpio_get_value(CORGI_GPIO_AC_IN) ||
+		!gpio_get_value(CORGI_GPIO_KEY_INT) ||
+		!gpio_get_value(CORGI_GPIO_WAKEUP);
 }
 
 unsigned long corgipm_read_devdata(int type)

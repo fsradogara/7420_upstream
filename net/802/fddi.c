@@ -60,7 +60,7 @@ static int fddi_header(struct sk_buff *skb, struct net_device *dev,
 
 	if(type != ETH_P_IP && type != ETH_P_IPV6 && type != ETH_P_ARP)
 		hl=FDDI_K_8022_HLEN-3;
-	fddi = (struct fddihdr *)skb_push(skb, hl);
+	fddi = skb_push(skb, hl);
 	fddi->fc			 = FDDI_FC_K_ASYNC_LLC_DEF;
 	if(type == ETH_P_IP || type == ETH_P_IPV6 || type == ETH_P_ARP)
 	{
@@ -213,6 +213,8 @@ static void fddi_setup(struct net_device *dev)
 	dev->type		= ARPHRD_FDDI;
 	dev->hard_header_len	= FDDI_K_SNAP_HLEN+3;	/* Assume 802.2 SNAP hdr len + 3 pad bytes */
 	dev->mtu		= FDDI_K_SNAP_DLEN;	/* Assume max payload of 802.2 SNAP frame */
+	dev->min_mtu		= FDDI_K_SNAP_HLEN;
+	dev->max_mtu		= FDDI_K_SNAP_DLEN;
 	dev->addr_len		= FDDI_K_ALEN;
 	dev->tx_queue_len	= 100;			/* Long queues on FDDI */
 	dev->flags		= IFF_BROADCAST | IFF_MULTICAST;

@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/smp_lock.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 
 #include <linux/types.h>

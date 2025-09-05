@@ -66,6 +66,8 @@ static int raw_eth_ioctl(struct net_device *dev, struct ifreq *ifr)
 	int (*old_ch_mtu)(struct net_device *, int);
 	int old_qlen;
 	int result, old_qlen;
+	unsigned int old_qlen;
+	int result;
 
 	switch (ifr->ifr_settings.type) {
 	case IF_GET_PROTO:
@@ -117,6 +119,7 @@ static int raw_eth_ioctl(struct net_device *dev, struct ifreq *ifr)
 		ether_setup(dev);
 		dev->tx_queue_len = old_qlen;
 		eth_hw_addr_random(dev);
+		call_netdevice_notifiers(NETDEV_POST_TYPE_CHANGE, dev);
 		netif_dormant_off(dev);
 		return 0;
 	}

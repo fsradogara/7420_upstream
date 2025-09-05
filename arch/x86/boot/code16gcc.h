@@ -13,6 +13,7 @@
 #ifndef __ASSEMBLY__
 asm(".code16gcc");
 #endif
+/* SPDX-License-Identifier: GPL-2.0 */
 #
 # code16gcc.h
 #

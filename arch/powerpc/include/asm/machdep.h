@@ -144,7 +144,6 @@ struct machdep_calls {
 
 	int		(*probe)(void);
 	void		(*setup_arch)(void); /* Optional, may be NULL */
-	void		(*init_early)(void);
 	/* Optional, may be NULL. */
 	void		(*show_cpuinfo)(struct seq_file *m);
 	void		(*show_percpuinfo)(struct seq_file *m, int i);
@@ -165,7 +164,7 @@ struct machdep_calls {
 
 	void		(*init_IRQ)(void);
 
-	/* Return an irq, or NO_IRQ to indicate there are none pending. */
+	/* Return an irq, or 0 to indicate there are none pending. */
 	unsigned int	(*get_irq)(void);
 
 	/* PCI stuff */
@@ -191,6 +190,8 @@ struct machdep_calls {
 	void		(*restart)(char *cmd);
 	void		(*halt)(void);
 	void		(*panic)(char *str);
+	void __noreturn	(*restart)(char *cmd);
+	void __noreturn (*halt)(void);
 	void		(*cpu_die)(void);
 
 	long		(*time_init)(void); /* Optional, may be NULL */
@@ -256,10 +257,11 @@ struct machdep_calls {
 
 	/* Set DABR for this platform, leave empty for default implemenation */
 	int		(*set_dabr)(unsigned long dabr);
+	/* Set DABR for this platform, leave empty for default implementation */
 	int		(*set_dabr)(unsigned long dabr,
 				    unsigned long dabrx);
 
-	/* Set DAWR for this platform, leave empty for default implemenation */
+	/* Set DAWR for this platform, leave empty for default implementation */
 	int		(*set_dawr)(unsigned long dawr,
 				    unsigned long dawrx);
 
@@ -297,6 +299,8 @@ struct machdep_calls {
 	/* Called after scan and before resource survey */
 	void (*pcibios_fixup_phb)(struct pci_controller *hose);
 
+	resource_size_t (*pcibios_default_alignment)(void);
+
 #ifdef CONFIG_PCI_IOV
 	void (*pcibios_fixup_sriov)(struct pci_dev *pdev);
 	resource_size_t (*pcibios_iov_resource_alignment)(struct pci_dev *, int resno);
@@ -313,6 +317,7 @@ struct machdep_calls {
 	 * XXX Should we move this one out of kexec scope?
 	 */
 	void (*machine_crash_shutdown)(struct pt_regs *regs);
+#ifdef CONFIG_KEXEC_CORE
 	void (*kexec_cpu_down)(int crash_shutdown, int secondary);
 
 	/* Called to do what every setup is needed on image and the
@@ -330,7 +335,7 @@ struct machdep_calls {
 	 * no return.
 	 */
 	void (*machine_kexec)(struct kimage *image);
-#endif /* CONFIG_KEXEC */
+#endif /* CONFIG_KEXEC_CORE */
 
 #ifdef CONFIG_SUSPEND
 	/* These are called to disable and enable, respectively, IRQs when
@@ -358,6 +363,7 @@ extern void power4_idle(void);
 extern void power4_cpu_offline_powersave(void);
 extern void ppc6xx_idle(void);
 extern void power7_idle(void);
+extern void power9_idle(void);
 extern void ppc6xx_idle(void);
 extern void book3e_idle(void);
 

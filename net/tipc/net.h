@@ -64,6 +64,8 @@ int tipc_net_start(u32 addr);
 void tipc_net_stop(void);
 #include <net/genetlink.h>
 
+extern const struct nla_policy tipc_nl_net_policy[];
+
 int tipc_net_start(struct net *net, u32 addr);
 
 void tipc_net_stop(struct net *net);

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _NF_INTERNALS_H
 #define _NF_INTERNALS_H
 
@@ -39,10 +40,10 @@ unsigned int nf_iterate(struct list_head *head, struct sk_buff *skb,
 			struct nf_hook_state *state, struct nf_hook_ops **elemp);
 
 /* nf_queue.c */
-int nf_queue(struct sk_buff *skb, struct nf_hook_ops *elem,
-	     struct nf_hook_state *state, unsigned int queuenum);
-void nf_queue_nf_hook_drop(struct net *net, struct nf_hook_ops *ops);
-int __init netfilter_queue_init(void);
+int nf_queue(struct sk_buff *skb, struct nf_hook_state *state,
+	     const struct nf_hook_entries *entries, unsigned int index,
+	     unsigned int verdict);
+unsigned int nf_queue_nf_hook_drop(struct net *net);
 
 /* nf_log.c */
 int __init netfilter_log_init(void);

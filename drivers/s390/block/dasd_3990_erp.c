@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * File...........: linux/drivers/s390/block/dasd_3990_erp.c
  * Author(s)......: Horst  Hummel    <Horst.Hummel@de.ibm.com>
@@ -180,7 +181,7 @@ dasd_3990_erp_alternate_path(struct dasd_ccw_req * erp)
 	if (erp->lpm == 0)
 		erp->lpm = LPM_ANYPATH & ~(erp->irb.esw.esw0.sublog.lpum);
 	if (erp->lpm == 0)
-		erp->lpm = device->path_data.opm &
+		erp->lpm = dasd_path_get_opm(device) &
 			~(erp->irb.esw.esw0.sublog.lpum);
 	else
 		erp->lpm &= ~(erp->irb.esw.esw0.sublog.lpum);
@@ -323,7 +324,7 @@ static struct dasd_ccw_req *dasd_3990_erp_action_1(struct dasd_ccw_req *erp)
 	    !test_bit(DASD_CQR_VERIFY_PATH, &erp->flags)) {
 		erp->status = DASD_CQR_FILLED;
 		erp->retries = 10;
-		erp->lpm = erp->startdev->path_data.opm;
+		erp->lpm = dasd_path_get_opm(erp->startdev);
 		erp->function = dasd_3990_erp_action_1_sec;
 	}
 	return erp;
@@ -975,7 +976,7 @@ dasd_3990_handle_env_data(struct dasd_ccw_req * erp, char *sense)
 			break;
 		case 0x0D:
 			dev_warn(&device->cdev->dev,
-				    "FORMAT 4 - No syn byte in count "
+				    "FORMAT 4 - No sync byte in count "
 				    "address area; offset active\n");
 			break;
 		case 0x0E:
@@ -985,7 +986,7 @@ dasd_3990_handle_env_data(struct dasd_ccw_req * erp, char *sense)
 			break;
 		case 0x0F:
 			dev_warn(&device->cdev->dev,
-				    "FORMAT 4 - No syn byte in data area; "
+				    "FORMAT 4 - No sync byte in data area; "
 				    "offset active\n");
 			break;
 		default:
@@ -1570,7 +1571,7 @@ dasd_3990_handle_env_data(struct dasd_ccw_req * erp, char *sense)
 			break;
 		default:
 			dev_warn(&device->cdev->dev,
-				    "FORMAT D - Reserved\n");
+				    "FORMAT F - Reserved\n");
 		}
 		break;
 
@@ -1628,8 +1629,9 @@ dasd_3990_erp_com_rej(struct dasd_ccw_req * erp, char *sense)
 	} else {
 		/* fatal error -  set status to FAILED
 		   internal error 09 - Command Reject */
-		dev_err(&device->cdev->dev, "An error occurred in the DASD "
-			"device driver, reason=%s\n", "09");
+		if (!test_bit(DASD_CQR_SUPPRESS_CR, &erp->flags))
+			dev_err(&device->cdev->dev,
+				"An error occurred in the DASD device driver, reason=09\n");
 
 		erp = dasd_3990_erp_cleanup(erp, DASD_CQR_FAILED);
 	}
@@ -1973,6 +1975,14 @@ dasd_3990_erp_no_rec(struct dasd_ccw_req * default_erp, char *sense)
 		    "No Record Found - Fatal error ");
 	dev_err(&device->cdev->dev,
 		    "The specified record was not found\n");
+	/*
+	 * In some cases the 'No Record Found' error might be expected and
+	 * log messages shouldn't be written then.
+	 * Check if the according suppress bit is set.
+	 */
+	if (!test_bit(DASD_CQR_SUPPRESS_NRF, &default_erp->flags))
+		dev_err(&device->cdev->dev,
+			"The specified record was not found\n");
 
 	return dasd_3990_erp_cleanup(default_erp, DASD_CQR_FAILED);
 
@@ -2000,6 +2010,14 @@ dasd_3990_erp_file_prot(struct dasd_ccw_req * erp)
 	DEV_MESSAGE(KERN_ERR, device, "%s", "File Protected");
 	dev_err(&device->cdev->dev, "Accessing the DASD failed because of "
 		"a hardware error\n");
+	/*
+	 * In some cases the 'File Protected' error might be expected and
+	 * log messages shouldn't be written then.
+	 * Check if the according suppress bit is set.
+	 */
+	if (!test_bit(DASD_CQR_SUPPRESS_FP, &erp->flags))
+		dev_err(&device->cdev->dev,
+			"Accessing the DASD failed because of a hardware error\n");
 
 	return dasd_3990_erp_cleanup(erp, DASD_CQR_FAILED);
 
@@ -2566,7 +2584,7 @@ dasd_3990_erp_compound_path(struct dasd_ccw_req * erp, char *sense)
 		    !test_bit(DASD_CQR_VERIFY_PATH, &erp->flags)) {
 			/* reset the lpm and the status to be able to
 			 * try further actions. */
-			erp->lpm = erp->startdev->path_data.opm;
+			erp->lpm = dasd_path_get_opm(erp->startdev);
 			erp->status = DASD_CQR_NEED_ERP;
 		}
 	}
@@ -2887,6 +2905,51 @@ dasd_3990_erp_inspect_32(struct dasd_ccw_req * erp, char *sense)
 
 }				/* end dasd_3990_erp_inspect_32 */
 
+static void dasd_3990_erp_disable_path(struct dasd_device *device, __u8 lpum)
+{
+	int pos = pathmask_to_pos(lpum);
+
+	/* no remaining path, cannot disable */
+	if (!(dasd_path_get_opm(device) & ~lpum))
+		return;
+
+	dev_err(&device->cdev->dev,
+		"Path %x.%02x (pathmask %02x) is disabled - IFCC threshold exceeded\n",
+		device->path[pos].cssid, device->path[pos].chpid, lpum);
+	dasd_path_remove_opm(device, lpum);
+	dasd_path_add_ifccpm(device, lpum);
+	device->path[pos].errorclk = 0;
+	atomic_set(&device->path[pos].error_count, 0);
+}
+
+static void dasd_3990_erp_account_error(struct dasd_ccw_req *erp)
+{
+	struct dasd_device *device = erp->startdev;
+	__u8 lpum = erp->refers->irb.esw.esw1.lpum;
+	int pos = pathmask_to_pos(lpum);
+	unsigned long clk;
+
+	if (!device->path_thrhld)
+		return;
+
+	clk = get_tod_clock();
+	/*
+	 * check if the last error is longer ago than the timeout,
+	 * if so reset error state
+	 */
+	if ((tod_to_ns(clk - device->path[pos].errorclk) / NSEC_PER_SEC)
+	    >= device->path_interval) {
+		atomic_set(&device->path[pos].error_count, 0);
+		device->path[pos].errorclk = 0;
+	}
+	atomic_inc(&device->path[pos].error_count);
+	device->path[pos].errorclk = clk;
+	/* threshold exceeded disable path if possible */
+	if (atomic_read(&device->path[pos].error_count) >=
+	    device->path_thrhld)
+		dasd_3990_erp_disable_path(device, lpum);
+}
+
 /*
  *****************************************************************************
  * main ERP control fuctions (24 and 32 byte sense)
@@ -2921,6 +2984,7 @@ dasd_3990_erp_control_check(struct dasd_ccw_req *erp)
 					   | SCHN_STAT_CHN_CTRL_CHK)) {
 		DBF_DEV_EVENT(DBF_WARNING, device, "%s",
 			    "channel or interface control check");
+		dasd_3990_erp_account_error(erp);
 		erp = dasd_3990_erp_action_4(erp, NULL);
 	}
 	return erp;

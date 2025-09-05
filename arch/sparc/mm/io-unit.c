@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * io-unit.c:  IO-UNIT specific routines for memory management.
  *
@@ -166,6 +167,7 @@ nexti:	scan = find_next_zero_bit(iounit->bmap, limit, scan);
 		set_bit(scan, iounit->bmap);
 		iounit->page_table[scan] = iopte;
 		sbus_writel(iopte, &iounit->page_table[scan]);
+		sbus_writel(iopte_val(iopte), &iounit->page_table[scan]);
 	}
 	IOD(("%08lx\n", vaddr));
 	return vaddr;
@@ -293,7 +295,7 @@ static int iounit_map_dma_area(struct device *dev, dma_addr_t *pba, unsigned lon
 				*iopte = MKIOPTE(__pa(page));
 			}
 			iopte = iounit->page_table + i;
-			sbus_writel(MKIOPTE(__pa(page)), iopte);
+			sbus_writel(iopte_val(MKIOPTE(__pa(page))), iopte);
 		}
 		addr += PAGE_SIZE;
 		va += PAGE_SIZE;

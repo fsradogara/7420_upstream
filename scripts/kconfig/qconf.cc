@@ -91,11 +91,19 @@ QValueList<int> ConfigSettings::readSizes(const QString& key, bool *ok)
 QList<int> ConfigSettings::readSizes(const QString& key, bool *ok)
 {
 	QList<int> result;
-	QStringList entryList = value(key).toStringList();
-	QStringList::Iterator it;
 
-	for (it = entryList.begin(); it != entryList.end(); ++it)
-		result.push_back((*it).toInt());
+	if (contains(key))
+	{
+		QStringList entryList = value(key).toStringList();
+		QStringList::Iterator it;
+
+		for (it = entryList.begin(); it != entryList.end(); ++it)
+			result.push_back((*it).toInt());
+
+		*ok = true;
+	}
+	else
+		*ok = false;
 
 	return result;
 }
@@ -1246,7 +1254,7 @@ ConfigInfoView::ConfigInfoView(QWidget* parent, const char *name)
 
 	if (!objectName().isEmpty()) {
 		configSettings->beginGroup(objectName());
-		_showDebug = configSettings->value("/showDebug", false).toBool();
+		setShowDebug(configSettings->value("/showDebug", false).toBool());
 		configSettings->endGroup();
 		connect(configApp, SIGNAL(aboutToQuit()), SLOT(saveSettings()));
 	}
@@ -1929,6 +1937,7 @@ ConfigMainWindow::ConfigMainWindow(void)
 	optionMenu->addSeparator();
 	optionMenu->addActions(optGroup->actions());
 	optionMenu->addSeparator();
+	optionMenu->addAction(showDebugAction);
 
 	// create help menu
 	menu->addSeparator();
@@ -2369,6 +2378,8 @@ int main(int ac, char** av)
 
 	configSettings->endGroup();
 	delete configSettings;
+	delete v;
+	delete configApp;
 
 	return 0;
 }

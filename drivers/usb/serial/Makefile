@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the USB serial device drivers.
 #
@@ -32,6 +33,7 @@ obj-$(CONFIG_USB_SERIAL_FUNSOFT)		+= funsoft.o
 obj-$(CONFIG_USB_SERIAL_GARMIN)			+= garmin_gps.o
 obj-$(CONFIG_USB_SERIAL_HP4X)			+= hp4x.o
 obj-$(CONFIG_USB_SERIAL_F81232)			+= f81232.o
+obj-$(CONFIG_USB_SERIAL_F8153X)			+= f81534.o
 obj-$(CONFIG_USB_SERIAL_FTDI_SIO)		+= ftdi_sio.o
 obj-$(CONFIG_USB_SERIAL_GARMIN)			+= garmin_gps.o
 obj-$(CONFIG_USB_SERIAL_IPAQ)			+= ipaq.o
@@ -80,6 +82,7 @@ obj-$(CONFIG_USB_SERIAL_SSU100)			+= ssu100.o
 obj-$(CONFIG_USB_SERIAL_SYMBOL)			+= symbolserial.o
 obj-$(CONFIG_USB_SERIAL_WWAN)			+= usb_wwan.o
 obj-$(CONFIG_USB_SERIAL_TI)			+= ti_usb_3410_5052.o
+obj-$(CONFIG_USB_SERIAL_UPD78F0730)		+= upd78f0730.o
 obj-$(CONFIG_USB_SERIAL_VISOR)			+= visor.o
 obj-$(CONFIG_USB_SERIAL_WISHBONE)		+= wishbone-serial.o
 obj-$(CONFIG_USB_SERIAL_WHITEHEAT)		+= whiteheat.o

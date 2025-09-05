@@ -84,8 +84,7 @@ struct pcxhr_mgr {
 	unsigned long port[3];
 
 	/* share the name */
-	char shortname[32];		/* short name of this soundcard */
-	char longname[96];		/* name of this soundcard */
+	char name[40];			/* name of this soundcard */
 
 	/* message tasklet */
 	struct tasklet_struct msg_taskq;

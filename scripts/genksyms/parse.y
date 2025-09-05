@@ -99,6 +99,7 @@ static void record_compound(struct string_list **keyw,
 %token VOID_KEYW
 %token VOLATILE_KEYW
 %token TYPEOF_KEYW
+%token VA_LIST_KEYW
 
 %token EXPORT_SYMBOL_KEYW
 
@@ -287,6 +288,7 @@ simple_type_specifier:
 	| DOUBLE_KEYW
 	| VOID_KEYW
 	| BOOL_KEYW
+	| VA_LIST_KEYW
 	| TYPE			{ (*$1)->tag = SYM_TYPEDEF; $$ = $1; }
 	;
 
@@ -345,8 +347,6 @@ direct_declarator:
 	| direct_declarator BRACKET_PHRASE
 		{ $$ = $2; }
 	| '(' declarator ')'
-		{ $$ = $3; }
-	| '(' error ')'
 		{ $$ = $3; }
 	;
 

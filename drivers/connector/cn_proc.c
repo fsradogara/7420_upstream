@@ -22,7 +22,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-#include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
 #include <linux/init.h>
@@ -62,14 +61,24 @@ static struct cb_id cn_proc_event_id = { CN_IDX_PROC, CN_VAL_PROC };
 /* proc_event_counts is used as the sequence number of the netlink message */
 static DEFINE_PER_CPU(__u32, proc_event_counts) = { 0 };
 
-static inline void get_seq(__u32 *ts, int *cpu)
+static inline void send_msg(struct cn_msg *msg)
 {
 	*ts = get_cpu_var(proc_event_counts)++;
 	*cpu = smp_processor_id();
 	put_cpu_var(proc_event_counts);
 	preempt_disable();
-	*ts = __this_cpu_inc_return(proc_event_counts) - 1;
-	*cpu = smp_processor_id();
+
+	msg->seq = __this_cpu_inc_return(proc_event_counts) - 1;
+	((struct proc_event *)msg->data)->cpu = smp_processor_id();
+
+	/*
+	 * Preemption remains disabled during send to ensure the messages are
+	 * ordered according to their sequence numbers.
+	 *
+	 * If cn_netlink_send() fails, the data is not sent.
+	 */
+	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_NOWAIT);
+
 	preempt_enable();
 }
 
@@ -96,7 +105,6 @@ void proc_fork_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_FORK;
 	rcu_read_lock();
@@ -113,8 +121,7 @@ void proc_fork_connector(struct task_struct *task)
 	/*  If cn_netlink_send() failed, the data is not sent */
 	cn_netlink_send(msg, CN_IDX_PROC, GFP_KERNEL);
 	msg->flags = 0; /* not used */
-	/*  If cn_netlink_send() failed, the data is not sent */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_exec_connector(struct task_struct *task)
@@ -136,7 +143,6 @@ void proc_exec_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_EXEC;
 	ev->event_data.exec.process_pid = task->pid;
@@ -147,7 +153,7 @@ void proc_exec_connector(struct task_struct *task)
 	msg->len = sizeof(*ev);
 	cn_netlink_send(msg, CN_IDX_PROC, GFP_KERNEL);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_id_connector(struct task_struct *task, int which_id)
@@ -197,7 +203,6 @@ void proc_id_connector(struct task_struct *task, int which_id)
 		return;
 	}
 	rcu_read_unlock();
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 
 	memcpy(&msg->id, &cn_proc_event_id, sizeof(msg->id));
@@ -205,7 +210,7 @@ void proc_id_connector(struct task_struct *task, int which_id)
 	msg->len = sizeof(*ev);
 	cn_netlink_send(msg, CN_IDX_PROC, GFP_KERNEL);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_sid_connector(struct task_struct *task)
@@ -220,7 +225,6 @@ void proc_sid_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_SID;
 	ev->event_data.sid.process_pid = task->pid;
@@ -230,7 +234,7 @@ void proc_sid_connector(struct task_struct *task)
 	msg->ack = 0; /* not used */
 	msg->len = sizeof(*ev);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_ptrace_connector(struct task_struct *task, int ptrace_id)
@@ -245,7 +249,6 @@ void proc_ptrace_connector(struct task_struct *task, int ptrace_id)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_PTRACE;
 	ev->event_data.ptrace.process_pid  = task->pid;
@@ -263,7 +266,7 @@ void proc_ptrace_connector(struct task_struct *task, int ptrace_id)
 	msg->ack = 0; /* not used */
 	msg->len = sizeof(*ev);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_comm_connector(struct task_struct *task)
@@ -278,7 +281,6 @@ void proc_comm_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_COMM;
 	ev->event_data.comm.process_pid  = task->pid;
@@ -289,7 +291,7 @@ void proc_comm_connector(struct task_struct *task)
 	msg->ack = 0; /* not used */
 	msg->len = sizeof(*ev);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_coredump_connector(struct task_struct *task)
@@ -304,7 +306,6 @@ void proc_coredump_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_COREDUMP;
 	ev->event_data.coredump.process_pid = task->pid;
@@ -314,7 +315,7 @@ void proc_coredump_connector(struct task_struct *task)
 	msg->ack = 0; /* not used */
 	msg->len = sizeof(*ev);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 void proc_exit_connector(struct task_struct *task)
@@ -336,7 +337,6 @@ void proc_exit_connector(struct task_struct *task)
 	msg = buffer_to_cn_msg(buffer);
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
-	get_seq(&msg->seq, &ev->cpu);
 	ev->timestamp_ns = ktime_get_ns();
 	ev->what = PROC_EVENT_EXIT;
 	ev->event_data.exit.process_pid = task->pid;
@@ -349,7 +349,7 @@ void proc_exit_connector(struct task_struct *task)
 	msg->len = sizeof(*ev);
 	cn_netlink_send(msg, CN_IDX_PROC, GFP_KERNEL);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 /*
@@ -389,7 +389,7 @@ static void cn_proc_ack(int err, int rcvd_seq, int rcvd_ack)
 	msg->len = sizeof(*ev);
 	cn_netlink_send(msg, CN_IDX_PROC, GFP_KERNEL);
 	msg->flags = 0; /* not used */
-	cn_netlink_send(msg, 0, CN_IDX_PROC, GFP_KERNEL);
+	send_msg(msg);
 }
 
 /**
@@ -462,5 +462,4 @@ static int __init cn_proc_init(void)
 	}
 	return 0;
 }
-
-module_init(cn_proc_init);
+device_initcall(cn_proc_init);

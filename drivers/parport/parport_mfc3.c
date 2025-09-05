@@ -210,6 +210,7 @@ static void mfc3_change_mode( struct parport *p, int m)
 #endif
 
 static int use_cnt = 0;
+static int use_cnt;
 
 static irqreturn_t mfc3_interrupt(int irq, void *dev_id)
 {

@@ -25,7 +25,7 @@
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 struct raw_device_data {
 	struct block_device *binding;
@@ -101,6 +101,7 @@ out2:
 	bd_release(bdev);
 out1:
 	blkdev_put(bdev);
+	bdgrab(bdev);
 	err = blkdev_get(bdev, filp->f_mode | FMODE_EXCL, raw_open);
 	if (err)
 		goto out;
@@ -507,10 +508,8 @@ static int __init raw_init(void)
 	if (ret) {
 		kobject_put(&raw_cdev.kobj);
 	ret = cdev_add(&raw_cdev, dev, max_raw_minors);
-	if (ret) {
+	if (ret)
 		goto error_region;
-	}
-
 	raw_class = class_create(THIS_MODULE, "raw");
 	if (IS_ERR(raw_class)) {
 		printk(KERN_ERR "Error creating raw class.\n");

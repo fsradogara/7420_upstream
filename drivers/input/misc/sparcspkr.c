@@ -400,6 +400,11 @@ static struct platform_driver grover_beep_driver = {
 	.shutdown	= sparcspkr_shutdown,
 };
 
+static struct platform_driver * const drivers[] = {
+	&bbc_beep_driver,
+	&grover_beep_driver,
+};
+
 static int __init sparcspkr_init(void)
 {
 	int err = of_register_driver(&bbc_beep_driver,
@@ -419,6 +424,7 @@ static int __init sparcspkr_init(void)
 	}
 
 	return err;
+	return platform_register_drivers(drivers, ARRAY_SIZE(drivers));
 }
 
 static void __exit sparcspkr_exit(void)
@@ -427,6 +433,7 @@ static void __exit sparcspkr_exit(void)
 	of_unregister_driver(&grover_beep_driver);
 	platform_driver_unregister(&bbc_beep_driver);
 	platform_driver_unregister(&grover_beep_driver);
+	platform_unregister_drivers(drivers, ARRAY_SIZE(drivers));
 }
 
 module_init(sparcspkr_init);

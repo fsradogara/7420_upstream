@@ -44,6 +44,10 @@
 #include <linux-2.6/xfs_linux.h>
 #endif
 
+#ifdef CONFIG_XFS_ASSERT_FATAL
+#define XFS_ASSERT_FATAL 1
+#endif
+
 #ifdef CONFIG_XFS_WARN
 #define XFS_WARN 1
 #endif

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * TFRC: main module holding the pieces of the TFRC library together
  * TFRC library initialisation

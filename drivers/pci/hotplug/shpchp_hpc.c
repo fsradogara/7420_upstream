@@ -576,7 +576,7 @@ static int hpc_set_attention_status(struct slot *slot, u8 value)
 	u8 slot_cmd = 0;
 
 	switch (value) {
-		case 0 :
+		case 0:
 			slot_cmd = SET_ATTN_OFF;	/* OFF */
 			break;
 		case 1:
@@ -1041,6 +1041,7 @@ static int hpc_get_cur_bus_speed (struct slot *slot, enum pci_bus_speed *value)
 }
 
 static struct hpc_ops shpchp_hpc_ops = {
+static const struct hpc_ops shpchp_hpc_ops = {
 	.power_on_slot			= hpc_power_on_slot,
 	.slot_enable			= hpc_slot_enable,
 	.slot_disable			= hpc_slot_disable,
@@ -1232,6 +1233,8 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 			info("Use INTx for the hotplug controller\n");
 			ctrl_info(ctrl, "Can't get msi for the hotplug controller\n");
 			ctrl_info(ctrl, "Use INTx for the hotplug controller\n");
+		} else {
+			pci_set_master(pdev);
 		}
 
 		rc = request_irq(ctrl->pci_dev->irq, shpc_isr, IRQF_SHARED,

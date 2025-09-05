@@ -60,4 +60,4 @@
 
 START_TABLE
 #include <asm/systbl.h>
-END_TABLE __NR_syscalls
+END_TABLE NR_syscalls

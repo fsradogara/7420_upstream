@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _SPARC_KGDB_H
 #define _SPARC_KGDB_H
 
@@ -34,7 +35,6 @@ extern void arch_kgdb_breakpoint(void);
 
 struct pt_regs;
 asmlinkage void kgdb_trap(unsigned long trap_level, struct pt_regs *regs);
-#endif
 
 void arch_kgdb_breakpoint(void);
 

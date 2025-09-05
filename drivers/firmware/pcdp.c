@@ -103,6 +103,7 @@ efi_setup_pcdp_console(char *cmdline)
 
 	pcdp = ioremap(efi.hcdp, 4096);
 	pcdp = early_ioremap(efi.hcdp, 4096);
+	pcdp = early_memremap(efi.hcdp, 4096);
 	printk(KERN_INFO "PCDP: v%d at 0x%lx\n", pcdp->rev, efi.hcdp);
 
 	if (strstr(cmdline, "console=hcdp")) {
@@ -140,5 +141,6 @@ efi_setup_pcdp_console(char *cmdline)
 out:
 	iounmap(pcdp);
 	early_iounmap(pcdp, 4096);
+	early_memunmap(pcdp, 4096);
 	return rc;
 }

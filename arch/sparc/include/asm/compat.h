@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_SPARC64_COMPAT_H
 #define _ASM_SPARC64_COMPAT_H
 /*
@@ -313,5 +314,12 @@ static inline int is_compat_task(void)
 {
 	return test_thread_flag(TIF_32BIT);
 }
+
+static inline bool in_compat_syscall(void)
+{
+	/* Vector 0x110 is LINUX_32BIT_SYSCALL_TRAP */
+	return pt_regs_trap_type(current_pt_regs()) == 0x110;
+}
+#define in_compat_syscall in_compat_syscall
 
 #endif /* _ASM_SPARC64_COMPAT_H */

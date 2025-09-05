@@ -218,7 +218,7 @@ static int hpt_dma_blacklisted(const struct ata_device *dev, char *modestr,
 			       const char * const list[])
 {
 	unsigned char model_num[ATA_ID_PROD_LEN + 1];
-	int i = 0;
+	int i;
 
 	ata_id_c_string(dev->id, model_num, ATA_ID_PROD, sizeof(model_num));
 
@@ -230,6 +230,10 @@ static int hpt_dma_blacklisted(const struct ata_device *dev, char *modestr,
 			return 1;
 		}
 		i++;
+	i = match_string(list, -1, model_num);
+	if (i >= 0) {
+		pr_warn("%s is not supported for %s\n", modestr, list[i]);
+		return 1;
 	}
 	return 0;
 }
@@ -518,6 +522,7 @@ static int hpt36x_reinit_one(struct pci_dev *dev)
 {
 	struct ata_host *host = dev_get_drvdata(&dev->dev);
 	switch ((reg1 & 0x700) >> 8) {
+	switch ((reg1 & 0xf00) >> 8) {
 	case 9:
 		hpriv = &hpt366_40;
 		break;

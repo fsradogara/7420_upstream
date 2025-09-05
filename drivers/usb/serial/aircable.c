@@ -344,8 +344,8 @@ static int aircable_prepare_write_buffer(struct usb_serial_port *port,
 	return count + HCI_HEADER_LENGTH;
 }
 
-static int aircable_probe(struct usb_serial *serial,
-			  const struct usb_device_id *id)
+static int aircable_calc_num_ports(struct usb_serial *serial,
+					struct usb_serial_endpoints *epds)
 {
 	struct usb_host_interface *iface_desc = serial->interface->
 								cur_altsetting;
@@ -366,10 +366,14 @@ static int aircable_probe(struct usb_serial *serial,
 	if (num_bulk_out == 0) {
 		dbg("Invalid interface, discarding");
 		dev_dbg(&serial->dev->dev, "Invalid interface, discarding\n");
+	/* Ignore the first interface, which has no bulk endpoints. */
+	if (epds->num_bulk_out == 0) {
+		dev_dbg(&serial->interface->dev,
+			"ignoring interface with no bulk-out endpoints\n");
 		return -ENODEV;
 	}
 
-	return 0;
+	return 1;
 }
 
 static int aircable_attach(struct usb_serial *serial)
@@ -725,9 +729,8 @@ module_exit(aircable_exit);
 module_param(debug, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Debug enabled or not");
 	.id_table = 		id_table,
-	.num_ports =		1,
 	.bulk_out_size =	HCI_COMPLETE_FRAME,
-	.probe =		aircable_probe,
+	.calc_num_ports =	aircable_calc_num_ports,
 	.process_read_urb =	aircable_process_read_urb,
 	.prepare_write_buffer =	aircable_prepare_write_buffer,
 	.throttle =		usb_serial_generic_throttle,

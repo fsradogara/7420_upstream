@@ -171,6 +171,7 @@ relocate_new_kernel:
 	 * %rsi page_list
 	 * %rdx start address
 	 * %rcx preserve_context
+	 * %r8  sme_active
 	 */
 
 	/* Save the CPU context, used for jumping back */
@@ -204,6 +205,9 @@ relocate_new_kernel:
 
 	/* switch to new set of page tables */
 	movq	PTR(PA_PGD)(%rsi), %r9
+	/* Save SME active flag */
+	movq	%r8, %r12
+
 	/*
 	 * get physical address of control page now
 	 * this is impossible after page table switch
@@ -315,6 +319,16 @@ identity_mapped:
 	/* To be certain of avoiding problems with self-modifying code
 	/* Flush the TLB (needed?) */
 	movq	%r9, %cr3
+
+	/*
+	 * If SME is active, there could be old encrypted cache line
+	 * entries that will conflict with the now unencrypted memory
+	 * used by kexec. Flush the caches before copying the kernel.
+	 */
+	testq	%r12, %r12
+	jz 1f
+	wbinvd
+1:
 
 	movq	%rcx, %r11
 	call	swap_pages

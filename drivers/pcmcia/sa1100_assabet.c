@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/pcmcia/sa1100_assabet.c
  *
@@ -156,7 +157,7 @@ static struct pcmcia_low_level assabet_pcmcia_ops = {
 
 int __init pcmcia_assabet_init(struct device *dev)
 	.hw_init		= assabet_pcmcia_hw_init,
-	.socket_state		= assabet_pcmcia_socket_state,
+	.socket_state		= soc_common_cf_socket_state,
 	.configure_socket	= assabet_pcmcia_configure_socket,
 	.socket_suspend		= assabet_pcmcia_socket_suspend,
 };

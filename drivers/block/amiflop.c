@@ -76,7 +76,7 @@
 #include <linux/platform_device.h>
 
 #include <asm/setup.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/amigahw.h>
 #include <asm/amigaints.h>
 #include <asm/irq.h>
@@ -1420,6 +1420,7 @@ static void redo_fd_request(void)
  repeat:
 	if (!CURRENT) {
 	int err;
+	blk_status_t err;
 
 next_req:
 	rq = set_next_request();
@@ -1447,7 +1448,7 @@ next_req:
 
 next_segment:
 	/* Here someone could investigate to be more efficient */
-	for (cnt = 0, err = 0; cnt < blk_rq_cur_sectors(rq); cnt++) {
+	for (cnt = 0, err = BLK_STS_OK; cnt < blk_rq_cur_sectors(rq); cnt++) {
 #ifdef DEBUG
 		printk("fd: sector %ld + %d requested for %s\n",
 		       blk_rq_pos(rq), cnt,
@@ -1455,7 +1456,7 @@ next_segment:
 #endif
 		block = blk_rq_pos(rq) + cnt;
 		if ((int)block > floppy->blocks) {
-			err = -EIO;
+			err = BLK_STS_IOERR;
 			break;
 		}
 
@@ -1485,7 +1486,7 @@ next_segment:
 
 		case WRITE:
 		if (get_track(drive, track) == -1) {
-			err = -EIO;
+			err = BLK_STS_IOERR;
 			break;
 		}
 
@@ -1499,6 +1500,7 @@ next_segment:
 				end_request(CURRENT, 0);
 				goto repeat;
 				err = -EIO;
+				err = BLK_STS_IOERR;
 				break;
 			}
 			/*

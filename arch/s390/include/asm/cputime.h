@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  include/asm-s390/cputime.h
  *
@@ -34,15 +35,12 @@ __div(unsigned long long n, unsigned int base)
 static inline unsigned int
 __div(unsigned long long n, unsigned int base)
 #include <linux/types.h>
-#include <asm/div64.h>
+#include <asm/timex.h>
 
 #define CPUTIME_PER_USEC 4096ULL
 #define CPUTIME_PER_SEC (CPUTIME_PER_USEC * USEC_PER_SEC)
 
 /* We want to use full resolution of the CPU timer: 2**-12 micro-seconds. */
-
-typedef unsigned long long __nocast cputime_t;
-typedef unsigned long long __nocast cputime64_t;
 
 #define cmpxchg_cputime(ptr, old, new) cmpxchg64(ptr, old, new)
 
@@ -114,37 +112,17 @@ secs_to_cputime(const unsigned int s)
 #define cputime_one_jiffy		jiffies_to_cputime(1)
 
 /*
- * Convert cputime to jiffies and back.
+ * Convert cputime to microseconds.
  */
-static inline unsigned long cputime_to_jiffies(const cputime_t cputime)
+static inline u64 cputime_to_usecs(const u64 cputime)
 {
-	return __div((__force unsigned long long) cputime, CPUTIME_PER_SEC / HZ);
-}
-
-static inline cputime_t jiffies_to_cputime(const unsigned int jif)
-{
-	return (__force cputime_t)(jif * (CPUTIME_PER_SEC / HZ));
-}
-
-static inline u64 cputime64_to_jiffies64(cputime64_t cputime)
-{
-	unsigned long long jif = (__force unsigned long long) cputime;
-	do_div(jif, CPUTIME_PER_SEC / HZ);
-	return jif;
-}
-
-static inline cputime64_t jiffies64_to_cputime64(const u64 jif)
-{
-	return (__force cputime64_t)(jif * (CPUTIME_PER_SEC / HZ));
+	return cputime >> 12;
 }
 
 /*
- * Convert cputime to microseconds and back.
+ * Convert cputime to nanoseconds.
  */
-static inline unsigned int cputime_to_usecs(const cputime_t cputime)
-{
-	return (__force unsigned long long) cputime >> 12;
-}
+#define cputime_to_nsecs(cputime) tod_to_ns(cputime)
 
 static inline cputime_t usecs_to_cputime(const unsigned int m)
 {
@@ -284,6 +262,7 @@ static inline clock_t cputime64_to_clock_t(cputime64_t cputime)
 }
 
 cputime64_t arch_cpu_idle_time(int cpu);
+u64 arch_cpu_idle_time(int cpu);
 
 #define arch_idle_time(cpu) arch_cpu_idle_time(cpu)
 

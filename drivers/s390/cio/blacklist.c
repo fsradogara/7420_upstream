@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/cio/blacklist.c
  *   S/390 common I/O routines -- blacklisting of specific devices
@@ -28,6 +29,7 @@
 #include <asm/cio.h>
 #include <asm/uaccess.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/cio.h>
 #include <asm/ipl.h>
 
@@ -67,6 +69,8 @@ static int blacklist_range(range_action action, unsigned int from_ssid,
 			pr_warning("0.%x.%04x to 0.%x.%04x is not a valid "
 				   "range for cio_ignore\n", from_ssid, from,
 				   to_ssid, to);
+			pr_warn("0.%x.%04x to 0.%x.%04x is not a valid range for cio_ignore\n",
+				from_ssid, from, to_ssid, to);
 
 		return 1;
 	}
@@ -164,6 +168,8 @@ out:
 		       str);
 		pr_warning("%s is not a valid device for the cio_ignore "
 			   "kernel parameter\n", str);
+		pr_warn("%s is not a valid device for the cio_ignore kernel parameter\n",
+			str);
 
 	return rc;
 }

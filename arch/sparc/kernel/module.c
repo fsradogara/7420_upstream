@@ -1,4 +1,5 @@
 /* Kernel module help for sparc32.
+// SPDX-License-Identifier: GPL-2.0
 /* Kernel module help for sparc64.
  *
  * Copyright (C) 2001 Rusty Russell.

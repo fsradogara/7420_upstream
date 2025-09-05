@@ -119,7 +119,14 @@ struct xfs_mount;
 struct xfs_trans;
 struct xfs_trans_res;
 struct xfs_dquot_acct;
-struct xfs_busy_extent;
+struct xfs_rud_log_item;
+struct xfs_rui_log_item;
+struct xfs_btree_cur;
+struct xfs_cui_log_item;
+struct xfs_cud_log_item;
+struct xfs_defer_ops;
+struct xfs_bui_log_item;
+struct xfs_bud_log_item;
 
 typedef struct xfs_log_item {
 	struct list_head		li_ail;		/* AIL pointers */
@@ -129,6 +136,7 @@ typedef struct xfs_log_item {
 	struct xfs_ail			*li_ailp;	/* ptr to AIL */
 	uint				li_type;	/* item type */
 	uint				li_flags;	/* misc flags */
+	struct xfs_buf			*li_buf;	/* real buffer pointer */
 	struct xfs_log_item		*li_bio_list;	/* buffer item list */
 	void				(*li_cb)(struct xfs_buf *,
 						 struct xfs_log_item *);
@@ -140,11 +148,13 @@ typedef struct xfs_log_item {
 	/* delayed logging */
 	struct list_head		li_cil;		/* CIL pointers */
 	struct xfs_log_vec		*li_lv;		/* active log vector */
+	struct xfs_log_vec		*li_lv_shadow;	/* standby vector */
 	xfs_lsn_t			li_seq;		/* CIL commit seq */
 } xfs_log_item_t;
 
 #define	XFS_LI_IN_AIL	0x1
-#define XFS_LI_ABORTED	0x2
+#define	XFS_LI_ABORTED	0x2
+#define	XFS_LI_FAILED	0x4
 
 typedef struct xfs_item_ops {
 	uint (*iop_size)(xfs_log_item_t *);
@@ -327,7 +337,8 @@ typedef struct xfs_log_busy_chunk {
 typedef void (*xfs_trans_callback_t)(struct xfs_trans *, void *);
 #define XFS_LI_FLAGS \
 	{ XFS_LI_IN_AIL,	"IN_AIL" }, \
-	{ XFS_LI_ABORTED,	"ABORTED" }
+	{ XFS_LI_ABORTED,	"ABORTED" }, \
+	{ XFS_LI_FAILED,	"FAILED" }
 
 struct xfs_item_ops {
 	void (*iop_size)(xfs_log_item_t *, int *, int *);
@@ -338,6 +349,7 @@ struct xfs_item_ops {
 	void (*iop_unlock)(xfs_log_item_t *);
 	xfs_lsn_t (*iop_committed)(xfs_log_item_t *, xfs_lsn_t);
 	void (*iop_committing)(xfs_log_item_t *, xfs_lsn_t);
+	void (*iop_error)(xfs_log_item_t *, xfs_buf_t *);
 };
 
 void	xfs_log_item_init(struct xfs_mount *mp, struct xfs_log_item *item,
@@ -367,10 +379,6 @@ typedef struct xfs_trans {
 	unsigned int		t_rtx_res_used;	/* # of resvd rt extents used */
 	xfs_log_ticket_t	t_ticket;	/* log mgr ticket */
 	struct xlog_ticket	*t_ticket;	/* log mgr ticket */
-	xfs_lsn_t		t_lsn;		/* log seq num of start of
-						 * transaction. */
-	xfs_lsn_t		t_commit_lsn;	/* log seq num of end of
-						 * transaction. */
 	struct xfs_mount	*t_mountp;	/* ptr to fs mount struct */
 	struct xfs_dquot_acct   *t_dqinfo;	/* acctg info for dquots */
 	xfs_trans_callback_t	t_callback;	/* transaction callback */
@@ -996,6 +1004,11 @@ xfs_trans_t	*xfs_trans_alloc(struct xfs_mount *, uint);
 xfs_trans_t	*_xfs_trans_alloc(struct xfs_mount *, uint, xfs_km_flags_t);
 int		xfs_trans_reserve(struct xfs_trans *, struct xfs_trans_res *,
 				  uint, uint);
+int		xfs_trans_alloc(struct xfs_mount *mp, struct xfs_trans_res *resp,
+			uint blocks, uint rtextents, uint flags,
+			struct xfs_trans **tpp);
+int		xfs_trans_alloc_empty(struct xfs_mount *mp,
+			struct xfs_trans **tpp);
 void		xfs_trans_mod_sb(xfs_trans_t *, uint, int64_t);
 
 struct xfs_buf	*xfs_trans_get_buf_map(struct xfs_trans *tp,
@@ -1059,18 +1072,18 @@ void		xfs_trans_log_inode(xfs_trans_t *, struct xfs_inode *, uint);
 struct xfs_efi_log_item	*xfs_trans_get_efi(xfs_trans_t *, uint);
 void		xfs_efi_release(struct xfs_efi_log_item *, uint);
 void		xfs_trans_ordered_buf(xfs_trans_t *, struct xfs_buf *);
+bool		xfs_trans_ordered_buf(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_dquot_buf(xfs_trans_t *, struct xfs_buf *, uint);
 void		xfs_trans_inode_alloc_buf(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_ichgtime(struct xfs_trans *, struct xfs_inode *, int);
 void		xfs_trans_ijoin(struct xfs_trans *, struct xfs_inode *, uint);
-void		xfs_trans_log_buf(xfs_trans_t *, struct xfs_buf *, uint, uint);
+void		xfs_trans_log_buf(struct xfs_trans *, struct xfs_buf *, uint,
+				  uint);
+void		xfs_trans_dirty_buf(struct xfs_trans *, struct xfs_buf *);
 void		xfs_trans_log_inode(xfs_trans_t *, struct xfs_inode *, uint);
-struct xfs_efi_log_item	*xfs_trans_get_efi(xfs_trans_t *, uint);
-void		xfs_trans_log_efi_extent(xfs_trans_t *,
-					 struct xfs_efi_log_item *,
-					 xfs_fsblock_t,
-					 xfs_extlen_t);
-struct xfs_efd_log_item	*xfs_trans_get_efd(xfs_trans_t *,
+
+void		xfs_extent_free_init_defer_op(void);
+struct xfs_efd_log_item	*xfs_trans_get_efd(struct xfs_trans *,
 				  struct xfs_efi_log_item *,
 				  uint);
 void		xfs_trans_log_efd_extent(xfs_trans_t *,
@@ -1098,10 +1111,10 @@ extern kmem_zone_t	*xfs_trans_zone;
 #endif	/* __KERNEL__ */
 int		xfs_trans_free_extent(struct xfs_trans *,
 				      struct xfs_efd_log_item *, xfs_fsblock_t,
-				      xfs_extlen_t);
+				      xfs_extlen_t, struct xfs_owner_info *);
 int		xfs_trans_commit(struct xfs_trans *);
-int		__xfs_trans_roll(struct xfs_trans **, struct xfs_inode *, int *);
-int		xfs_trans_roll(struct xfs_trans **, struct xfs_inode *);
+int		xfs_trans_roll(struct xfs_trans **);
+int		xfs_trans_roll_inode(struct xfs_trans **, struct xfs_inode *);
 void		xfs_trans_cancel(xfs_trans_t *);
 int		xfs_trans_ail_init(struct xfs_mount *);
 void		xfs_trans_ail_destroy(struct xfs_mount *);
@@ -1113,5 +1126,41 @@ void		xfs_trans_buf_copy_type(struct xfs_buf *dst_bp,
 
 extern kmem_zone_t	*xfs_trans_zone;
 extern kmem_zone_t	*xfs_log_item_desc_zone;
+
+/* rmap updates */
+enum xfs_rmap_intent_type;
+
+void xfs_rmap_update_init_defer_op(void);
+struct xfs_rud_log_item *xfs_trans_get_rud(struct xfs_trans *tp,
+		struct xfs_rui_log_item *ruip);
+int xfs_trans_log_finish_rmap_update(struct xfs_trans *tp,
+		struct xfs_rud_log_item *rudp, enum xfs_rmap_intent_type type,
+		uint64_t owner, int whichfork, xfs_fileoff_t startoff,
+		xfs_fsblock_t startblock, xfs_filblks_t blockcount,
+		xfs_exntst_t state, struct xfs_btree_cur **pcur);
+
+/* refcount updates */
+enum xfs_refcount_intent_type;
+
+void xfs_refcount_update_init_defer_op(void);
+struct xfs_cud_log_item *xfs_trans_get_cud(struct xfs_trans *tp,
+		struct xfs_cui_log_item *cuip);
+int xfs_trans_log_finish_refcount_update(struct xfs_trans *tp,
+		struct xfs_cud_log_item *cudp, struct xfs_defer_ops *dfops,
+		enum xfs_refcount_intent_type type, xfs_fsblock_t startblock,
+		xfs_extlen_t blockcount, xfs_fsblock_t *new_fsb,
+		xfs_extlen_t *new_len, struct xfs_btree_cur **pcur);
+
+/* mapping updates */
+enum xfs_bmap_intent_type;
+
+void xfs_bmap_update_init_defer_op(void);
+struct xfs_bud_log_item *xfs_trans_get_bud(struct xfs_trans *tp,
+		struct xfs_bui_log_item *buip);
+int xfs_trans_log_finish_bmap_update(struct xfs_trans *tp,
+		struct xfs_bud_log_item *rudp, struct xfs_defer_ops *dfops,
+		enum xfs_bmap_intent_type type, struct xfs_inode *ip,
+		int whichfork, xfs_fileoff_t startoff, xfs_fsblock_t startblock,
+		xfs_filblks_t *blockcount, xfs_exntst_t state);
 
 #endif	/* __XFS_TRANS_H__ */

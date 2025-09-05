@@ -59,7 +59,10 @@ static struct pci_controller *hose_head, **hose_tail = &hose_head;
 unsigned long PCIBIOS_MIN_IO	= 0x0000;
 unsigned long PCIBIOS_MIN_MEM	= 0;
 unsigned long PCIBIOS_MIN_IO;
+EXPORT_SYMBOL(PCIBIOS_MIN_IO);
+
 unsigned long PCIBIOS_MIN_MEM;
+EXPORT_SYMBOL(PCIBIOS_MIN_MEM);
 
 static int pci_initialized;
 
@@ -278,15 +281,17 @@ static u8 __init common_swizzle(struct pci_dev *dev, u8 *pinp)
 static void __init pcibios_set_cache_line_size(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
+static int __init pcibios_set_cache_line_size(void)
+{
 	unsigned int lsize;
 
 	/*
 	 * Set PCI cacheline size to that of the highest level in the
 	 * cache hierarchy.
 	 */
-	lsize = c->dcache.linesz;
-	lsize = c->scache.linesz ? : lsize;
-	lsize = c->tcache.linesz ? : lsize;
+	lsize = cpu_dcache_line_size();
+	lsize = cpu_scache_line_size() ? : lsize;
+	lsize = cpu_tcache_line_size() ? : lsize;
 
 	BUG_ON(!lsize);
 
@@ -342,14 +347,13 @@ static int __init pcibios_init(void)
 
 	return 0;
 }
+arch_initcall(pcibios_set_cache_line_size);
 
-subsys_initcall(pcibios_init);
-
-static int pcibios_enable_resources(struct pci_dev *dev, int mask)
+void pci_resource_to_user(const struct pci_dev *dev, int bar,
+			  const struct resource *rsrc, resource_size_t *start,
+			  resource_size_t *end)
 {
-	u16 cmd, old_cmd;
-	int idx;
-	struct resource *r;
+	phys_addr_t size = resource_size(rsrc);
 
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	old_cmd = cmd;
@@ -561,4 +565,6 @@ char *__init pcibios_setup(char *str)
 	if (pcibios_plat_setup)
 		return pcibios_plat_setup(str);
 	return str;
+	*start = fixup_bigphys_addr(rsrc->start, size);
+	*end = rsrc->start + size;
 }

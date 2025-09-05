@@ -1,6 +1,7 @@
 
 extern struct sys_timer footbridge_timer;
 extern struct sys_timer isa_timer;
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/reboot.h>
 
 extern void footbridge_timer_init(void);

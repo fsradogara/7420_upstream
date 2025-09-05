@@ -86,7 +86,7 @@
 #include <linux/module.h>
 #include <linux/completion.h>
 #include <linux/mutex.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/usb.h>
 #include <linux/poll.h>
 
@@ -351,10 +351,16 @@ static int tower_open (struct inode *inode, struct file *file)
 	int subminor;
 	int retval = 0;
 	struct usb_interface *interface;
-	struct tower_reset_reply reset_reply;
+	struct tower_reset_reply *reset_reply;
 	int result;
 
 	dbg(2, "%s: enter", __func__);
+	reset_reply = kmalloc(sizeof(*reset_reply), GFP_KERNEL);
+
+	if (!reset_reply) {
+		retval = -ENOMEM;
+		goto exit;
+	}
 
 	nonseekable_open(inode, file);
 	subminor = iminor(inode);
@@ -402,8 +408,8 @@ static int tower_open (struct inode *inode, struct file *file)
 				  USB_TYPE_VENDOR | USB_DIR_IN | USB_RECIP_DEVICE,
 				  0,
 				  0,
-				  &reset_reply,
-				  sizeof(reset_reply),
+				  reset_reply,
+				  sizeof(*reset_reply),
 				  1000);
 	if (result < 0) {
 		err("LEGO USB Tower reset control request failed");
@@ -449,6 +455,7 @@ unlock_exit:
 exit:
 	dbg(2, "%s: leave, return value %d ", __func__, retval);
 
+	kfree(reset_reply);
 	return retval;
 }
 
@@ -754,6 +761,7 @@ static ssize_t tower_write (struct file *file, const char __user *buffer, size_t
 	bytes_to_write = min_t(int, count, write_buffer_size);
 	dbg(4, "%s: count = %Zd, bytes_to_write = %Zd", __func__, count, bytes_to_write);
 	dev_dbg(&dev->udev->dev, "%s: count = %Zd, bytes_to_write = %Zd\n",
+	dev_dbg(&dev->udev->dev, "%s: count = %zd, bytes_to_write = %zd\n",
 		__func__, count, bytes_to_write);
 
 	if (copy_from_user (dev->interrupt_out_buffer, buffer, bytes_to_write)) {
@@ -909,10 +917,7 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	struct device *idev = &interface->dev;
 	struct usb_device *udev = interface_to_usbdev(interface);
 	struct lego_usb_tower *dev = NULL;
-	struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor* endpoint;
-	struct tower_get_version_reply get_version_reply;
-	int i;
+	struct tower_get_version_reply *get_version_reply = NULL;
 	int retval = -ENOMEM;
 	int result;
 
@@ -929,8 +934,8 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	if (dev == NULL) {
 		err ("Out of memory");
 		dev_err(idev, "Out of memory\n");
+	if (!dev)
 		goto exit;
-	}
 
 	mutex_init(&dev->lock);
 
@@ -983,6 +988,13 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	}
 	if (dev->interrupt_out_endpoint == NULL) {
 		dev_err(idev, "interrupt out endpoint not found\n");
+	result = usb_find_common_endpoints_reverse(interface->cur_altsetting,
+			NULL, NULL,
+			&dev->interrupt_in_endpoint,
+			&dev->interrupt_out_endpoint);
+	if (result) {
+		dev_err(idev, "interrupt endpoints not found\n");
+		retval = result;
 		goto error;
 	}
 
@@ -995,33 +1007,59 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	if (!dev->interrupt_in_buffer) {
 		err("Couldn't allocate interrupt_in_buffer");
 		dev_err(idev, "Couldn't allocate read_buffer\n");
+	if (!dev->read_buffer)
 		goto error;
-	}
 	dev->interrupt_in_buffer = kmalloc (usb_endpoint_maxp(dev->interrupt_in_endpoint), GFP_KERNEL);
-	if (!dev->interrupt_in_buffer) {
-		dev_err(idev, "Couldn't allocate interrupt_in_buffer\n");
+	if (!dev->interrupt_in_buffer)
 		goto error;
-	}
 	dev->interrupt_in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!dev->interrupt_in_urb) {
 		err("Couldn't allocate interrupt_in_urb");
 		dev_err(idev, "Couldn't allocate interrupt_in_urb\n");
+	if (!dev->interrupt_in_urb)
 		goto error;
-	}
 	dev->interrupt_out_buffer = kmalloc (write_buffer_size, GFP_KERNEL);
 	if (!dev->interrupt_out_buffer) {
 		err("Couldn't allocate interrupt_out_buffer");
 		dev_err(idev, "Couldn't allocate interrupt_out_buffer\n");
+	if (!dev->interrupt_out_buffer)
 		goto error;
-	}
 	dev->interrupt_out_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!dev->interrupt_out_urb) {
 		err("Couldn't allocate interrupt_out_urb");
 		dev_err(idev, "Couldn't allocate interrupt_out_urb\n");
+	if (!dev->interrupt_out_urb)
 		goto error;
-	}
 	dev->interrupt_in_interval = interrupt_in_interval ? interrupt_in_interval : dev->interrupt_in_endpoint->bInterval;
 	dev->interrupt_out_interval = interrupt_out_interval ? interrupt_out_interval : dev->interrupt_out_endpoint->bInterval;
+
+	get_version_reply = kmalloc(sizeof(*get_version_reply), GFP_KERNEL);
+
+	if (!get_version_reply) {
+		retval = -ENOMEM;
+		goto error;
+	}
+
+	/* get the firmware version and log it */
+	result = usb_control_msg (udev,
+				  usb_rcvctrlpipe(udev, 0),
+				  LEGO_USB_TOWER_REQUEST_GET_VERSION,
+				  USB_TYPE_VENDOR | USB_DIR_IN | USB_RECIP_DEVICE,
+				  0,
+				  0,
+				  get_version_reply,
+				  sizeof(*get_version_reply),
+				  1000);
+	if (result < 0) {
+		dev_err(idev, "LEGO USB Tower get version control request failed\n");
+		retval = result;
+		goto error;
+	}
+	dev_info(&interface->dev,
+		 "LEGO USB Tower firmware version is %d.%d build %d\n",
+		 get_version_reply->major,
+		 get_version_reply->minor,
+		 le16_to_cpu(get_version_reply->build_no));
 
 	/* we can register the device now, as it is ready */
 	usb_set_intfdata (interface, dev);
@@ -1078,9 +1116,11 @@ exit:
 
 
 exit:
+	kfree(get_version_reply);
 	return retval;
 
 error:
+	kfree(get_version_reply);
 	tower_delete(dev);
 	return retval;
 }

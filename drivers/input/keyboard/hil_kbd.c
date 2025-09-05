@@ -848,7 +848,7 @@ static struct serio_device_id hil_kbd_ids[] = {
 	return error;
 }
 
-static struct serio_device_id hil_dev_ids[] = {
+static const struct serio_device_id hil_dev_ids[] = {
 	{
 		.type = SERIO_HIL_MLC,
 		.proto = SERIO_HIL,

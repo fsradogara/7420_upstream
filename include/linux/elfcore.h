@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_ELFCORE_H
 #define _LINUX_ELFCORE_H
 
@@ -103,6 +104,8 @@ typedef struct elf_prpsinfo prpsinfo_t;
 #ifdef __KERNEL__
 #include <linux/user.h>
 #include <linux/bug.h>
+#include <linux/sched/task_stack.h>
+
 #include <asm/elf.h>
 #include <uapi/linux/elfcore.h>
 

@@ -362,7 +362,7 @@ static int __init apanel_init(void)
 		if (slave != normal_i2c[0]) {
 		if (slave != i2c_addr) {
 			pr_notice(APANEL ": only one SMBus slave "
-				  "address supported, skiping device...\n");
+				  "address supported, skipping device...\n");
 			continue;
 		}
 
@@ -379,7 +379,8 @@ static int __init apanel_init(void)
 		if (devno >= APANEL_DEV_MAX)
 			pr_notice(APANEL ": unknown device %u found\n", devno);
 		else if (device_chip[devno] != CHIP_NONE)
-			pr_warning(APANEL ": duplicate entry for devno %u\n", devno);
+			pr_warn(APANEL ": duplicate entry for devno %u\n",
+				devno);
 
 		else if (method != 1 && method != 2 && method != 4) {
 			pr_notice(APANEL ": unknown method %u for devno %u\n",

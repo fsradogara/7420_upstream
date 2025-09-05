@@ -102,6 +102,7 @@ static void __init mpc837x_rdb_init_IRQ(void)
 		ppc_md.progress("mpc837x_rdb_setup_arch()", 0);
 
 	mpc83xx_setup_pci();
+	mpc83xx_setup_arch();
 	mpc837x_usb_cfg();
 	mpc837x_rdb_sd_cfg();
 }
@@ -134,6 +135,7 @@ define_machine(mpc837x_rdb) {
 	.setup_arch		= mpc837x_rdb_setup_arch,
 	.init_IRQ		= mpc837x_rdb_init_IRQ,
 	return of_flat_dt_match(of_get_flat_dt_root(), board);
+	return of_device_compatible_match(of_root, board);
 }
 
 define_machine(mpc837x_rdb) {

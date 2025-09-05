@@ -12,7 +12,7 @@
 #include <linux/module.h>
 
 #define FILTER_VALID_HOOKS ((1 << NF_BR_LOCAL_IN) | (1 << NF_BR_FORWARD) | \
-   (1 << NF_BR_LOCAL_OUT))
+			    (1 << NF_BR_LOCAL_OUT))
 
 static struct ebt_entries initial_chains[] =
 {
@@ -84,7 +84,7 @@ ebt_out_hook(void *priv, struct sk_buff *skb,
 	return ebt_do_table(skb, state, state->net->xt.frame_filter);
 }
 
-static struct nf_hook_ops ebt_ops_filter[] __read_mostly = {
+static const struct nf_hook_ops ebt_ops_filter[] = {
 	{
 		.hook		= ebt_hook,
 		.owner		= THIS_MODULE,
@@ -116,13 +116,13 @@ static struct nf_hook_ops ebt_ops_filter[] __read_mostly = {
 
 static int __net_init frame_filter_net_init(struct net *net)
 {
-	net->xt.frame_filter = ebt_register_table(net, &frame_filter);
-	return PTR_ERR_OR_ZERO(net->xt.frame_filter);
+	return ebt_register_table(net, &frame_filter, ebt_ops_filter,
+				  &net->xt.frame_filter);
 }
 
 static void __net_exit frame_filter_net_exit(struct net *net)
 {
-	ebt_unregister_table(net, net->xt.frame_filter);
+	ebt_unregister_table(net, net->xt.frame_filter, ebt_ops_filter);
 }
 
 static struct pernet_operations frame_filter_net_ops = {
@@ -143,6 +143,7 @@ static int __init ebtable_filter_init(void)
 		ebt_unregister_table(&frame_filter);
 		unregister_pernet_subsys(&frame_filter_net_ops);
 	return ret;
+	return register_pernet_subsys(&frame_filter_net_ops);
 }
 
 static void __exit ebtable_filter_fini(void)

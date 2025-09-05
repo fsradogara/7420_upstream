@@ -213,7 +213,7 @@ void __uses_jump_to_uncached clear_pmb_entry(struct pmb_entry *pmbe)
 #include <linux/vmalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/sizes.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/page.h>
 #include <asm/mmu.h>

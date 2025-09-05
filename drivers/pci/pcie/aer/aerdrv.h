@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2006 Intel Corp.
  *	Tom Long Nguyen (tom.l.nguyen@intel.com)
@@ -91,6 +92,7 @@ struct aer_rpc {
 	struct pcie_device *rpd;	/* Root Port device */
 	struct work_struct dpc_handler;
 	struct aer_err_source e_sources[AER_ERROR_SOURCES_MAX];
+	struct aer_err_info e_info;
 	unsigned short prod_idx;	/* Error Producer Index */
 	unsigned short cons_idx;	/* Error Consumer Index */
 	int isr;
@@ -103,7 +105,6 @@ struct aer_rpc {
 					 * recovery on the same
 					 * root port hierarchy
 					 */
-	wait_queue_head_t wait_release;
 };
 
 struct aer_broadcast_data {

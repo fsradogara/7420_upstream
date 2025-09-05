@@ -282,6 +282,7 @@ good_area:
 		if (fault & VM_FAULT_OOM)
 			goto out_of_memory;
 	fault = handle_mm_fault(mm, vma, address, flags);
+	fault = handle_mm_fault(vma, address, flags);
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;

@@ -71,6 +71,7 @@ struct snd_card_ad1816a {
 };
 
 static struct pnp_card_device_id snd_ad1816a_pnpids[] = {
+static const struct pnp_card_device_id snd_ad1816a_pnpids[] = {
 	/* Analog Devices AD1815 */
 	{ .id = "ADS7150", .devs = { { .id = "ADS7150" }, { .id = "ADS7151" } } },
 	/* Analog Device AD1816? */

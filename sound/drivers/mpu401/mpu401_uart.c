@@ -138,7 +138,7 @@ irqreturn_t snd_mpu401_uart_interrupt(int irq, void *dev_id)
 {
 	struct snd_mpu401 *mpu = dev_id;
 	
-	if (mpu == NULL)
+	if (!mpu)
 		return IRQ_NONE;
 	_snd_mpu401_uart_interrupt(mpu);
 	return IRQ_HANDLED;
@@ -159,7 +159,7 @@ irqreturn_t snd_mpu401_uart_interrupt_tx(int irq, void *dev_id)
 {
 	struct snd_mpu401 *mpu = dev_id;
 	
-	if (mpu == NULL)
+	if (!mpu)
 		return IRQ_NONE;
 	uart_interrupt_tx(mpu);
 	return IRQ_HANDLED;
@@ -492,14 +492,14 @@ snd_mpu401_uart_output_trigger(struct snd_rawmidi_substream *substream, int up)
 
  */
 
-static struct snd_rawmidi_ops snd_mpu401_uart_output =
+static const struct snd_rawmidi_ops snd_mpu401_uart_output =
 {
 	.open =		snd_mpu401_uart_output_open,
 	.close =	snd_mpu401_uart_output_close,
 	.trigger =	snd_mpu401_uart_output_trigger,
 };
 
-static struct snd_rawmidi_ops snd_mpu401_uart_input =
+static const struct snd_rawmidi_ops snd_mpu401_uart_input =
 {
 	.open =		snd_mpu401_uart_input_open,
 	.close =	snd_mpu401_uart_input_close,
@@ -560,10 +560,9 @@ int snd_mpu401_uart_new(struct snd_card *card, int device,
 				   out_enable, in_enable, &rmidi)) < 0)
 		return err;
 	mpu = kzalloc(sizeof(*mpu), GFP_KERNEL);
-	if (mpu == NULL) {
-		snd_printk(KERN_ERR "mpu401_uart: cannot allocate\n");
-		snd_device_free(card, rmidi);
-		return -ENOMEM;
+	if (!mpu) {
+		err = -ENOMEM;
+		goto free_device;
 	}
 	rmidi->private_data = mpu;
 	rmidi->private_free = snd_mpu401_uart_free;
@@ -575,12 +574,12 @@ int snd_mpu401_uart_new(struct snd_card *card, int device,
 	if (! (info_flags & MPU401_INFO_INTEGRATED)) {
 		int res_size = hardware == MPU401_HW_PC98II ? 4 : 2;
 		mpu->res = request_region(port, res_size, "MPU401 UART");
-		if (mpu->res == NULL) {
+		if (!mpu->res) {
 			snd_printk(KERN_ERR "mpu401_uart: "
 				   "unable to grab port 0x%lx size %d\n",
 				   port, res_size);
-			snd_device_free(card, rmidi);
-			return -EBUSY;
+			err = -EBUSY;
+			goto free_device;
 		}
 	}
 	if (info_flags & MPU401_INFO_MMIO) {
@@ -602,8 +601,8 @@ int snd_mpu401_uart_new(struct snd_card *card, int device,
 				"MPU401 UART", (void *) mpu)) {
 			snd_printk(KERN_ERR "mpu401_uart: "
 				   "unable to grab IRQ %d\n", irq);
-			snd_device_free(card, rmidi);
-			return -EBUSY;
+			err = -EBUSY;
+			goto free_device;
 		}
 	}
 	mpu->info_flags = info_flags;
@@ -634,6 +633,9 @@ int snd_mpu401_uart_new(struct snd_card *card, int device,
 	if (rrawmidi)
 		*rrawmidi = rmidi;
 	return 0;
+free_device:
+	snd_device_free(card, rmidi);
+	return err;
 }
 
 EXPORT_SYMBOL(snd_mpu401_uart_new);

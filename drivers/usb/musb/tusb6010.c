@@ -879,7 +879,7 @@ tusb_otg_ints(struct musb *musb, u32 int_src, void __iomem *tbase)
 			dev_dbg(musb->controller, "vbus change, %s, otg %03x\n",
 				usb_otg_state_string(musb->xceiv->otg->state), otg_stat);
 			idle_timeout = jiffies + (1 * HZ);
-			schedule_work(&musb->irq_work);
+			schedule_delayed_work(&musb->irq_work, 0);
 
 		} else /* A-dev state machine */ {
 			DBG(2, "vbus change, %s, otg %03x\n",
@@ -989,7 +989,7 @@ tusb_otg_ints(struct musb *musb, u32 int_src, void __iomem *tbase)
 			break;
 		}
 	}
-	schedule_work(&musb->irq_work);
+	schedule_delayed_work(&musb->irq_work, 0);
 
 	return idle_timeout;
 }
@@ -1043,7 +1043,7 @@ static irqreturn_t tusb_musb_interrupt(int irq, void *__hci)
 		musb_writel(tbase, TUSB_PRCM_WAKEUP_CLEAR, reg);
 		if (reg & ~TUSB_PRCM_WNORCS) {
 			musb->is_active = 1;
-			schedule_work(&musb->irq_work);
+			schedule_delayed_work(&musb->irq_work, 0);
 		}
 		DBG(3, "wake %sactive %02x\n",
 		dev_dbg(musb->controller, "wake %sactive %02x\n",
@@ -1061,12 +1061,12 @@ static irqreturn_t tusb_musb_interrupt(int irq, void *__hci)
 				| TUSB_INT_SRC_ID_STATUS_CHNG))
 		idle_timeout = tusb_otg_ints(musb, int_src, tbase);
 
-	/* TX dma callback must be handled here, RX dma callback is
-	 * handled in tusb_omap_dma_cb.
+	/*
+	 * Just clear the DMA interrupt if it comes as the completion for both
+	 * TX and RX is handled by the DMA callback in tusb6010_omap
 	 */
 	if ((int_src & TUSB_INT_SRC_TXRX_DMA_DONE)) {
 		u32	dma_src = musb_readl(tbase, TUSB_DMA_INT_SRC);
-		u32	real_dma_src = musb_readl(tbase, TUSB_DMA_INT_MASK);
 
 		DBG(3, "DMA IRQ %08x\n", dma_src);
 		real_dma_src = ~real_dma_src & dma_src;
@@ -1413,7 +1413,8 @@ static int tusb_musb_exit(struct musb *musb)
 }
 
 static const struct musb_platform_ops tusb_ops = {
-	.quirks		= MUSB_DMA_TUSB_OMAP | MUSB_IN_TUSB,
+	.quirks		= MUSB_DMA_TUSB_OMAP | MUSB_IN_TUSB |
+			  MUSB_G_NO_SKB_RESERVE,
 	.init		= tusb_musb_init,
 	.exit		= tusb_musb_exit,
 

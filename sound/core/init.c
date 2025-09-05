@@ -341,7 +341,6 @@ int snd_card_new(struct device *parent, int idx, const char *xid,
 	spin_lock_init(&card->files_lock);
 	INIT_LIST_HEAD(&card->files_list);
 #ifdef CONFIG_PM
-	mutex_init(&card->power_lock);
 	init_waitqueue_head(&card->power_sleep);
 #endif
 	/* the control interface cannot be accessed from the user space until */
@@ -375,6 +374,9 @@ int snd_card_new(struct device *parent, int idx, const char *xid,
 	err = kobject_set_name(&card->card_dev.kobj, "card%d", idx);
 	if (err < 0)
 		goto __error;
+
+	snprintf(card->irq_descr, sizeof(card->irq_descr), "%s:%s",
+		 dev_driver_string(card->dev), dev_name(&card->card_dev));
 
 	/* the control interface cannot be accessed from the user space until */
 	/* snd_cards_bitmask and snd_cards are set with snd_card_register */
@@ -582,7 +584,6 @@ int snd_card_disconnect(struct snd_card *card)
 #endif
 	return 0;	
 }
-
 EXPORT_SYMBOL(snd_card_disconnect);
 
 /**
@@ -979,7 +980,7 @@ int snd_card_add_dev_attr(struct snd_card *card,
 
 	dev_err(card->dev, "Too many groups assigned\n");
 	return -ENOSPC;
-};
+}
 EXPORT_SYMBOL_GPL(snd_card_add_dev_attr);
 
 /**
@@ -1055,7 +1056,6 @@ int snd_card_register(struct snd_card *card)
 #endif
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_card_register);
 
 #ifdef CONFIG_PROC_FS
@@ -1207,7 +1207,6 @@ int snd_component_add(struct snd_card *card, const char *component)
 	strcat(card->components, component);
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_component_add);
 
 /**
@@ -1246,7 +1245,6 @@ int snd_card_file_add(struct snd_card *card, struct file *file)
 	spin_unlock(&card->files_lock);
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_card_file_add);
 
 /**
@@ -1327,7 +1325,6 @@ int snd_card_file_remove(struct snd_card *card, struct file *file)
 	put_device(&card->card_dev);
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_card_file_remove);
 
 #ifdef CONFIG_PM
@@ -1339,12 +1336,10 @@ EXPORT_SYMBOL(snd_card_file_remove);
  *  Waits until the power-state is changed.
  *
  *  Return: Zero if successful, or a negative error code.
- *
- *  Note: the power lock must be active before call.
  */
 int snd_power_wait(struct snd_card *card, unsigned int power_state)
 {
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 	int result = 0;
 
 	/* fastpath */
@@ -1360,13 +1355,10 @@ int snd_power_wait(struct snd_card *card, unsigned int power_state)
 		if (snd_power_get_state(card) == power_state)
 			break;
 		set_current_state(TASK_UNINTERRUPTIBLE);
-		snd_power_unlock(card);
 		schedule_timeout(30 * HZ);
-		snd_power_lock(card);
 	}
 	remove_wait_queue(&card->power_sleep, &wait);
 	return result;
 }
-
 EXPORT_SYMBOL(snd_power_wait);
 #endif /* CONFIG_PM */

@@ -18,8 +18,8 @@
 
 static int is_5181l(void)
 #include <linux/io.h>
-#include <mach/hardware.h>
 #include <plat/mpp.h>
+#include "orion5x.h"
 #include "mpp.h"
 #include "common.h"
 

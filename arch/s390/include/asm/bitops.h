@@ -14,6 +14,7 @@
  */
 
 #ifdef __KERNEL__
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *    Copyright IBM Corp. 1999,2013
  *
@@ -30,14 +31,6 @@
  * The bitop functions are defined to work on unsigned longs, so the bits
  * end up numbered:
  *   |63..............0|127............64|191...........128|255...........192|
- *
- * There are a few little-endian macros used mostly for filesystem
- * bitmaps, these work on similar bit array layouts, but byte-oriented:
- *   |7...0|15...8|23...16|31...24|39...32|47...40|55...48|63...56|
- *
- * The main difference is that bit 3-5 in the bit number field needs to be
- * reversed compared to the big-endian bit fields. This can be achieved by
- * XOR with 0x38.
  *
  * We also have special functions which work with an MSB0 encoding.
  * The bits are numbered:
@@ -151,6 +144,7 @@ extern const char _sb_findmap[];
 #define __BITOPS_LOOP(__old, __new, __addr, __val, __op_string)	\
 #include <linux/typecheck.h>
 #include <linux/compiler.h>
+#include <asm/atomic_ops.h>
 #include <asm/barrier.h>
 
 #define __BITOPS_NO_BARRIER	"\n"
@@ -736,7 +730,7 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *ptr)
 	}
 #endif
 	mask = 1UL << (nr & (BITS_PER_LONG - 1));
-	__BITOPS_LOOP(addr, mask, __BITOPS_OR, __BITOPS_NO_BARRIER);
+	__atomic64_or(mask, addr);
 }
 
 static inline void clear_bit(unsigned long nr, volatile unsigned long *ptr)
@@ -757,7 +751,7 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *ptr)
 	}
 #endif
 	mask = ~(1UL << (nr & (BITS_PER_LONG - 1)));
-	__BITOPS_LOOP(addr, mask, __BITOPS_AND, __BITOPS_NO_BARRIER);
+	__atomic64_and(mask, addr);
 }
 
 static inline void change_bit(unsigned long nr, volatile unsigned long *ptr)
@@ -778,7 +772,7 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *ptr)
 	}
 #endif
 	mask = 1UL << (nr & (BITS_PER_LONG - 1));
-	__BITOPS_LOOP(addr, mask, __BITOPS_XOR, __BITOPS_NO_BARRIER);
+	__atomic64_xor(mask, addr);
 }
 
 static inline int
@@ -788,7 +782,7 @@ test_and_set_bit(unsigned long nr, volatile unsigned long *ptr)
 	unsigned long old, mask;
 
 	mask = 1UL << (nr & (BITS_PER_LONG - 1));
-	old = __BITOPS_LOOP(addr, mask, __BITOPS_OR, __BITOPS_BARRIER);
+	old = __atomic64_or_barrier(mask, addr);
 	return (old & mask) != 0;
 }
 
@@ -799,7 +793,7 @@ test_and_clear_bit(unsigned long nr, volatile unsigned long *ptr)
 	unsigned long old, mask;
 
 	mask = ~(1UL << (nr & (BITS_PER_LONG - 1)));
-	old = __BITOPS_LOOP(addr, mask, __BITOPS_AND, __BITOPS_BARRIER);
+	old = __atomic64_and_barrier(mask, addr);
 	return (old & ~mask) != 0;
 }
 
@@ -810,7 +804,7 @@ test_and_change_bit(unsigned long nr, volatile unsigned long *ptr)
 	unsigned long old, mask;
 
 	mask = 1UL << (nr & (BITS_PER_LONG - 1));
-	old = __BITOPS_LOOP(addr, mask, __BITOPS_XOR, __BITOPS_BARRIER);
+	old = __atomic64_xor_barrier(mask, addr);
 	return (old & mask) != 0;
 }
 
@@ -908,6 +902,11 @@ static inline void __clear_bit_unlock(unsigned long nr,
 unsigned long find_first_bit_inv(const unsigned long *addr, unsigned long size);
 unsigned long find_next_bit_inv(const unsigned long *addr, unsigned long size,
 				unsigned long offset);
+
+#define for_each_set_bit_inv(bit, addr, size)				\
+	for ((bit) = find_first_bit_inv((addr), (size));		\
+	     (bit) < (size);						\
+	     (bit) = find_next_bit_inv((addr), (size), (bit) + 1))
 
 static inline void set_bit_inv(unsigned long nr, volatile unsigned long *ptr)
 {

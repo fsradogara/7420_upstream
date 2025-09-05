@@ -74,7 +74,7 @@ enum conf_def_mode {
 #define T_OPT_ALLNOCONFIG_Y	4
 
 struct kconf_id {
-	int name;
+	const char *name;
 	int token;
 	unsigned int flags;
 	enum symbol_type stype;

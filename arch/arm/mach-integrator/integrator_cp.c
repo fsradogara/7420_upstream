@@ -7,7 +7,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License.
  */
-#include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/list.h>
@@ -65,34 +64,26 @@
 #include <linux/amba/mmci.h>
 #include <linux/io.h>
 #include <linux/irqchip.h>
-#include <linux/gfp.h>
-#include <linux/mtd/physmap.h>
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/sched_clock.h>
+#include <linux/regmap.h>
+#include <linux/mfd/syscon.h>
 
-#include <asm/setup.h>
-#include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <asm/mach/irq.h>
 #include <asm/mach/map.h>
-#include <asm/mach/time.h>
 
 #include "hardware.h"
 #include "cm.h"
 #include "common.h"
 
+/* Base address to the core module header */
+static struct regmap *cm_map;
 /* Base address to the CP controller */
 static void __iomem *intcp_con_base;
 
-#define INTCP_PA_FLASH_BASE		0x24000000
-
-#define INTCP_PA_CLCD_BASE		0xc0000000
-
-#define INTCP_FLASHPROG			0x04
-#define CINTEGRATOR_FLASHPROG_FLVPPEN	(1 << 0)
-#define CINTEGRATOR_FLASHPROG_FLWREN	(1 << 1)
+#define CM_COUNTER_OFFSET 0x28
 
 /*
  * Logical      Physical
@@ -109,6 +100,8 @@ static void __iomem *intcp_con_base;
 
 static struct map_desc intcp_io_desc[] __initdata = {
  * fc900000	c9000000	GPIO
+ * f1400000	14000000	Interrupt controller
+ * f1600000	16000000	UART 0
  * fca00000	ca000000	SIC
  */
 
@@ -700,11 +693,18 @@ MACHINE_START(CINTEGRATOR, "ARM-IntegratorCP")
 
 static u64 notrace intcp_read_sched_clock(void)
 {
-	return readl(REFCOUNTER);
+	unsigned int val;
+
+	/* MMIO so discard return code */
+	regmap_read(cm_map, CM_COUNTER_OFFSET, &val);
+	return val;
 }
 
 static void __init intcp_init_early(void)
 {
+	cm_map = syscon_regmap_lookup_by_compatible("arm,core-module-integrator");
+	if (IS_ERR(cm_map))
+		return;
 	sched_clock_register(intcp_read_sched_clock, 32, 24000000);
 }
 
@@ -719,24 +719,8 @@ static void __init intcp_init_irq_of(void)
  * and enforce the bus names since these are used for clock lookups.
  */
 static struct of_dev_auxdata intcp_auxdata_lookup[] __initdata = {
-	OF_DEV_AUXDATA("arm,primecell", INTEGRATOR_RTC_BASE,
-		"rtc", NULL),
-	OF_DEV_AUXDATA("arm,primecell", INTEGRATOR_UART0_BASE,
-		"uart0", NULL),
-	OF_DEV_AUXDATA("arm,primecell", INTEGRATOR_UART1_BASE,
-		"uart1", NULL),
-	OF_DEV_AUXDATA("arm,primecell", KMI0_BASE,
-		"kmi0", NULL),
-	OF_DEV_AUXDATA("arm,primecell", KMI1_BASE,
-		"kmi1", NULL),
 	OF_DEV_AUXDATA("arm,primecell", INTEGRATOR_CP_MMC_BASE,
 		"mmci", &mmc_data),
-	OF_DEV_AUXDATA("arm,primecell", INTEGRATOR_CP_AACI_BASE,
-		"aaci", &mmc_data),
-	OF_DEV_AUXDATA("arm,primecell", INTCP_PA_CLCD_BASE,
-		"clcd", &clcd_data),
-	OF_DEV_AUXDATA("cfi-flash", INTCP_PA_FLASH_BASE,
-		"physmap-flash", &intcp_flash_data),
 	{ /* sentinel */ },
 };
 
@@ -757,8 +741,7 @@ static void __init intcp_init_of(void)
 	if (!intcp_con_base)
 		return;
 
-	of_platform_populate(NULL, of_default_bus_match_table,
-			     intcp_auxdata_lookup, NULL);
+	of_platform_default_populate(NULL, intcp_auxdata_lookup, NULL);
 }
 
 static const char * intcp_dt_board_compat[] = {

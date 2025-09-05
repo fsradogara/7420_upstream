@@ -47,6 +47,7 @@ static char irq_tab_rm200[8][5] __initdata = {
 	{   ETH,  ETH,  ETH,  ETH,  ETH },	/* Ethernet */
 	{  INTB, INTB, INTB, INTB, INTB },	/* VGA */
 	{     0,    0,    0,    0,    0 },	/* Unused */
+static char irq_tab_rm200[8][5] = {
 	/*	 INTA  INTB  INTC  INTD */
 	{     0,    0,	  0,	0,    0 },	/* EISA bridge */
 	{  SCSI, SCSI, SCSI, SCSI, SCSI },	/* SCSI */
@@ -70,6 +71,7 @@ static char irq_tab_rm300d[8][5] __initdata = {
 	{     0, INTC, INTD, INTA, INTB },	/* Slot 1 */
 	{  INTB, INTB, INTB, INTB, INTB },	/* VGA */
 	{     0,    0,    0,    0,    0 },	/* Unused */
+static char irq_tab_rm300d[8][5] = {
 	/*	 INTA  INTB  INTC  INTD */
 	{     0,    0,	  0,	0,    0 },	/* EISA bridge */
 	{  SCSI, SCSI, SCSI, SCSI, SCSI },	/* SCSI */
@@ -84,6 +86,7 @@ static char irq_tab_rm300d[8][5] __initdata = {
 static char irq_tab_rm300e[5][5] __initdata = {
 	/*       INTA  INTB  INTC  INTD */
 	{     0,    0,    0,    0,    0 },	/* HOST bridge */
+static char irq_tab_rm300e[5][5] = {
 	/*	 INTA  INTB  INTC  INTD */
 	{     0,    0,	  0,	0,    0 },	/* HOST bridge */
 	{  SCSI, SCSI, SCSI, SCSI, SCSI },	/* SCSI */
@@ -135,6 +138,7 @@ static char irq_tab_pcit_cplus[13][5] __initdata = {
 	{     0,     0,     0,     0,     0 },	/* Unused */
 	{     0,  INTA,  INTB,  INTC,  INTD },	/* PCI-PCI bridge */
 	{     0,  INTB,  INTC,  INTD,  INTA },	/* fixup */
+static char irq_tab_pcit[13][5] = {
 	/*	 INTA  INTB  INTC  INTD */
 	{     0,     0,	    0,	   0,	  0 },	/* HOST bridge */
 	{ SCSI0, SCSI0, SCSI0, SCSI0, SCSI0 },	/* SCSI */
@@ -151,7 +155,7 @@ static char irq_tab_pcit_cplus[13][5] __initdata = {
 	{     0,  INTA,	 INTB,	INTC,  INTD },	/* Slot 5 */
 };
 
-static char irq_tab_pcit_cplus[13][5] __initdata = {
+static char irq_tab_pcit_cplus[13][5] = {
 	/*	 INTA  INTB  INTC  INTD */
 	{     0,     0,	    0,	   0,	  0 },	/* HOST bridge */
 	{     0,  INTB,	 INTC,	INTD,  INTA },	/* PCI Slot 9 */
@@ -168,7 +172,7 @@ static inline int is_rm300_revd(void)
 	return (csmsr & 0xa0) == 0x20;
 }
 
-int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
+int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	switch (sni_brd_type) {
 	case SNI_BRD_PCI_TOWER_CPLUS:

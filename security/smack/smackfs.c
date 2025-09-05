@@ -74,6 +74,7 @@ enum smk_inos {
 static DEFINE_MUTEX(smack_list_lock);
 static DEFINE_MUTEX(smack_cipso_lock);
 static DEFINE_MUTEX(smack_ambient_lock);
+static DEFINE_MUTEX(smack_master_list_lock);
 static DEFINE_MUTEX(smack_cipso_lock);
 static DEFINE_MUTEX(smack_ambient_lock);
 static DEFINE_MUTEX(smk_net4addr_lock);
@@ -314,12 +315,16 @@ static int smk_set_access(struct smack_parsed_rule *srp,
 		 * it needs to get added for reporting.
 		 */
 		if (global) {
+			mutex_unlock(rule_lock);
 			smlp = kzalloc(sizeof(*smlp), GFP_KERNEL);
 			if (smlp != NULL) {
 				smlp->smk_rule = sp;
+				mutex_lock(&smack_master_list_lock);
 				list_add_rcu(&smlp->list, &smack_rule_list);
+				mutex_unlock(&smack_master_list_lock);
 			} else
 				rc = -ENOMEM;
+			return rc;
 		}
 	}
 
@@ -549,14 +554,9 @@ static ssize_t smk_write_rules_list(struct file *file, const char __user *buf,
 		}
 	}
 
-	data = kmalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto out;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	/*
 	 * In case of parsing only part of user buf,
@@ -1161,16 +1161,10 @@ static ssize_t smk_set_cipso(struct file *file, const char __user *buf,
 	    (count < SMK_CIPSOMIN || count > SMK_CIPSOMAX))
 		return -EINVAL;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto unlockedout;
-	}
-
-	data[count] = '\0';
 	rule = data;
 	/*
 	 * Only allow one writer at a time. Writes should be
@@ -1251,7 +1245,6 @@ static ssize_t smk_set_cipso(struct file *file, const char __user *buf,
 
 out:
 	mutex_unlock(&smack_cipso_lock);
-unlockedout:
 	kfree(data);
 	return rc;
 }
@@ -1492,22 +1485,15 @@ static ssize_t smk_write_net4addr(struct file *file, const char __user *buf,
 	if (count < SMK_NETLBLADDRMIN)
 		return -EINVAL;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto free_data_out;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	smack = kzalloc(count + 1, GFP_KERNEL);
 	if (smack == NULL) {
 		rc = -ENOMEM;
 		goto free_data_out;
 	}
-
-	data[count] = '\0';
 
 	rc = sscanf(data, "%hhd.%hhd.%hhd.%hhd/%u %s",
 		&host[0], &host[1], &host[2], &host[3], &masks, smack);
@@ -1759,22 +1745,15 @@ static ssize_t smk_write_net6addr(struct file *file, const char __user *buf,
 	if (count < SMK_NETLBLADDRMIN)
 		return -EINVAL;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto free_data_out;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	smack = kzalloc(count + 1, GFP_KERNEL);
 	if (smack == NULL) {
 		rc = -ENOMEM;
 		goto free_data_out;
 	}
-
-	data[count] = '\0';
 
 	i = sscanf(data, "%x:%x:%x:%x:%x:%x:%x:%x/%u %s",
 			&scanned[0], &scanned[1], &scanned[2], &scanned[3],
@@ -2205,14 +2184,9 @@ static ssize_t smk_write_ambient(struct file *file, const char __user *buf,
 	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto out;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	skp = smk_import_entry(data, count);
 	if (IS_ERR(skp)) {
@@ -2405,14 +2379,9 @@ static ssize_t smk_write_onlycap(struct file *file, const char __user *buf,
 	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		kfree(data);
-		return -EFAULT;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	rc = smk_parse_label_list(data, &list_tmp);
 	kfree(data);
@@ -2497,14 +2466,9 @@ static ssize_t smk_write_unconfined(struct file *file, const char __user *buf,
 	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto freeout;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	/*
 	 * Clear the smack_unconfined on invalid label errors. This means
@@ -2928,14 +2892,9 @@ static ssize_t smk_write_revoke_subj(struct file *file, const char __user *buf,
 	if (count == 0 || count > SMK_LONGLABEL)
 		return -EINVAL;
 
-	data = kzalloc(count, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		rc = -EFAULT;
-		goto out_data;
-	}
+	data = memdup_user(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	cp = smk_parse_smack(data, count);
 	if (IS_ERR(cp)) {
@@ -3060,19 +3019,15 @@ static ssize_t smk_write_syslog(struct file *file, const char __user *buf,
 	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
-	if (copy_from_user(data, buf, count) != 0)
-		rc = -EFAULT;
-	else {
-		skp = smk_import_entry(data, count);
-		if (IS_ERR(skp))
-			rc = PTR_ERR(skp);
-		else
-			smack_syslog_label = skp;
-	}
+	skp = smk_import_entry(data, count);
+	if (IS_ERR(skp))
+		rc = PTR_ERR(skp);
+	else
+		smack_syslog_label = skp;
 
 	kfree(data);
 	return rc;
@@ -3162,14 +3117,9 @@ static ssize_t smk_write_relabel_self(struct file *file, const char __user *buf,
 	if (*ppos != 0)
 		return -EINVAL;
 
-	data = kzalloc(count + 1, GFP_KERNEL);
-	if (data == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(data, buf, count) != 0) {
-		kfree(data);
-		return -EFAULT;
-	}
+	data = memdup_user_nul(buf, count);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
 
 	rc = smk_parse_label_list(data, &list_tmp);
 	kfree(data);
@@ -3354,6 +3304,7 @@ static int smk_fill_super(struct super_block *sb, void *data, int silent)
 		[SMK_NLTYPE]	=
 			{"nltype", &smk_nltype_ops, S_IRUGO|S_IWUSR},
 		/* last one */ {""}
+	static const struct tree_descr smack_files[] = {
 		[SMK_LOAD] = {
 			"load", &smk_load_ops, S_IRUGO|S_IWUSR},
 		[SMK_CIPSO] = {
@@ -3513,9 +3464,6 @@ static int __init init_smk_fs(void)
 	if (err == 0 && rc < 0)
 		err = rc;
 	rc = smk_preset_netlabel(&smack_known_huh);
-	if (err == 0 && rc < 0)
-		err = rc;
-	rc = smk_preset_netlabel(&smack_known_invalid);
 	if (err == 0 && rc < 0)
 		err = rc;
 	rc = smk_preset_netlabel(&smack_known_star);

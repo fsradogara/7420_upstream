@@ -349,7 +349,7 @@ static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 			struct gfs2_log_header_host lh;
 			error = get_log_header(jd, start, &lh);
 			if (!error) {
-				gfs2_replay_incr_blk(sdp, &start);
+				gfs2_replay_incr_blk(jd, &start);
 				brelse(bh);
 				continue;
 			}
@@ -371,7 +371,7 @@ static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 		}
 
 		while (length--)
-			gfs2_replay_incr_blk(sdp, &start);
+			gfs2_replay_incr_blk(jd, &start);
 
 		brelse(bh);
 	}
@@ -401,7 +401,7 @@ static int clean_journal(struct gfs2_jdesc *jd, struct gfs2_log_header_host *hea
 	struct buffer_head bh_map = { .b_state = 0, .b_blocknr = 0 };
 
 	lblock = head->lh_blkno;
-	gfs2_replay_incr_blk(sdp, &lblock);
+	gfs2_replay_incr_blk(jd, &lblock);
 	bh_map.b_size = 1 << ip->i_inode.i_blkbits;
 	error = gfs2_block_map(&ip->i_inode, lblock, &bh_map, 0);
 	if (error)
@@ -576,7 +576,7 @@ void gfs2_recover_func(struct work_struct *work)
 			if (!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags))
 				ro = 1;
 		} else {
-			if (sdp->sd_vfs->s_flags & MS_RDONLY) {
+			if (sb_rdonly(sdp->sd_vfs)) {
 				/* check if device itself is read-only */
 				ro = bdev_read_only(sdp->sd_vfs->s_bdev);
 				if (!ro) {

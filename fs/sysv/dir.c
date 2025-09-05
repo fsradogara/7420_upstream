@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/sysv/dir.c
  *
@@ -33,14 +34,14 @@ static int sysv_readdir(struct file *, struct dir_context *);
 const struct file_operations sysv_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate	= sysv_readdir,
+	.iterate_shared	= sysv_readdir,
 	.fsync		= generic_file_fsync,
 };
 
 static inline void dir_put_page(struct page *page)
 {
 	kunmap(page);
-	page_cache_release(page);
+	put_page(page);
 }
 
 static inline unsigned long dir_pages(struct inode *inode)
@@ -60,7 +61,7 @@ static int dir_commit_chunk(struct page *page, loff_t pos, unsigned len)
 		mark_inode_dirty(dir);
 	}
 	if (IS_DIRSYNC(dir))
-		err = write_one_page(page, 1);
+		err = write_one_page(page);
 	else
 		unlock_page(page);
 	return err;
@@ -102,8 +103,8 @@ static int sysv_readdir(struct file *file, struct dir_context *ctx)
 	if (pos >= inode->i_size)
 		return 0;
 
-	offset = pos & ~PAGE_CACHE_MASK;
-	n = pos >> PAGE_CACHE_SHIFT;
+	offset = pos & ~PAGE_MASK;
+	n = pos >> PAGE_SHIFT;
 
 	for ( ; n < npages; n++, offset = 0) {
 		char *kaddr, *limit;
@@ -118,6 +119,7 @@ static int sysv_readdir(struct file *file, struct dir_context *ctx)
 		for ( ;(char*)de <= limit; de++) {
 			char *name = de->name;
 			int over;
+		limit = kaddr + PAGE_SIZE - SYSV_DIRSIZE;
 		for ( ;(char*)de <= limit; de++, ctx->pos += sizeof(*de)) {
 			char *name = de->name;
 
@@ -192,7 +194,7 @@ struct sysv_dir_entry *sysv_find_entry(struct dentry *dentry, struct page **res_
 		if (!IS_ERR(page)) {
 			kaddr = (char*)page_address(page);
 			de = (struct sysv_dir_entry *) kaddr;
-			kaddr += PAGE_CACHE_SIZE - SYSV_DIRSIZE;
+			kaddr += PAGE_SIZE - SYSV_DIRSIZE;
 			for ( ; (char *) de <= kaddr ; de++) {
 				if (!de->inode)
 					continue;
@@ -239,7 +241,7 @@ int sysv_add_link(struct dentry *dentry, struct inode *inode)
 			goto out;
 		kaddr = (char*)page_address(page);
 		de = (struct sysv_dir_entry *)kaddr;
-		kaddr += PAGE_CACHE_SIZE - SYSV_DIRSIZE;
+		kaddr += PAGE_SIZE - SYSV_DIRSIZE;
 		while ((char *)de <= kaddr) {
 			if (!de->inode)
 				goto got_it;
@@ -266,7 +268,7 @@ got_it:
 	memset (de->name + namelen, 0, SYSV_DIRSIZE - namelen - 2);
 	de->inode = cpu_to_fs16(SYSV_SB(inode->i_sb), inode->i_ino);
 	err = dir_commit_chunk(page, pos, SYSV_DIRSIZE);
-	dir->i_mtime = dir->i_ctime = CURRENT_TIME_SEC;
+	dir->i_mtime = dir->i_ctime = current_time(dir);
 	mark_inode_dirty(dir);
 out_page:
 	dir_put_page(page);
@@ -294,7 +296,7 @@ int sysv_delete_entry(struct sysv_dir_entry *de, struct page *page)
 	de->inode = 0;
 	err = dir_commit_chunk(page, pos, SYSV_DIRSIZE);
 	dir_put_page(page);
-	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
+	inode->i_ctime = inode->i_mtime = current_time(inode);
 	mark_inode_dirty(inode);
 	return err;
 }
@@ -320,7 +322,7 @@ int sysv_make_empty(struct inode *inode, struct inode *dir)
 	kmap(page);
 
 	base = (char*)page_address(page);
-	memset(base, 0, PAGE_CACHE_SIZE);
+	memset(base, 0, PAGE_SIZE);
 
 	de = (struct sysv_dir_entry *) base;
 	de->inode = cpu_to_fs16(SYSV_SB(inode->i_sb), inode->i_ino);
@@ -332,7 +334,7 @@ int sysv_make_empty(struct inode *inode, struct inode *dir)
 	kunmap(page);
 	err = dir_commit_chunk(page, 0, 2 * SYSV_DIRSIZE);
 fail:
-	page_cache_release(page);
+	put_page(page);
 	return err;
 }
 
@@ -355,7 +357,7 @@ int sysv_empty_dir(struct inode * inode)
 
 		kaddr = (char *)page_address(page);
 		de = (struct sysv_dir_entry *)kaddr;
-		kaddr += PAGE_CACHE_SIZE-SYSV_DIRSIZE;
+		kaddr += PAGE_SIZE-SYSV_DIRSIZE;
 
 		for ( ;(char *)de <= kaddr; de++) {
 			if (!de->inode)
@@ -400,7 +402,7 @@ void sysv_set_link(struct sysv_dir_entry *de, struct page *page,
 	de->inode = cpu_to_fs16(SYSV_SB(inode->i_sb), inode->i_ino);
 	err = dir_commit_chunk(page, pos, SYSV_DIRSIZE);
 	dir_put_page(page);
-	dir->i_mtime = dir->i_ctime = CURRENT_TIME_SEC;
+	dir->i_mtime = dir->i_ctime = current_time(dir);
 	mark_inode_dirty(dir);
 }
 

@@ -3,6 +3,7 @@
 
    Written By: Adam Radford <linuxraid@amcc.com>
    Written By: Adam Radford <linuxraid@lsi.com>
+   Written By: Adam Radford <aradford@gmail.com>
    Modifications By: Joel Jacobson <linux@3ware.com>
    		     Arnaldo Carvalho de Melo <acme@conectiva.com.br>
                      Brad Strand <linux@3ware.com>
@@ -57,8 +58,8 @@
    http://www.amcc.com
    linuxraid@lsi.com
 
-   For more information, goto:
-   http://www.lsi.com
+   aradford@gmail.com
+
 
    History
    -------
@@ -220,7 +221,7 @@
 #include <linux/mutex.h>
 #include <asm/io.h>
 #include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_tcq.h>
@@ -1076,6 +1077,9 @@ static const struct file_operations tw_fops = {
 	.open		= tw_chrdev_open,
 	.release	= NULL
 	.unlocked_ioctl	= tw_chrdev_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl   = tw_chrdev_ioctl,
+#endif
 	.open		= tw_chrdev_open,
 	.release	= NULL,
 	.llseek		= noop_llseek,

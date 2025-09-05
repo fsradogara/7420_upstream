@@ -26,7 +26,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include "internal.h"
 
 static int ramfs_nommu_setattr(struct dentry *, struct iattr *);
@@ -256,7 +256,7 @@ static int ramfs_nommu_setattr(struct dentry *dentry, struct iattr *ia)
 	int ret = 0;
 
 	/* POSIX UID/GID verification for setting inode attributes */
-	ret = inode_change_ok(inode, ia);
+	ret = setattr_prepare(dentry, ia);
 	if (ret)
 		return ret;
 
@@ -309,14 +309,11 @@ static unsigned long ramfs_nommu_get_unmapped_area(struct file *file,
 	struct page **pages = NULL, **ptr, *page;
 	loff_t isize;
 
-	if (!(flags & MAP_SHARED))
-		return addr;
-
 	/* the mapping mustn't extend beyond the EOF */
 	lpages = (len + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	isize = i_size_read(inode);
 
-	ret = -EINVAL;
+	ret = -ENOSYS;
 	maxpages = (isize + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (pgoff >= maxpages)
 		goto out;
@@ -337,7 +334,7 @@ static unsigned long ramfs_nommu_get_unmapped_area(struct file *file,
 	if (!pages)
 		goto out_free;
 
-	nr = find_get_pages(inode->i_mapping, pgoff, lpages, pages);
+	nr = find_get_pages(inode->i_mapping, &pgoff, lpages, pages);
 	if (nr != lpages)
 		goto out_free_pages; /* leave if some pages were missing */
 
@@ -378,7 +375,7 @@ out:
 int ramfs_nommu_mmap(struct file *file, struct vm_area_struct *vma)
 static int ramfs_nommu_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	if (!(vma->vm_flags & VM_SHARED))
+	if (!(vma->vm_flags & (VM_SHARED | VM_MAYSHARE)))
 		return -ENOSYS;
 
 	file_accessed(file);

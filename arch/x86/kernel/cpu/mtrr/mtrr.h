@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * local mtrr defines.
  * local MTRR defines.
@@ -99,8 +100,9 @@ extern void set_mtrr_ops(struct mtrr_ops * ops);
 extern u64 size_or_mask, size_and_mask;
 extern struct mtrr_ops * mtrr_if;
 bool get_mtrr_state(void);
+void mtrr_bp_pat_init(void);
 
-extern void set_mtrr_ops(const struct mtrr_ops *ops);
+extern void __init set_mtrr_ops(const struct mtrr_ops *ops);
 
 extern u64 size_or_mask, size_and_mask;
 extern const struct mtrr_ops *mtrr_if;

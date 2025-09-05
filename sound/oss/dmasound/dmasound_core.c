@@ -183,8 +183,9 @@
 #include <linux/poll.h>
 #include <linux/smp_lock.h>
 #include <linux/mutex.h>
+#include <linux/sched/signal.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "dmasound.h"
 

@@ -41,12 +41,13 @@
  */
 
 	.level		1.1
-	.data
 
 #include <asm/assembly.h>
 #include <asm/pdc.h>
+#include <asm/psw.h>
 
 #include <linux/linkage.h>
+#include <linux/init.h>
 
 	/*
 	 * stack for os_hpmc, the HPMC handler.
@@ -56,6 +57,7 @@
 	 */
 
 	.align	PAGE_SIZE
+	__PAGE_ALIGNED_BSS
 	.align 4096
 hpmc_stack:
 	.block 16384
@@ -63,16 +65,19 @@ hpmc_stack:
 #define HPMC_IODC_BUF_SIZE 0x8000
 
 	.align	PAGE_SIZE
+	__PAGE_ALIGNED_BSS
 	.align 4096
 hpmc_iodc_buf:
 	.block HPMC_IODC_BUF_SIZE
 
+	.section .bss
 	.align 8
 hpmc_raddr:
 	.block 128
 
 #define HPMC_PIM_DATA_SIZE 896 /* Enough to hold all architected 2.0 state */
 
+	.section .bss
 	.align 8
 ENTRY(hpmc_pim_data)
 	.block HPMC_PIM_DATA_SIZE
@@ -81,7 +86,7 @@ END(hpmc_pim_data)
 	.text
 
 	.import intr_save, code
-ENTRY(os_hpmc)
+ENTRY_CFI(os_hpmc)
 .os_hpmc:
 
 	/*
@@ -133,7 +138,7 @@ ENTRY(os_hpmc)
 	 * So turn on the Q bit and turn off the M bit.
 	 */
 
-	ldo     8(%r0),%r4                       /* PSW Q on, PSW M off */
+	ldi     PSW_SM_Q,%r4                   /* PSW Q on, PSW M off */
 	mtctl   %r4,ipsw
 	mtctl   %r0,pcsq
 	mtctl   %r0,pcsq
@@ -255,7 +260,7 @@ os_hpmc_5:
 
 	tovirt_r1 %r30      /* make sp virtual */
 
-	rsm 8,%r0           /* Clear Q bit */
+	rsm     PSW_SM_Q,%r0           /* Clear Q bit */
 	ldi     1,%r8       /* Set trap code to "1" for HPMC */
 	load32	PA(intr_save),%r1
 	be      0(%sr7,%r1)
@@ -300,10 +305,11 @@ os_hpmc_6:
 ENDPROC(os_hpmc)
 ENTRY(os_hpmc_end)	/* this label used to compute os_hpmc checksum */
 	nop
+ENDPROC_CFI(os_hpmc)
 .os_hpmc_end:
-	nop
-.data
-.align 4
+
+
+	__INITRODATA
 	.export os_hpmc_size
 os_hpmc_size:
 	.word .os_hpmc_end-.os_hpmc

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the Linux/MIPS-specific parts of the memory manager.
 #
@@ -5,7 +6,7 @@
 obj-y				+= cache.o dma-default.o extable.o fault.o \
 				   init.o tlbex.o tlbex-fault.o uasm.o page.o
 				   gup.o init.o mmap.o page.o page-funcs.o \
-				   tlbex.o tlbex-fault.o tlb-funcs.o
+				   pgtable.o tlbex.o tlbex-fault.o tlb-funcs.o
 
 ifdef CONFIG_CPU_MICROMIPS
 obj-y				+= uasm-micromips.o

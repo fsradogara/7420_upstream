@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/nfsd/nfsfh.c
  *
@@ -102,13 +103,20 @@ nfsd_mode_check(struct svc_rqst *rqstp, umode_t mode, int type)
 	}
 	return 0;
 nfsd_mode_check(struct svc_rqst *rqstp, umode_t mode, umode_t requested)
+nfsd_mode_check(struct svc_rqst *rqstp, struct dentry *dentry,
+		umode_t requested)
 {
-	mode &= S_IFMT;
+	umode_t mode = d_inode(dentry)->i_mode & S_IFMT;
 
 	if (requested == 0) /* the caller doesn't care */
 		return nfs_ok;
-	if (mode == requested)
+	if (mode == requested) {
+		if (mode == S_IFDIR && !d_can_lookup(dentry)) {
+			WARN_ON_ONCE(1);
+			return nfserr_notdir;
+		}
 		return nfs_ok;
+	}
 	/*
 	 * v4 has an error more specific than err_notdir which we should
 	 * return in preference to err_notdir:
@@ -376,7 +384,7 @@ fh_verify(struct svc_rqst *rqstp, struct svc_fh *fhp, int type, int access)
  * that it expects something not of the given type.
  *
  * @access is formed from the NFSD_MAY_* constants defined in
- * include/linux/nfsd/nfsd.h.
+ * fs/nfsd/vfs.h.
  */
 __be32
 fh_verify(struct svc_rqst *rqstp, struct svc_fh *fhp, umode_t type, int access)
@@ -456,7 +464,7 @@ fh_verify(struct svc_rqst *rqstp, struct svc_fh *fhp, umode_t type, int access)
 	if (error)
 		goto out;
 
-	error = nfsd_mode_check(rqstp, d_inode(dentry)->i_mode, type);
+	error = nfsd_mode_check(rqstp, dentry, type);
 	if (error)
 		goto out;
 
@@ -550,7 +558,7 @@ static bool is_root_export(struct svc_export *exp)
 
 static struct super_block *exp_sb(struct svc_export *exp)
 {
-	return d_inode(exp->ex_path.dentry)->i_sb;
+	return exp->ex_path.dentry->d_sb;
 }
 
 static bool fsid_type_ok_for_exp(u8 fsid_type, struct svc_export *exp)
@@ -742,6 +750,7 @@ fh_compose(struct svc_fh *fhp, struct svc_export *exp, struct dentry *dentry,
 	else
 		fsid_type = FSID_DEV;
 	 set_version_and_fsid_type(fhp, exp, ref_fh);
+	set_version_and_fsid_type(fhp, exp, ref_fh);
 
 	if (ref_fh == fhp)
 		fh_put(ref_fh);

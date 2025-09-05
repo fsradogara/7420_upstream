@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/affs/dir.c
  *
@@ -24,6 +25,7 @@ const struct file_operations affs_dir_operations = {
 	.readdir	= affs_readdir,
 	.fsync		= file_fsync,
 	.iterate	= affs_readdir,
+	.iterate_shared	= affs_readdir,
 	.fsync		= affs_file_fsync,
 };
 
@@ -38,7 +40,7 @@ const struct inode_operations affs_dir_inode_operations = {
 	.symlink	= affs_symlink,
 	.mkdir		= affs_mkdir,
 	.rmdir		= affs_rmdir,
-	.rename		= affs_rename,
+	.rename		= affs_rename2,
 	.setattr	= affs_notify_change,
 };
 

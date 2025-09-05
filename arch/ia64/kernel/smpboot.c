@@ -566,6 +566,7 @@ do_rest:
 	task_for_booting_cpu = c_idle.idle;
 
 	cpu_startup_entry(CPUHP_ONLINE);
+	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 	return 0;
 }
 

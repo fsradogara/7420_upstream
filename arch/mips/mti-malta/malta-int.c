@@ -35,6 +35,7 @@
  */
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/irqchip.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
@@ -42,7 +43,7 @@
 #include <linux/smp.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
-#include <linux/irqchip/mips-gic.h>
+#include <linux/of_irq.h>
 #include <linux/kernel_stat.h>
 #include <linux/kernel.h>
 #include <linux/random.h>
@@ -57,6 +58,7 @@
 #include <asm/mips-cm.h>
 #include <asm/mips-boards/malta.h>
 #include <asm/mips-boards/maltaint.h>
+#include <asm/mips-cps.h>
 #include <asm/gt64120.h>
 #include <asm/mips-boards/generic.h>
 #include <asm/mips-boards/msc01_pci.h>
@@ -73,10 +75,6 @@ static unsigned int ipi_map[NR_CPUS];
 static DEFINE_SPINLOCK(mips_irq_lock);
 #include <asm/setup.h>
 #include <asm/rtlx.h>
-
-static void __iomem *_msc01_biu_base;
-
-static DEFINE_RAW_SPINLOCK(mips_irq_lock);
 
 static inline int mips_pcibios_iack(void)
 {
@@ -523,17 +521,20 @@ void __init arch_init_irq(void)
 	int gic_present, gcmp_present;
 static int msc_nr_eicirqs __initdata = ARRAY_SIZE(msc_eicirqmap);
 
-void __init arch_init_ipiirq(int irq, struct irqaction *action)
-{
-	setup_irq(irq, action);
-	irq_set_handler(irq, handle_percpu_irq);
-}
-
 void __init arch_init_irq(void)
 {
-	int corehi_irq, i8259_irq;
+	int corehi_irq;
 
-	init_i8259_irqs();
+	/*
+	 * Preallocate the i8259's expected virq's here. Since irqchip_init()
+	 * will probe the irqchips in hierarchial order, i8259 is probed last.
+	 * If anything allocates a virq before the i8259 is probed, it will
+	 * be given one of the i8259's expected range and consequently setup
+	 * of the i8259 will fail.
+	 */
+	WARN(irq_alloc_descs(I8259A_IRQ_BASE, I8259A_IRQ_BASE,
+			    16, numa_node_id()) < 0,
+		"Cannot reserve i8259 virqs at IRQ%d\n", I8259A_IRQ_BASE);
 
 	if (!cpu_has_veic)
 		mips_cpu_irq_init();
@@ -564,6 +565,8 @@ void __init arch_init_irq(void)
 	}
 	if (gic_present)
 		pr_debug("GIC present\n");
+	i8259_set_poll(mips_pcibios_iack);
+	irqchip_init();
 
 	switch (mips_revision_sconid) {
 	case MIPS_REVISION_SCON_SOCIT:
@@ -690,7 +693,11 @@ void __init arch_init_irq(void)
 			pr_debug("GIC Enabled\n");
 		}
 		i8259_irq = MIPS_GIC_IRQ_BASE + GIC_INT_I8259A;
+	if (mips_gic_present()) {
 		corehi_irq = MIPS_CPU_IRQ_BASE + MIPSCPU_INT_COREHI;
+	} else if (cpu_has_veic) {
+		set_vi_handler(MSC01E_INT_COREHI, corehi_irqdispatch);
+		corehi_irq = MSC01E_INT_BASE + MSC01E_INT_COREHI;
 	} else {
 #if defined(CONFIG_MIPS_MT_SMP)
 		/* set up ipi interrupts */
@@ -734,9 +741,9 @@ void __init arch_init_irq(void)
 			i8259_irq = MIPS_CPU_IRQ_BASE + MIPSCPU_INT_I8259A;
 			corehi_irq = MIPS_CPU_IRQ_BASE + MIPSCPU_INT_COREHI;
 		}
+		corehi_irq = MIPS_CPU_IRQ_BASE + MIPSCPU_INT_COREHI;
 	}
 
-	setup_irq(i8259_irq, &i8259irq);
 	setup_irq(corehi_irq, &corehi_irqaction);
 }
 

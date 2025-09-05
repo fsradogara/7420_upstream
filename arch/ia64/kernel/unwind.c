@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 1999-2004 Hewlett-Packard Co
  *	David Mosberger-Tang <davidm@hpl.hp.com>
@@ -43,6 +44,7 @@
 #include <asm/sections.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "entry.h"
 #include "unwind_i.h"

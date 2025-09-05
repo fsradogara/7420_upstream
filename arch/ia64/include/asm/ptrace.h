@@ -1,6 +1,7 @@
 #ifndef _ASM_IA64_PTRACE_H
 #define _ASM_IA64_PTRACE_H
 
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 1998-2004 Hewlett-Packard Co
  *	David Mosberger-Tang <davidm@hpl.hp.com>

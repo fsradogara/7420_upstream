@@ -23,16 +23,15 @@
 #include <linux/platform_device.h>
 #include <linux/mv643xx_eth.h>
 #include <linux/ata_platform.h>
-#include <linux/m48t86.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/timeriomem-rng.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
-#include <mach/orion5x.h>
 #include "common.h"
 #include "mpp.h"
+#include "orion5x.h"
 #include "ts78xx-fpga.h"
 
 /*****************************************************************************
@@ -169,31 +168,19 @@ static struct platform_device ts78xx_rtc_device = {
 		.platform_data	= &ts78xx_rtc_ops,
 #define TS_RTC_CTRL	(TS78XX_FPGA_REGS_VIRT_BASE + 0x808)
 #define TS_RTC_DATA	(TS78XX_FPGA_REGS_VIRT_BASE + 0x80c)
+#define TS_RTC_CTRL	(TS78XX_FPGA_REGS_PHYS_BASE + 0x808)
+#define TS_RTC_DATA	(TS78XX_FPGA_REGS_PHYS_BASE + 0x80c)
 
-static unsigned char ts78xx_ts_rtc_readbyte(unsigned long addr)
-{
-	writeb(addr, TS_RTC_CTRL);
-	return readb(TS_RTC_DATA);
-}
-
-static void ts78xx_ts_rtc_writebyte(unsigned char value, unsigned long addr)
-{
-	writeb(addr, TS_RTC_CTRL);
-	writeb(value, TS_RTC_DATA);
-}
-
-static struct m48t86_ops ts78xx_ts_rtc_ops = {
-	.readbyte	= ts78xx_ts_rtc_readbyte,
-	.writebyte	= ts78xx_ts_rtc_writebyte,
+static struct resource ts78xx_ts_rtc_resources[] = {
+	DEFINE_RES_MEM(TS_RTC_CTRL, 0x01),
+	DEFINE_RES_MEM(TS_RTC_DATA, 0x01),
 };
 
 static struct platform_device ts78xx_ts_rtc_device = {
 	.name		= "rtc-m48t86",
 	.id		= -1,
-	.dev		= {
-		.platform_data	= &ts78xx_ts_rtc_ops,
-	},
-	.num_resources	= 0,
+	.resource	= ts78xx_ts_rtc_resources,
+	.num_resources 	= ARRAY_SIZE(ts78xx_ts_rtc_resources),
 };
 
 /*
@@ -263,37 +250,20 @@ static void __init ts78xx_print_board_id(void)
 static int ts78xx_ts_rtc_load(void)
 {
 	int rc;
-	unsigned char tmp_rtc0, tmp_rtc1;
 
-	tmp_rtc0 = ts78xx_ts_rtc_readbyte(126);
-	tmp_rtc1 = ts78xx_ts_rtc_readbyte(127);
-
-	ts78xx_ts_rtc_writebyte(0x00, 126);
-	ts78xx_ts_rtc_writebyte(0x55, 127);
-	if (ts78xx_ts_rtc_readbyte(127) == 0x55) {
-		ts78xx_ts_rtc_writebyte(0xaa, 127);
-		if (ts78xx_ts_rtc_readbyte(127) == 0xaa
-				&& ts78xx_ts_rtc_readbyte(126) == 0x00) {
-			ts78xx_ts_rtc_writebyte(tmp_rtc0, 126);
-			ts78xx_ts_rtc_writebyte(tmp_rtc1, 127);
-
-			if (ts78xx_fpga.supports.ts_rtc.init == 0) {
-				rc = platform_device_register(&ts78xx_ts_rtc_device);
-				if (!rc)
-					ts78xx_fpga.supports.ts_rtc.init = 1;
-			} else
-				rc = platform_device_add(&ts78xx_ts_rtc_device);
-
-			if (rc)
-				pr_info("RTC could not be registered: %d\n",
-					rc);
-			return rc;
-		}
+	if (ts78xx_fpga.supports.ts_rtc.init == 0) {
+		rc = platform_device_register(&ts78xx_ts_rtc_device);
+		if (!rc)
+			ts78xx_fpga.supports.ts_rtc.init = 1;
+	} else {
+		rc = platform_device_add(&ts78xx_ts_rtc_device);
 	}
 
-	pr_info("RTC not found\n");
-	return -ENODEV;
-};
+	if (rc)
+		pr_info("RTC could not be registered: %d\n", rc);
+
+	return rc;
+}
 
 static void ts78xx_ts_rtc_unload(void)
 {
@@ -317,7 +287,7 @@ static void ts78xx_ts_rtc_unload(void)
 static void ts78xx_ts_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 			unsigned int ctrl)
 {
-	struct nand_chip *this = mtd->priv;
+	struct nand_chip *this = mtd_to_nand(mtd);
 
 	if (ctrl & NAND_CTRL_CHANGE) {
 		unsigned char bits;
@@ -341,7 +311,7 @@ static int ts78xx_ts_nand_dev_ready(struct mtd_info *mtd)
 static void ts78xx_ts_nand_write_buf(struct mtd_info *mtd,
 			const uint8_t *buf, int len)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	void __iomem *io_base = chip->IO_ADDR_W;
 	unsigned long off = ((unsigned long)buf & 3);
 	int sz;
@@ -368,7 +338,7 @@ static void ts78xx_ts_nand_write_buf(struct mtd_info *mtd,
 static void ts78xx_ts_nand_read_buf(struct mtd_info *mtd,
 			uint8_t *buf, int len)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	void __iomem *io_base = chip->IO_ADDR_R;
 	unsigned long off = ((unsigned long)buf & 3);
 	int sz;
@@ -804,6 +774,7 @@ MACHINE_START(TS78XX, "Technologic Systems TS-78xx SBC")
 	.init_irq	= orion5x_init_irq,
 	.timer		= &orion5x_timer,
 	.atag_offset	= 0x100,
+	.nr_irqs	= ORION5X_NR_IRQS,
 	.init_machine	= ts78xx_init,
 	.map_io		= ts78xx_map_io,
 	.init_early	= orion5x_init_early,

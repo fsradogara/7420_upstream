@@ -22,8 +22,8 @@
 #include <asm/mach/pci.h>
 #include <plat/pcie.h>
 #include <plat/addr-map.h>
-#include <mach/orion5x.h>
 #include "common.h"
+#include "orion5x.h"
 
 /*****************************************************************************
  * Orion has one PCIe controller and one PCI controller.
@@ -642,7 +642,7 @@ int __init orion5x_pci_sys_setup(int nr, struct pci_sys_data *sys)
 	return 0;
 }
 
-struct pci_bus __init *orion5x_pci_sys_scan_bus(int nr, struct pci_sys_data *sys)
+int __init orion5x_pci_sys_scan_bus(int nr, struct pci_host_bridge *bridge)
 {
 	struct pci_bus *bus;
 
@@ -662,13 +662,25 @@ int __init orion5x_pci_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 	if (nr == 0)
 		return pci_scan_root_bus(NULL, sys->busnr, &pcie_ops, sys,
 					 &sys->resources);
+	struct pci_sys_data *sys = pci_host_bridge_priv(bridge);
 
-	if (nr == 1 && !orion5x_pci_disabled)
-		return pci_scan_root_bus(NULL, sys->busnr, &pci_ops, sys,
-					 &sys->resources);
+	list_splice_init(&sys->resources, &bridge->windows);
+	bridge->dev.parent = NULL;
+	bridge->sysdata = sys;
+	bridge->busnr = sys->busnr;
+
+	if (nr == 0) {
+		bridge->ops = &pcie_ops;
+		return pci_scan_root_bus_bridge(bridge);
+	}
+
+	if (nr == 1 && !orion5x_pci_disabled) {
+		bridge->ops = &pci_ops;
+		return pci_scan_root_bus_bridge(bridge);
+	}
 
 	BUG();
-	return NULL;
+	return -ENODEV;
 }
 
 int __init orion5x_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)

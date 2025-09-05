@@ -24,7 +24,7 @@
 #include <linux/syscalls.h>
 #include <linux/tty.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define MIN_MAP_ADDR	PAGE_SIZE	/* minimum fixed mmap address */
 

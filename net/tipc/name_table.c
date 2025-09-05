@@ -62,15 +62,10 @@ static int tipc_nametbl_size = 1024;		/* must be a power of 2 */
 #include "subscr.h"
 #include "bcast.h"
 #include "addr.h"
+#include "node.h"
 #include <net/genetlink.h>
 
 #define TIPC_NAMETBL_SIZE 1024		/* must be a power of 2 */
-
-static const struct nla_policy
-tipc_nl_name_table_policy[TIPC_NLA_NAME_TABLE_MAX + 1] = {
-	[TIPC_NLA_NAME_TABLE_UNSPEC]	= { .type = NLA_UNSPEC },
-	[TIPC_NLA_NAME_TABLE_PUBL]	= { .type = NLA_NESTED }
-};
 
 /**
  * struct name_info - name sequence publication info
@@ -716,7 +711,11 @@ static void tipc_nameseq_subscribe(struct name_seq *nseq,
 				   struct tipc_subscription *s)
 {
 	struct sub_seq *sseq = nseq->sseqs;
+	struct tipc_name_seq ns;
 
+	tipc_subscrp_convert_seq(&s->evt.s.seq, s->swap, &ns);
+
+	tipc_subscrp_get(s);
 	list_add(&s->nameseq_list, &nseq->subscriptions);
 
 	if (!sseq)
@@ -740,6 +739,7 @@ static void tipc_nameseq_subscribe(struct name_seq *nseq,
 				crs = crs->zone_list_next;
 			} while (crs != zl);
 		if (tipc_subscrp_check_overlap(s, sseq->lower, sseq->upper)) {
+		if (tipc_subscrp_check_overlap(&ns, sseq->lower, sseq->upper)) {
 			struct publication *crs;
 			struct name_info *info = sseq->info;
 			int must_report = 1;
@@ -1063,7 +1063,7 @@ not_found:
 int tipc_nametbl_mc_translate(u32 type, u32 lower, u32 upper, u32 limit,
 			      struct port_list *dports)
 int tipc_nametbl_mc_translate(struct net *net, u32 type, u32 lower, u32 upper,
-			      u32 limit, struct tipc_plist *dports)
+			      u32 limit, struct list_head *dports)
 {
 	struct name_seq *seq;
 	struct sub_seq *sseq;
@@ -1155,7 +1155,7 @@ struct publication *tipc_nametbl_publish(u32 type, u32 lower, u32 upper,
 		info = sseq->info;
 		list_for_each_entry(publ, &info->node_list, node_list) {
 			if (publ->scope <= limit)
-				tipc_plist_push(dports, publ->ref);
+				u32_push(dports, publ->ref);
 		}
 
 		if (info->cluster_list_size != info->node_list_size)
@@ -1165,6 +1165,39 @@ struct publication *tipc_nametbl_publish(u32 type, u32 lower, u32 upper,
 exit:
 	rcu_read_unlock();
 	return res;
+}
+
+/* tipc_nametbl_lookup_dst_nodes - find broadcast destination nodes
+ * - Creates list of nodes that overlap the given multicast address
+ * - Determines if any node local ports overlap
+ */
+void tipc_nametbl_lookup_dst_nodes(struct net *net, u32 type, u32 lower,
+				   u32 upper, u32 domain,
+				   struct tipc_nlist *nodes)
+{
+	struct sub_seq *sseq, *stop;
+	struct publication *publ;
+	struct name_info *info;
+	struct name_seq *seq;
+
+	rcu_read_lock();
+	seq = nametbl_find_seq(net, type);
+	if (!seq)
+		goto exit;
+
+	spin_lock_bh(&seq->lock);
+	sseq = seq->sseqs + nameseq_locate_subseq(seq, lower);
+	stop = seq->sseqs + seq->first_free;
+	for (; sseq->lower <= upper && sseq != stop; sseq++) {
+		info = sseq->info;
+		list_for_each_entry(publ, &info->zone_list, zone_list) {
+			if (tipc_in_scope(domain, publ->node))
+				tipc_nlist_add(nodes, publ->node);
+		}
+	}
+	spin_unlock_bh(&seq->lock);
+exit:
+	rcu_read_unlock();
 }
 
 /*
@@ -1197,7 +1230,7 @@ struct publication *tipc_nametbl_publish(struct net *net, u32 type, u32 lower,
 	spin_unlock_bh(&tn->nametbl_lock);
 
 	if (buf)
-		named_cluster_distribute(net, buf);
+		tipc_node_broadcast(net, buf);
 	return publ;
 }
 
@@ -1250,7 +1283,7 @@ int tipc_nametbl_withdraw(struct net *net, u32 type, u32 lower, u32 ref,
 	spin_unlock_bh(&tn->nametbl_lock);
 
 	if (skb) {
-		named_cluster_distribute(net, skb);
+		tipc_node_broadcast(net, skb);
 		return 1;
 	}
 	return 0;
@@ -1284,9 +1317,10 @@ void tipc_nametbl_subscribe(struct subscription *s)
 void tipc_nametbl_subscribe(struct tipc_subscription *s)
 {
 	struct tipc_net *tn = net_generic(s->net, tipc_net_id);
-	u32 type = s->seq.type;
+	u32 type = tipc_subscrp_convert_seq_type(s->evt.s.seq.type, s->swap);
 	int index = hash(type);
 	struct name_seq *seq;
+	struct tipc_name_seq ns;
 
 	spin_lock_bh(&tn->nametbl_lock);
 	seq = nametbl_find_seq(s->net, type);
@@ -1297,8 +1331,9 @@ void tipc_nametbl_subscribe(struct tipc_subscription *s)
 		tipc_nameseq_subscribe(seq, s);
 		spin_unlock_bh(&seq->lock);
 	} else {
+		tipc_subscrp_convert_seq(&s->evt.s.seq, s->swap, &ns);
 		pr_warn("Failed to create subscription for {%u,%u,%u}\n",
-			s->seq.type, s->seq.lower, s->seq.upper);
+			ns.type, ns.lower, ns.upper);
 	}
 	spin_unlock_bh(&tn->nametbl_lock);
 }
@@ -1564,12 +1599,14 @@ void tipc_nametbl_unsubscribe(struct tipc_subscription *s)
 {
 	struct tipc_net *tn = net_generic(s->net, tipc_net_id);
 	struct name_seq *seq;
+	u32 type = tipc_subscrp_convert_seq_type(s->evt.s.seq.type, s->swap);
 
 	spin_lock_bh(&tn->nametbl_lock);
-	seq = nametbl_find_seq(s->net, s->seq.type);
+	seq = nametbl_find_seq(s->net, type);
 	if (seq != NULL) {
 		spin_lock_bh(&seq->lock);
 		list_del_init(&s->nameseq_list);
+		tipc_subscrp_put(s);
 		if (!seq->first_free && list_empty(&seq->subscriptions)) {
 			hlist_del_init_rcu(&seq->ns_list);
 			kfree(seq->sseqs);
@@ -1838,40 +1875,79 @@ int tipc_nl_name_table_dump(struct sk_buff *skb, struct netlink_callback *cb)
 	return skb->len;
 }
 
-void tipc_plist_push(struct tipc_plist *pl, u32 port)
+bool u32_find(struct list_head *l, u32 value)
 {
-	struct tipc_plist *nl;
+	struct u32_item *item;
 
-	if (likely(!pl->port)) {
-		pl->port = port;
-		return;
+	list_for_each_entry(item, l, list) {
+		if (item->value == value)
+			return true;
 	}
-	if (pl->port == port)
-		return;
-	list_for_each_entry(nl, &pl->list, list) {
-		if (nl->port == port)
-			return;
+	return false;
+}
+
+bool u32_push(struct list_head *l, u32 value)
+{
+	struct u32_item *item;
+
+	list_for_each_entry(item, l, list) {
+		if (item->value == value)
+			return false;
 	}
-	nl = kmalloc(sizeof(*nl), GFP_ATOMIC);
-	if (nl) {
-		nl->port = port;
-		list_add(&nl->list, &pl->list);
+	item = kmalloc(sizeof(*item), GFP_ATOMIC);
+	if (unlikely(!item))
+		return false;
+
+	item->value = value;
+	list_add(&item->list, l);
+	return true;
+}
+
+u32 u32_pop(struct list_head *l)
+{
+	struct u32_item *item;
+	u32 value = 0;
+
+	if (list_empty(l))
+		return 0;
+	item = list_first_entry(l, typeof(*item), list);
+	value = item->value;
+	list_del(&item->list);
+	kfree(item);
+	return value;
+}
+
+bool u32_del(struct list_head *l, u32 value)
+{
+	struct u32_item *item, *tmp;
+
+	list_for_each_entry_safe(item, tmp, l, list) {
+		if (item->value != value)
+			continue;
+		list_del(&item->list);
+		kfree(item);
+		return true;
+	}
+	return false;
+}
+
+void u32_list_purge(struct list_head *l)
+{
+	struct u32_item *item, *tmp;
+
+	list_for_each_entry_safe(item, tmp, l, list) {
+		list_del(&item->list);
+		kfree(item);
 	}
 }
 
-u32 tipc_plist_pop(struct tipc_plist *pl)
+int u32_list_len(struct list_head *l)
 {
-	struct tipc_plist *nl;
-	u32 port = 0;
+	struct u32_item *item;
+	int i = 0;
 
-	if (likely(list_empty(&pl->list))) {
-		port = pl->port;
-		pl->port = 0;
-		return port;
+	list_for_each_entry(item, l, list) {
+		i++;
 	}
-	nl = list_first_entry(&pl->list, typeof(*nl), list);
-	port = nl->port;
-	list_del(&nl->list);
-	kfree(nl);
-	return port;
+	return i;
 }

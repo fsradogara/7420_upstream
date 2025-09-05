@@ -316,6 +316,7 @@ static void st5481B_mode(struct st5481_bcs *bcs, int mode)
 
 		// Disable B channel FIFOs
 		st5481_usb_device_ctrl_msg(adapter, OUT_B1_COUNTER+(bcs->channel*2), 0, NULL, NULL);
+		// Disable B channel interrupts
 		st5481_usb_device_ctrl_msg(adapter, FFMSK_B1+(bcs->channel * 2), 0, NULL, NULL);
 
 		// Disable B channel FIFOs

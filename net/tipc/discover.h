@@ -58,7 +58,7 @@ int  disc_create_link(const struct tipc_link_create *argv);
 struct tipc_link_req;
 
 int tipc_disc_create(struct net *net, struct tipc_bearer *b_ptr,
-		     struct tipc_media_addr *dest);
+		     struct tipc_media_addr *dest, struct sk_buff **skb);
 void tipc_disc_delete(struct tipc_link_req *req);
 void tipc_disc_reset(struct net *net, struct tipc_bearer *b_ptr);
 void tipc_disc_add_dest(struct tipc_link_req *req);

@@ -404,7 +404,7 @@ static void vt1724_midi_output_drain(struct snd_rawmidi_substream *s)
 	} while (time_after(timeout, jiffies));
 }
 
-static struct snd_rawmidi_ops vt1724_midi_output_ops = {
+static const struct snd_rawmidi_ops vt1724_midi_output_ops = {
 	.open = vt1724_midi_output_open,
 	.close = vt1724_midi_output_close,
 	.trigger = vt1724_midi_output_trigger,
@@ -439,7 +439,7 @@ static void vt1724_midi_input_trigger(struct snd_rawmidi_substream *s, int up)
 	spin_unlock_irqrestore(&ice->reg_lock, flags);
 }
 
-static struct snd_rawmidi_ops vt1724_midi_input_ops = {
+static const struct snd_rawmidi_ops vt1724_midi_input_ops = {
 	.open = vt1724_midi_input_open,
 	.close = vt1724_midi_input_close,
 	.trigger = vt1724_midi_input_trigger,
@@ -582,25 +582,25 @@ static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
  *  PCM code - professional part (multitrack)
  */
 
-static unsigned int rates[] = {
+static const unsigned int rates[] = {
 	8000, 9600, 11025, 12000, 16000, 22050, 24000,
 	32000, 44100, 48000, 64000, 88200, 96000,
 	176400, 192000,
 };
 
-static struct snd_pcm_hw_constraint_list hw_constraints_rates_96 = {
+static const struct snd_pcm_hw_constraint_list hw_constraints_rates_96 = {
 	.count = ARRAY_SIZE(rates) - 2, /* up to 96000 */
 	.list = rates,
 	.mask = 0,
 };
 
-static struct snd_pcm_hw_constraint_list hw_constraints_rates_48 = {
+static const struct snd_pcm_hw_constraint_list hw_constraints_rates_48 = {
 	.count = ARRAY_SIZE(rates) - 5, /* up to 48000 */
 	.list = rates,
 	.mask = 0,
 };
 
-static struct snd_pcm_hw_constraint_list hw_constraints_rates_192 = {
+static const struct snd_pcm_hw_constraint_list hw_constraints_rates_192 = {
 	.count = ARRAY_SIZE(rates),
 	.list = rates,
 	.mask = 0,
@@ -681,9 +681,7 @@ static const unsigned int stdclock_rate_list[16] = {
 
 static unsigned int stdclock_get_rate(struct snd_ice1712 *ice)
 {
-	unsigned int rate;
-	rate = stdclock_rate_list[inb(ICEMT1724(ice, RATE)) & 15];
-	return rate;
+	return stdclock_rate_list[inb(ICEMT1724(ice, RATE)) & 15];
 }
 
 static void stdclock_set_rate(struct snd_ice1712 *ice, unsigned int rate)
@@ -1213,7 +1211,7 @@ static int snd_vt1724_capture_pro_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static struct snd_pcm_ops snd_vt1724_playback_pro_ops = {
+static const struct snd_pcm_ops snd_vt1724_playback_pro_ops = {
 	.open =		snd_vt1724_playback_pro_open,
 	.close =	snd_vt1724_playback_pro_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1224,7 +1222,7 @@ static struct snd_pcm_ops snd_vt1724_playback_pro_ops = {
 	.pointer =	snd_vt1724_playback_pro_pointer,
 };
 
-static struct snd_pcm_ops snd_vt1724_capture_pro_ops = {
+static const struct snd_pcm_ops snd_vt1724_capture_pro_ops = {
 	.open =		snd_vt1724_capture_pro_open,
 	.close =	snd_vt1724_capture_pro_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1414,7 +1412,7 @@ static int snd_vt1724_capture_spdif_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static struct snd_pcm_ops snd_vt1724_playback_spdif_ops = {
+static const struct snd_pcm_ops snd_vt1724_playback_spdif_ops = {
 	.open =		snd_vt1724_playback_spdif_open,
 	.close =	snd_vt1724_playback_spdif_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1425,7 +1423,7 @@ static struct snd_pcm_ops snd_vt1724_playback_spdif_ops = {
 	.pointer =	snd_vt1724_pcm_pointer,
 };
 
-static struct snd_pcm_ops snd_vt1724_capture_spdif_ops = {
+static const struct snd_pcm_ops snd_vt1724_capture_spdif_ops = {
 	.open =		snd_vt1724_capture_spdif_open,
 	.close =	snd_vt1724_capture_spdif_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1563,7 +1561,7 @@ static int snd_vt1724_playback_indep_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static struct snd_pcm_ops snd_vt1724_playback_indep_ops = {
+static const struct snd_pcm_ops snd_vt1724_playback_indep_ops = {
 	.open =		snd_vt1724_playback_indep_open,
 	.close =	snd_vt1724_playback_indep_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1748,6 +1746,7 @@ static int snd_vt1724_eeprom_get(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new snd_vt1724_eeprom __devinitdata = {
 static struct snd_kcontrol_new snd_vt1724_eeprom = {
+static const struct snd_kcontrol_new snd_vt1724_eeprom = {
 	.iface = SNDRV_CTL_ELEM_IFACE_CARD,
 	.name = "ICE1724 EEPROM",
 	.access = SNDRV_CTL_ELEM_ACCESS_READ,
@@ -1867,7 +1866,7 @@ static struct snd_kcontrol_new snd_vt1724_spdif_default __devinitdata =
 	return val != old;
 }
 
-static struct snd_kcontrol_new snd_vt1724_spdif_default =
+static const struct snd_kcontrol_new snd_vt1724_spdif_default =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =         SNDRV_CTL_NAME_IEC958("", PLAYBACK, DEFAULT),
@@ -1905,6 +1904,7 @@ static struct snd_kcontrol_new snd_vt1724_spdif_maskc __devinitdata =
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =         SNDRV_CTL_NAME_IEC958("",PLAYBACK,CON_MASK),
 static struct snd_kcontrol_new snd_vt1724_spdif_maskc =
+static const struct snd_kcontrol_new snd_vt1724_spdif_maskc =
 {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ,
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
@@ -1919,6 +1919,7 @@ static struct snd_kcontrol_new snd_vt1724_spdif_maskp __devinitdata =
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =         SNDRV_CTL_NAME_IEC958("",PLAYBACK,PRO_MASK),
 static struct snd_kcontrol_new snd_vt1724_spdif_maskp =
+static const struct snd_kcontrol_new snd_vt1724_spdif_maskp =
 {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ,
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
@@ -1962,6 +1963,7 @@ static struct snd_kcontrol_new snd_vt1724_spdif_switch __devinitdata =
 	// .name =         SNDRV_CTL_NAME_IEC958("",PLAYBACK,SWITCH),
 	.name =         SNDRV_CTL_NAME_IEC958("Output ",NONE,SWITCH),
 static struct snd_kcontrol_new snd_vt1724_spdif_switch =
+static const struct snd_kcontrol_new snd_vt1724_spdif_switch =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	/* FIXME: the following conflict with IEC958 Playback Route */
@@ -2165,6 +2167,7 @@ static int snd_vt1724_pro_internal_clock_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new snd_vt1724_pro_internal_clock __devinitdata = {
 static struct snd_kcontrol_new snd_vt1724_pro_internal_clock = {
+static const struct snd_kcontrol_new snd_vt1724_pro_internal_clock = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Multi Track Internal Clock",
 	.info = snd_vt1724_pro_internal_clock_info,
@@ -2197,6 +2200,7 @@ static int snd_vt1724_pro_rate_locking_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new snd_vt1724_pro_rate_locking __devinitdata = {
 static struct snd_kcontrol_new snd_vt1724_pro_rate_locking = {
+static const struct snd_kcontrol_new snd_vt1724_pro_rate_locking = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Multi Track Rate Locking",
 	.info = snd_vt1724_pro_rate_locking_info,
@@ -2229,6 +2233,7 @@ static int snd_vt1724_pro_rate_reset_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new snd_vt1724_pro_rate_reset __devinitdata = {
 static struct snd_kcontrol_new snd_vt1724_pro_rate_reset = {
+static const struct snd_kcontrol_new snd_vt1724_pro_rate_reset = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Multi Track Rate Reset",
 	.info = snd_vt1724_pro_rate_reset_info,
@@ -2365,7 +2370,7 @@ static struct snd_kcontrol_new snd_vt1724_mixer_pro_analog_route __devinitdata =
 					 digital_route_shift(idx));
 }
 
-static struct snd_kcontrol_new snd_vt1724_mixer_pro_analog_route =
+static const struct snd_kcontrol_new snd_vt1724_mixer_pro_analog_route =
 {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "H/W Playback Route",
@@ -2378,6 +2383,7 @@ static struct snd_kcontrol_new snd_vt1724_mixer_pro_spdif_route __devinitdata = 
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = SNDRV_CTL_NAME_IEC958("",PLAYBACK,NONE) "Route",
 static struct snd_kcontrol_new snd_vt1724_mixer_pro_spdif_route = {
+static const struct snd_kcontrol_new snd_vt1724_mixer_pro_spdif_route = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = SNDRV_CTL_NAME_IEC958("", PLAYBACK, NONE) "Route",
 	.info = snd_vt1724_pro_route_info,
@@ -2417,6 +2423,7 @@ static int snd_vt1724_pro_peak_get(struct snd_kcontrol *kcontrol,
 static struct snd_kcontrol_new snd_vt1724_mixer_pro_peak __devinitdata = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 static struct snd_kcontrol_new snd_vt1724_mixer_pro_peak = {
+static const struct snd_kcontrol_new snd_vt1724_mixer_pro_peak = {
 	.iface = SNDRV_CTL_ELEM_IFACE_PCM,
 	.name = "Multi Track Peak",
 	.access = SNDRV_CTL_ELEM_ACCESS_READ | SNDRV_CTL_ELEM_ACCESS_VOLATILE,

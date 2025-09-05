@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * dir.c
  *
@@ -20,7 +21,7 @@ static int efs_readdir(struct file *, struct dir_context *);
 const struct file_operations efs_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate	= efs_readdir,
+	.iterate_shared	= efs_readdir,
 };
 
 const struct inode_operations efs_dir_inode_operations = {
@@ -171,4 +172,3 @@ out:
 	ctx->pos = (block << EFS_DIRBSIZE_BITS) | slot;
 	return 0;
 }
-

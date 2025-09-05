@@ -39,6 +39,7 @@
 	strb	r2, [r1, r0, lsr #3]
 	restore_irqs ip
 	mov	pc, lr
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <asm/assembler.h>
 #include <asm/unwind.h>
 

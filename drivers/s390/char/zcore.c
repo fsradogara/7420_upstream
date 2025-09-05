@@ -19,6 +19,7 @@
 #include <asm/sigp.h>
  * Copyright IBM Corp. 2003, 2008
  * Author(s): Michael Holzheu
+ * License: GPL
  */
 
 #define KMSG_COMPONENT "zdump"
@@ -26,16 +27,14 @@
 
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/miscdevice.h>
 #include <linux/debugfs.h>
-#include <linux/module.h>
 #include <linux/memblock.h>
 
 #include <asm/asm-offsets.h>
 #include <asm/ipl.h>
 #include <asm/sclp.h>
 #include <asm/setup.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/debug.h>
 #include <asm/processor.h>
 #include <asm/irqflags.h>
@@ -48,13 +47,12 @@
 #define TO_USER		0
 #define TO_KERNEL	1
 #include <asm/checksum.h>
+#include <asm/os_info.h>
 #include <asm/switch_to.h>
 #include "sclp.h"
 
 #define TRACE(x...) debug_sprintf_event(zcore_dbf, 1, x)
 
-#define TO_USER		1
-#define TO_KERNEL	0
 #define CHUNK_INFO_SIZE	34 /* 2 16-byte char, each followed by blank */
 
 enum arch_id {
@@ -86,50 +84,73 @@ struct ipib_info {
 	u32		checksum;
 }  __attribute__((packed));
 
-static struct sys_info sys_info;
 static struct debug_info *zcore_dbf;
 static int hsa_available;
 static struct dentry *zcore_dir;
-static struct dentry *zcore_file;
 static struct dentry *zcore_memmap_file;
 static struct dentry *zcore_reipl_file;
 static struct dentry *zcore_hsa_file;
 static struct ipl_parameter_block *ipl_block;
 
+static char hsa_buf[PAGE_SIZE] __aligned(PAGE_SIZE);
+
 /*
- * Copy memory from HSA to kernel or user memory (not reentrant):
+ * Copy memory from HSA to user memory (not reentrant):
+ *
+ * @dest:  User buffer where memory should be copied to
+ * @src:   Start address within HSA where data should be copied
+ * @count: Size of buffer, which should be copied
+ */
+int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count)
+{
+	unsigned long offset, bytes;
+
+	if (!hsa_available)
+		return -ENODATA;
+
+	while (count) {
+		if (sclp_sdias_copy(hsa_buf, src / PAGE_SIZE + 2, 1)) {
+			TRACE("sclp_sdias_copy() failed\n");
+			return -EIO;
+		}
+		offset = src % PAGE_SIZE;
+		bytes = min(PAGE_SIZE - offset, count);
+		if (copy_to_user(dest, hsa_buf + offset, bytes))
+			return -EFAULT;
+		src += bytes;
+		dest += bytes;
+		count -= bytes;
+	}
+	return 0;
+}
+
+/*
+ * Copy memory from HSA to kernel memory (not reentrant):
  *
  * @dest:  Kernel or user buffer where memory should be copied to
  * @src:   Start address within HSA where data should be copied
  * @count: Size of buffer, which should be copied
- * @mode:  Either TO_KERNEL or TO_USER
  */
 static int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
 int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
+int memcpy_hsa_kernel(void *dest, unsigned long src, size_t count)
 {
-	int offs, blk_num;
-	static char buf[PAGE_SIZE] __attribute__((__aligned__(PAGE_SIZE)));
+	unsigned long offset, bytes;
 
 	if (!hsa_available)
 		return -ENODATA;
-	if (count == 0)
-		return 0;
 
-	/* copy first block */
-	offs = 0;
-	if ((src % PAGE_SIZE) != 0) {
-		blk_num = src / PAGE_SIZE + 2;
-		if (sclp_sdias_copy(buf, blk_num, 1)) {
+	while (count) {
+		if (sclp_sdias_copy(hsa_buf, src / PAGE_SIZE + 2, 1)) {
 			TRACE("sclp_sdias_copy() failed\n");
 			return -EIO;
 		}
-		offs = min((PAGE_SIZE - (src % PAGE_SIZE)), count);
-		if (mode == TO_USER) {
-			if (copy_to_user((__force __user void*) dest,
-					 buf + (src % PAGE_SIZE), offs))
-				return -EFAULT;
-		} else
-			memcpy(dest, buf + (src % PAGE_SIZE), offs);
+		offset = src % PAGE_SIZE;
+		bytes = min(PAGE_SIZE - offset, count);
+		memcpy(dest, hsa_buf + offset, bytes);
+		src += bytes;
+		dest += bytes;
+		count -= bytes;
 	}
 	if (offs == count)
 		goto out;
@@ -168,7 +189,7 @@ out:
 	return 0;
 }
 
-static int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count)
+static int __init init_cpu_info(void)
 {
 	return memcpy_hsa((void __force *) dest, src, count, TO_USER);
 }
@@ -290,16 +311,14 @@ static int __init init_cpu_info(enum arch_id arch)
 static int __init init_cpu_info(enum arch_id arch)
 {
 	struct save_area_ext *sa_ext;
+	struct save_area *sa;
 
 	/* get info for boot cpu from lowcore, stored in the HSA */
-
-	sa_ext = dump_save_areas.areas[0];
-	if (!sa_ext)
+	sa = save_area_boot_cpu();
+	if (!sa)
 		return -ENOMEM;
-	if (memcpy_hsa_kernel(&sa_ext->sa, sys_info.sa_base,
-			      sys_info.sa_size) < 0) {
+	if (memcpy_hsa_kernel(hsa_buf, __LC_FPREGS_SAVE_AREA, 512) < 0) {
 		TRACE("could not copy from HSA\n");
-		kfree(sa_ext);
 		return -EIO;
 	}
 	if (MACHINE_HAS_VX)
@@ -437,6 +456,7 @@ next:
 		if (copy_lc(buf + buf_off, save_area, sa_off, len))
 			return -EFAULT;
 	}
+	save_area_add_regs(sa, hsa_buf); /* vx registers are saved in smp.c */
 	return 0;
 }
 
@@ -674,7 +694,7 @@ static ssize_t zcore_reipl_write(struct file *filp, const char __user *buf,
 {
 	if (ipl_block) {
 		diag308(DIAG308_SET, ipl_block);
-		diag308(DIAG308_IPL, NULL);
+		diag308(DIAG308_LOAD_CLEAR, NULL);
 	}
 	return count;
 }
@@ -907,7 +927,7 @@ static int __init zcore_reipl_init(void)
 		rc = memcpy_hsa_kernel(ipl_block, ipib_info.ipib, PAGE_SIZE);
 	else
 		rc = memcpy_real(ipl_block, (void *) ipib_info.ipib, PAGE_SIZE);
-	if (rc || csum_partial(ipl_block, ipl_block->hdr.len, 0) !=
+	if (rc || (__force u32)csum_partial(ipl_block, ipl_block->hdr.len, 0) !=
 	    ipib_info.checksum) {
 		TRACE("Checksum does not match\n");
 		free_page((unsigned long) ipl_block);
@@ -927,7 +947,6 @@ static int __init zcore_init(void)
 	unsigned char arch;
 	int rc;
 
-	mem_size = mem_end = 0;
 	if (ipl_info.type != IPL_TYPE_FCP_DUMP)
 		return -ENODATA;
 	if (OLDMEM_BASE)
@@ -974,14 +993,10 @@ static int __init zcore_init(void)
 		goto fail;
 	}
 
-	rc = get_mem_info(&mem_size, &mem_end);
+	pr_alert("The dump process started for a 64-bit operating system\n");
+	rc = init_cpu_info();
 	if (rc)
 		goto fail;
-
-	rc = sys_info_init(arch, mem_end);
-	if (rc)
-		goto fail;
-	zcore_header_init(arch, &zcore_header, mem_size);
 
 	rc = zcore_reipl_init();
 	if (rc)
@@ -992,17 +1007,11 @@ static int __init zcore_init(void)
 		rc = -ENOMEM;
 		goto fail;
 	}
-	zcore_file = debugfs_create_file("mem", S_IRUSR, zcore_dir, NULL,
-					 &zcore_fops);
-	if (!zcore_file) {
-		rc = -ENOMEM;
-		goto fail_dir;
-	}
 	zcore_memmap_file = debugfs_create_file("memmap", S_IRUSR, zcore_dir,
 						NULL, &zcore_memmap_fops);
 	if (!zcore_memmap_file) {
 		rc = -ENOMEM;
-		goto fail_file;
+		goto fail_dir;
 	}
 	hsa_available = 1;
 	return 0;
@@ -1025,8 +1034,6 @@ fail_reipl_file:
 	debugfs_remove(zcore_reipl_file);
 fail_memmap_file:
 	debugfs_remove(zcore_memmap_file);
-fail_file:
-	debugfs_remove(zcore_file);
 fail_dir:
 	debugfs_remove(zcore_dir);
 fail:
@@ -1056,4 +1063,3 @@ MODULE_DESCRIPTION("zcore module for zfcpdump support");
 MODULE_LICENSE("GPL");
 
 subsys_initcall(zcore_init);
-module_exit(zcore_exit);

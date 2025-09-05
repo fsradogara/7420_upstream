@@ -27,7 +27,7 @@
 #include <linux/sched_clock.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/mach/irq.h>
 #include <asm/mach/time.h>
 #include <mach/time.h>
@@ -79,7 +79,7 @@ iop_timer_interrupt(int irq, void *dev_id)
 /*
  * IOP clocksource (free-running timer 1).
  */
-static cycle_t notrace iop_clocksource_read(struct clocksource *unused)
+static u64 notrace iop_clocksource_read(struct clocksource *unused)
 {
 	return 0xffffffffu - read_tcr1();
 }

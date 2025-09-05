@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _SPARC_PGALLOC_H
 #define _SPARC_PGALLOC_H
 
@@ -85,9 +86,9 @@ BTFIXUPDEF_CALL(void, pte_free, pgtable_t )
 #define __pte_free_tlb(tlb, pte)	pte_free((tlb)->mm, pte)
 static inline void pgd_set(pgd_t * pgdp, pmd_t * pmdp)
 {
-	unsigned long pa = __nocache_pa((unsigned long)pmdp);
+	unsigned long pa = __nocache_pa(pmdp);
 
-	set_pte((pte_t *)pgdp, (SRMMU_ET_PTD | (pa >> 4)));
+	set_pte((pte_t *)pgdp, __pte((SRMMU_ET_PTD | (pa >> 4))));
 }
 
 #define pgd_populate(MM, PGD, PMD)      pgd_set(PGD, PMD)

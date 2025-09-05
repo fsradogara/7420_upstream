@@ -29,7 +29,7 @@
  * So we play the same trick that "mkdep" played before. We replace
  * the dependency on linux/autoconf.h by a dependency on every config
  * the dependency on autoconf.h by a dependency on every config
- * option which is mentioned in any of the listed prequisites.
+ * option which is mentioned in any of the listed prerequisites.
  *
  * kconfig populates a tree in include/config/ with an empty file
  * for each config symbol and when the configuration is updated
@@ -38,7 +38,7 @@
  * the config symbols are rebuilt.
  *
  * So if the user changes his CONFIG_HIS_DRIVER option, only the objects
- * which depend on "include/linux/config/his/driver.h" will be rebuilt,
+ * which depend on "include/config/his/driver.h" will be rebuilt,
  * so most likely only his driver ;-)
  *
  * The idea above dates, by the way, back to Michael E Chastain, AFAIK.
@@ -80,15 +80,14 @@
  * process filtering out the dependency on linux/autoconf.h and adding
  * process filtering out the dependency on autoconf.h and adding
  * dependencies on include/config/my/option.h for every
- * CONFIG_MY_OPTION encountered in any of the prequisites.
+ * CONFIG_MY_OPTION encountered in any of the prerequisites.
  *
  * It will also filter out all the dependencies on *.ver. We need
  * to make sure that the generated version checksum are globally up
  * to date before even starting the recursive build, so it's too late
  * at this point anyway.
  *
- * The algorithm to grep for "CONFIG_..." is bit unusual, but should
- * be fast ;-) We don't even try to really parse the header files, but
+ * We don't even try to really parse the header files, but
  * merely grep, i.e. if CONFIG_FOO is mentioned in a comment, it will
  * be picked up as well. It's not a problem with respect to
  * correctness, since that can only give too many dependencies, thus
@@ -120,11 +119,7 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-#define INT_CONF ntohl(0x434f4e46)
-#define INT_ONFI ntohl(0x4f4e4649)
-#define INT_NFIG ntohl(0x4e464947)
-#define INT_FIG_ ntohl(0x4649475f)
-
+int insert_extra_deps;
 char *target;
 char *depfile;
 char *cmdline;
@@ -133,7 +128,8 @@ void usage(void)
 
 static void usage(void)
 {
-	fprintf(stderr, "Usage: fixdep <depfile> <target> <cmdline>\n");
+	fprintf(stderr, "Usage: fixdep [-e] <depfile> <target> <cmdline>\n");
+	fprintf(stderr, " -e  insert extra dependencies given on stdin\n");
 	exit(1);
 }
 
@@ -178,6 +174,40 @@ int is_defined_config(const char * name, int len)
 		if (pconfig[ -1] == '\n'
 		&&  pconfig[len] == '\n'
 		&&  !memcmp(pconfig, name, len))
+/*
+ * Print out a dependency path from a symbol name
+ */
+static void print_config(const char *m, int slen)
+{
+	int c, i;
+
+	printf("    $(wildcard include/config/");
+	for (i = 0; i < slen; i++) {
+		c = m[i];
+		if (c == '_')
+			c = '/';
+		else
+			c = tolower(c);
+		putchar(c);
+	}
+	printf(".h) \\\n");
+}
+
+static void do_extra_deps(void)
+{
+	if (insert_extra_deps) {
+		char buf[80];
+		while(fgets(buf, sizeof(buf), stdin)) {
+			int len = strlen(buf);
+			if (len < 2 || buf[len-1] != '\n') {
+				fprintf(stderr, "fixdep: bad data on stdin\n");
+				exit(1);
+			}
+			print_config(buf, len-1);
+		}
+	}
+}
+
 struct item {
 	struct item	*next;
 	unsigned int	len;
@@ -280,31 +310,17 @@ void parse_config_file(char *map, size_t len)
 static void use_config(const char *m, int slen)
 {
 	unsigned int hash = strhash(m, slen);
-	int c, i;
 
 	if (is_defined_config(m, slen, hash))
 	    return;
 
 	define_config(m, slen, hash);
-
-	printf("    $(wildcard include/config/");
-	for (i = 0; i < slen; i++) {
-		c = m[i];
-		if (c == '_')
-			c = '/';
-		else
-			c = tolower(c);
-		putchar(c);
-	}
-	printf(".h) \\\n");
+	print_config(m, slen);
 }
 
-static void parse_config_file(const char *map, size_t len)
+static void parse_config_file(const char *p)
 {
-	const int *end = (const int *) (map + len);
-	/* start at +1, so that p can never be < map */
-	const int *m   = (const int *) map + 1;
-	const char *p, *q;
+	const char *q, *r;
 
 	for (; m < end; m++) {
 		if (*m == INT_CONF) { p = (char *) m  ; goto conf; }
@@ -340,6 +356,23 @@ static void parse_config_file(const char *map, size_t len)
 /* test is s ends in sub */
 int strrcmp(char *s, char *sub)
 static int strrcmp(char *s, char *sub)
+	while ((p = strstr(p, "CONFIG_"))) {
+		p += 7;
+		q = p;
+		while (*q && (isalnum(*q) || *q == '_'))
+			q++;
+		if (memcmp(q - 7, "_MODULE", 7) == 0)
+			r = q - 7;
+		else
+			r = q;
+		if (r > p)
+			use_config(p, r - p);
+		p = q;
+	}
+}
+
+/* test if s ends in sub */
+static int strrcmp(const char *s, const char *sub)
 {
 	int slen = strlen(s);
 	int sublen = strlen(sub);
@@ -355,7 +388,7 @@ static void do_config_file(const char *filename)
 {
 	struct stat st;
 	int fd;
-	void *map;
+	char *map;
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
@@ -364,23 +397,32 @@ static void do_config_file(const char *filename)
 		perror(filename);
 		exit(2);
 	}
-	fstat(fd, &st);
+	if (fstat(fd, &st) < 0) {
+		fprintf(stderr, "fixdep: error fstat'ing config file: ");
+		perror(filename);
+		exit(2);
+	}
 	if (st.st_size == 0) {
 		close(fd);
 		return;
 	}
-	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if ((long) map == -1) {
-		perror("fixdep: mmap");
+	map = malloc(st.st_size + 1);
+	if (!map) {
+		perror("fixdep: malloc");
 		close(fd);
 		return;
 	}
-
-	parse_config_file(map, st.st_size);
-
-	munmap(map, st.st_size);
-
+	if (read(fd, map, st.st_size) != st.st_size) {
+		perror("fixdep: read");
+		close(fd);
+		return;
+	}
+	map[st.st_size] = '\0';
 	close(fd);
+
+	parse_config_file(map);
+
+	free(map);
 }
 
 void parse_dep_file(void *map, size_t len)
@@ -450,6 +492,7 @@ static void parse_dep_file(void *map, size_t len)
 
 			/* Ignore certain dependencies */
 			if (strrcmp(s, "include/generated/autoconf.h") &&
+			    strrcmp(s, "include/generated/autoksyms.h") &&
 			    strrcmp(s, "arch/um/include/uml-config.h") &&
 			    strrcmp(s, "include/linux/kconfig.h") &&
 			    strrcmp(s, ".ver")) {
@@ -494,6 +537,8 @@ static void parse_dep_file(void *map, size_t len)
 		fprintf(stderr, "fixdep: parse error; no targets found\n");
 		exit(1);
 	}
+
+	do_extra_deps();
 
 	printf("\n%s: $(deps_%s)\n\n", target, target);
 	printf("$(deps_%s):\n", target);
@@ -562,9 +607,10 @@ static void traps(void)
 
 int main(int argc, char *argv[])
 {
-	traps();
-
-	if (argc != 4)
+	if (argc == 5 && !strcmp(argv[1], "-e")) {
+		insert_extra_deps = 1;
+		argv++;
+	} else if (argc != 4)
 		usage();
 
 	depfile = argv[1];

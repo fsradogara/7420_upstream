@@ -91,6 +91,7 @@ static int raw_ioctl(struct net_device *dev, struct ifreq *ifr)
 		memcpy(hdlc->state, &new_settings, size);
 		dev->hard_start_xmit = hdlc->xmit;
 		dev->type = ARPHRD_RAWHDLC;
+		call_netdevice_notifiers(NETDEV_POST_TYPE_CHANGE, dev);
 		netif_dormant_off(dev);
 		return 0;
 	}

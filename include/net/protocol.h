@@ -60,7 +60,8 @@ struct inet6_protocol
 
 /* This is used to register protocols. */
 struct net_protocol {
-	void			(*early_demux)(struct sk_buff *skb);
+	int			(*early_demux)(struct sk_buff *skb);
+	int			(*early_demux_handler)(struct sk_buff *skb);
 	int			(*handler)(struct sk_buff *skb);
 	void			(*err_handler)(struct sk_buff *skb, u32 info);
 	unsigned int		no_policy:1,
@@ -75,7 +76,7 @@ struct net_protocol {
 #if IS_ENABLED(CONFIG_IPV6)
 struct inet6_protocol {
 	void	(*early_demux)(struct sk_buff *skb);
-
+	void    (*early_demux_handler)(struct sk_buff *skb);
 	int	(*handler)(struct sk_buff *skb);
 
 	void	(*err_handler)(struct sk_buff *skb,
@@ -148,11 +149,12 @@ extern int	inet6_register_protosw(struct inet_protosw *p);
 extern void	inet6_unregister_protosw(struct inet_protosw *p);
 #endif
 extern const struct net_protocol __rcu *inet_protos[MAX_INET_PROTOS];
+extern struct net_protocol __rcu *inet_protos[MAX_INET_PROTOS];
 extern const struct net_offload __rcu *inet_offloads[MAX_INET_PROTOS];
 extern const struct net_offload __rcu *inet6_offloads[MAX_INET_PROTOS];
 
 #if IS_ENABLED(CONFIG_IPV6)
-extern const struct inet6_protocol __rcu *inet6_protos[MAX_INET_PROTOS];
+extern struct inet6_protocol __rcu *inet6_protos[MAX_INET_PROTOS];
 #endif
 
 int inet_add_protocol(const struct net_protocol *prot, unsigned char num);
@@ -161,9 +163,6 @@ int inet_add_offload(const struct net_offload *prot, unsigned char num);
 int inet_del_offload(const struct net_offload *prot, unsigned char num);
 void inet_register_protosw(struct inet_protosw *p);
 void inet_unregister_protosw(struct inet_protosw *p);
-
-int  udp_add_offload(struct udp_offload *prot);
-void udp_del_offload(struct udp_offload *prot);
 
 #if IS_ENABLED(CONFIG_IPV6)
 int inet6_add_protocol(const struct inet6_protocol *prot, unsigned char num);

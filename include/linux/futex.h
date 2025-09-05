@@ -1,14 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_FUTEX_H
 #define _LINUX_FUTEX_H
 
 #include <linux/compiler.h>
 #include <linux/types.h>
+#include <linux/ktime.h>
 #include <uapi/linux/futex.h>
 
 struct inode;
 struct mm_struct;
 struct task_struct;
-union ktime;
 
 /* Second argument to futex syscall */
 
@@ -124,6 +125,7 @@ struct robust_list_head {
 
 #ifdef __KERNEL__
 long do_futex(u32 __user *uaddr, int op, u32 val, union ktime *timeout,
+long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 	      u32 __user *uaddr2, u32 val2, u32 val3);
 
 extern int
@@ -173,7 +175,6 @@ extern int futex_cmpxchg_enabled;
 
 #ifdef CONFIG_FUTEX
 extern void exit_robust_list(struct task_struct *curr);
-extern void exit_pi_state_list(struct task_struct *curr);
 #ifdef CONFIG_HAVE_FUTEX_CMPXCHG
 #define futex_cmpxchg_enabled 1
 #else
@@ -183,6 +184,11 @@ extern int futex_cmpxchg_enabled;
 static inline void exit_robust_list(struct task_struct *curr)
 {
 }
+#endif
+
+#ifdef CONFIG_FUTEX_PI
+extern void exit_pi_state_list(struct task_struct *curr);
+#else
 static inline void exit_pi_state_list(struct task_struct *curr)
 {
 }

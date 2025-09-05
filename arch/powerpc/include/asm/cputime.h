@@ -25,12 +25,14 @@
 static inline void setup_cputime_one_jiffy(void) { }
 #endif
 #else
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 
 #include <linux/types.h>
 #include <linux/time.h>
 #include <asm/div64.h>
 #include <asm/time.h>
 #include <asm/param.h>
+#include <asm/cpu_has_feature.h>
 
 typedef u64 cputime_t;
 typedef u64 cputime64_t;
@@ -181,27 +183,10 @@ static inline unsigned long cputime_to_usecs(const cputime_t ct)
 	return mulhdu((__force u64) ct, __cputime_usec_factor);
 }
 
-static inline cputime_t usecs_to_cputime(const unsigned long us)
-{
-	u64 ct;
-	unsigned long sec;
-
-	/* have to be a little careful about overflow */
-	ct = us % 1000000;
-	sec = us / 1000000;
-	if (ct) {
-		ct *= tb_ticks_per_sec;
-		do_div(ct, 1000000);
-	}
-	if (sec)
-		ct += (cputime_t) sec * tb_ticks_per_sec;
-	return (__force cputime_t) ct;
-}
-
-#define usecs_to_cputime64(us)		usecs_to_cputime(us)
-
 /*
- * Convert cputime <-> seconds
+ * PPC64 uses PACA which is task independent for storing accounting data while
+ * PPC32 uses struct thread_info, therefore at task switch the accounting data
+ * has to be populated in the new task
  */
 extern u64 __cputime_sec_factor;
 
@@ -312,7 +297,11 @@ static inline cputime_t clock_t_to_cputime(const unsigned long clk)
 
 #endif /* __KERNEL__ */
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING */
+#ifdef CONFIG_PPC64
 static inline void arch_vtime_task_switch(struct task_struct *tsk) { }
+#else
+void arch_vtime_task_switch(struct task_struct *tsk);
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */

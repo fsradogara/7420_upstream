@@ -55,6 +55,7 @@ struct epoll_event {
 #define _LINUX_EVENTPOLL_H
 
 #include <uapi/linux/eventpoll.h>
+#include <uapi/linux/kcmp.h>
 
 
 /* Forward declarations to avoid compiler errors */
@@ -62,6 +63,10 @@ struct file;
 
 
 #ifdef CONFIG_EPOLL
+
+#ifdef CONFIG_CHECKPOINT_RESTORE
+struct file *get_epoll_tfile_raw_ptr(struct file *file, int tfd, unsigned long toff);
+#endif
 
 /* Used to initialize the epoll bits inside the "struct file" */
 static inline void eventpoll_init_file(struct file *file)

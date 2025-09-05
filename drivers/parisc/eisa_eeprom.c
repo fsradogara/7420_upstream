@@ -27,7 +27,7 @@
 #include <linux/smp_lock.h>
 #include <linux/fs.h>
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/eisa_eeprom.h>
 
 #define 	EISA_EEPROM_MINOR 241

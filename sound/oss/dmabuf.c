@@ -28,6 +28,8 @@
 #include <linux/mm.h>
 #include "sound_config.h"
 #include <linux/gfp.h>
+#include <linux/sched/signal.h>
+
 #include "sound_config.h"
 #include "sleep.h"
 

@@ -391,6 +391,7 @@ void __init ebus_init(void)
 	if (pdev)
 		pci_dev_put(pdev);
 }
+// SPDX-License-Identifier: GPL-2.0
 /* ebus.c: EBUS DMA library code.
  *
  * Copyright (C) 1997  Eddie C. Dost  (ecd@skynet.be)

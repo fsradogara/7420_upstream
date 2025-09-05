@@ -9,6 +9,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/initrd.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/major.h>
@@ -22,8 +23,13 @@
 #include <linux/radix-tree.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
+#ifdef CONFIG_BLK_DEV_RAM_DAX
+#include <linux/pfn_t.h>
+#include <linux/dax.h>
+#include <linux/uio.h>
+#endif
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define SECTOR_SHIFT		9
 #define PAGE_SECTORS_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
@@ -45,6 +51,9 @@ struct brd_device {
 
 	struct request_queue	*brd_queue;
 	struct gendisk		*brd_disk;
+#ifdef CONFIG_BLK_DEV_RAM_DAX
+	struct dax_device	*dax_dev;
+#endif
 	struct list_head	brd_list;
 
 	/*
@@ -147,28 +156,6 @@ static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 	return page;
 }
 
-static void brd_free_page(struct brd_device *brd, sector_t sector)
-{
-	struct page *page;
-	pgoff_t idx;
-
-	spin_lock(&brd->brd_lock);
-	idx = sector >> PAGE_SECTORS_SHIFT;
-	page = radix_tree_delete(&brd->brd_pages, idx);
-	spin_unlock(&brd->brd_lock);
-	if (page)
-		__free_page(page);
-}
-
-static void brd_zero_page(struct brd_device *brd, sector_t sector)
-{
-	struct page *page;
-
-	page = brd_lookup_page(brd, sector);
-	if (page)
-		clear_highpage(page);
-}
-
 /*
  * Free all backing store pages and radix tree. This must only be called when
  * there are no other users of the device.
@@ -228,24 +215,6 @@ static int copy_to_brd_setup(struct brd_device *brd, sector_t sector, size_t n)
 			return -ENOSPC;
 	}
 	return 0;
-}
-
-static void discard_from_brd(struct brd_device *brd,
-			sector_t sector, size_t n)
-{
-	while (n >= PAGE_SIZE) {
-		/*
-		 * Don't want to actually discard pages here because
-		 * re-allocating the pages can result in writeback
-		 * deadlocks under heavy load.
-		 */
-		if (0)
-			brd_free_page(brd, sector);
-		else
-			brd_zero_page(brd, sector);
-		sector += PAGE_SIZE >> SECTOR_SHIFT;
-		n -= PAGE_SIZE;
-	}
 }
 
 /*
@@ -330,13 +299,13 @@ static void copy_from_brd(void *dst, struct brd_device *brd,
  * Process a single bvec of a bio.
  */
 static int brd_do_bvec(struct brd_device *brd, struct page *page,
-			unsigned int len, unsigned int off, int rw,
+			unsigned int len, unsigned int off, bool is_write,
 			sector_t sector)
 {
 	void *mem;
 	int err = 0;
 
-	if (rw != READ) {
+	if (is_write) {
 		err = copy_to_brd_setup(brd, sector, len);
 		if (err)
 			goto out;
@@ -350,7 +319,7 @@ static int brd_do_bvec(struct brd_device *brd, struct page *page,
 		copy_to_brd(brd, mem + off, sector, len);
 	kunmap_atomic(mem, KM_USER0);
 	mem = kmap_atomic(page);
-	if (rw == READ) {
+	if (!is_write) {
 		copy_from_brd(mem + off, brd, sector, len);
 		flush_dcache_page(page);
 	} else {
@@ -378,12 +347,13 @@ static blk_qc_t brd_make_request(struct request_queue *q, struct bio *bio)
 	if (sector + (bio->bi_size >> SECTOR_SHIFT) >
 						get_capacity(bdev->bd_disk))
 		goto out;
+	struct brd_device *brd = bio->bi_disk->private_data;
 	struct bio_vec bvec;
 	sector_t sector;
 	struct bvec_iter iter;
 
 	sector = bio->bi_iter.bi_sector;
-	if (bio_end_sector(bio) > get_capacity(bdev->bd_disk))
+	if (bio_end_sector(bio) > get_capacity(bio->bi_disk))
 		goto io_error;
 
 	if (unlikely(bio->bi_rw & REQ_DISCARD)) {
@@ -408,8 +378,8 @@ static blk_qc_t brd_make_request(struct request_queue *q, struct bio *bio)
 		unsigned int len = bvec.bv_len;
 		int err;
 
-		err = brd_do_bvec(brd, bvec.bv_page, len,
-					bvec.bv_offset, rw, sector);
+		err = brd_do_bvec(brd, bvec.bv_page, len, bvec.bv_offset,
+					op_is_write(bio_op(bio)), sector);
 		if (err)
 			goto io_error;
 		sector += len >> SECTOR_SHIFT;
@@ -432,19 +402,22 @@ io_error:
 }
 
 static int brd_rw_page(struct block_device *bdev, sector_t sector,
-		       struct page *page, int rw)
+		       struct page *page, bool is_write)
 {
 	struct brd_device *brd = bdev->bd_disk->private_data;
-	int err = brd_do_bvec(brd, page, PAGE_CACHE_SIZE, 0, rw, sector);
-	page_endio(page, rw & WRITE, err);
+	int err;
+
+	if (PageTransHuge(page))
+		return -ENOTSUPP;
+	err = brd_do_bvec(brd, page, PAGE_SIZE, 0, is_write, sector);
+	page_endio(page, is_write, err);
 	return err;
 }
 
 #ifdef CONFIG_BLK_DEV_RAM_DAX
-static long brd_direct_access(struct block_device *bdev, sector_t sector,
-			void __pmem **kaddr, unsigned long *pfn)
+static long __brd_direct_access(struct brd_device *brd, pgoff_t pgoff,
+		long nr_pages, void **kaddr, pfn_t *pfn)
 {
-	struct brd_device *brd = bdev->bd_disk->private_data;
 	struct page *page;
 
 	if (!brd)
@@ -469,22 +442,19 @@ static int brd_ioctl(struct inode *inode, struct file *file,
 	int error;
 	struct block_device *bdev = inode->i_bdev;
 	page = brd_insert_page(brd, sector);
+	page = brd_insert_page(brd, (sector_t)pgoff << PAGE_SECTORS_SHIFT);
 	if (!page)
 		return -ENOSPC;
-	*kaddr = (void __pmem *)page_address(page);
-	*pfn = page_to_pfn(page);
+	*kaddr = page_address(page);
+	*pfn = page_to_pfn_t(page);
 
-	return PAGE_SIZE;
+	return 1;
 }
-#else
-#define brd_direct_access NULL
-#endif
 
-static int brd_ioctl(struct block_device *bdev, fmode_t mode,
-			unsigned int cmd, unsigned long arg)
+static long brd_dax_direct_access(struct dax_device *dax_dev,
+		pgoff_t pgoff, long nr_pages, void **kaddr, pfn_t *pfn)
 {
-	int error;
-	struct brd_device *brd = bdev->bd_disk->private_data;
+	struct brd_device *brd = dax_get_private(dax_dev);
 
 	if (cmd != BLKFLSBUF)
 		return -ENOTTY;
@@ -524,11 +494,24 @@ static struct block_device_operations brd_fops = {
 #ifdef CONFIG_BLK_DEV_XIP
 	.direct_access =	brd_direct_access,
 #endif
+	return __brd_direct_access(brd, pgoff, nr_pages, kaddr, pfn);
+}
+
+static size_t brd_dax_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff,
+		void *addr, size_t bytes, struct iov_iter *i)
+{
+	return copy_from_iter(addr, bytes, i);
+}
+
+static const struct dax_operations brd_dax_ops = {
+	.direct_access = brd_dax_direct_access,
+	.copy_from_iter = brd_dax_copy_from_iter,
+};
+#endif
+
 static const struct block_device_operations brd_fops = {
 	.owner =		THIS_MODULE,
 	.rw_page =		brd_rw_page,
-	.ioctl =		brd_ioctl,
-	.direct_access =	brd_direct_access,
 };
 
 /*
@@ -548,8 +531,8 @@ static int rd_nr = CONFIG_BLK_DEV_RAM_COUNT;
 module_param(rd_nr, int, S_IRUGO);
 MODULE_PARM_DESC(rd_nr, "Maximum number of brd devices");
 
-int rd_size = CONFIG_BLK_DEV_RAM_SIZE;
-module_param(rd_size, int, S_IRUGO);
+unsigned long rd_size = CONFIG_BLK_DEV_RAM_SIZE;
+module_param(rd_size, ulong, S_IRUGO);
 MODULE_PARM_DESC(rd_size, "Size of each RAM disk in kbytes.");
 
 static int max_part = 1;
@@ -614,7 +597,6 @@ static struct brd_device *brd_alloc(int i)
 
 	blk_queue_make_request(brd->brd_queue, brd_make_request);
 	blk_queue_max_hw_sectors(brd->brd_queue, 1024);
-	blk_queue_bounce_limit(brd->brd_queue, BLK_BOUNCE_ANY);
 
 	/* This is so fdisk will align partitions on 4k, because of
 	 * direct_access API needing 4k alignment, returning a PFN
@@ -623,12 +605,6 @@ static struct brd_device *brd_alloc(int i)
 	 *  is harmless)
 	 */
 	blk_queue_physical_block_size(brd->brd_queue, PAGE_SIZE);
-
-	brd->brd_queue->limits.discard_granularity = PAGE_SIZE;
-	blk_queue_max_discard_sectors(brd->brd_queue, UINT_MAX);
-	brd->brd_queue->limits.discard_zeroes_data = 1;
-	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, brd->brd_queue);
-
 	disk = brd->brd_disk = alloc_disk(max_part);
 	if (!disk)
 		goto out_free_queue;
@@ -641,8 +617,21 @@ static struct brd_device *brd_alloc(int i)
 	sprintf(disk->disk_name, "ram%d", i);
 	set_capacity(disk, rd_size * 2);
 
+#ifdef CONFIG_BLK_DEV_RAM_DAX
+	queue_flag_set_unlocked(QUEUE_FLAG_DAX, brd->brd_queue);
+	brd->dax_dev = alloc_dax(brd, disk->disk_name, &brd_dax_ops);
+	if (!brd->dax_dev)
+		goto out_free_inode;
+#endif
+
+
 	return brd;
 
+#ifdef CONFIG_BLK_DEV_RAM_DAX
+out_free_inode:
+	kill_dax(brd->dax_dev);
+	put_dax(brd->dax_dev);
+#endif
 out_free_queue:
 	blk_cleanup_queue(brd->brd_queue);
 out_free_dev:
@@ -686,6 +675,10 @@ out:
 static void brd_del_one(struct brd_device *brd)
 {
 	list_del(&brd->brd_list);
+#ifdef CONFIG_BLK_DEV_RAM_DAX
+	kill_dax(brd->dax_dev);
+	put_dax(brd->dax_dev);
+#endif
 	del_gendisk(brd->brd_disk);
 	brd_free(brd);
 }

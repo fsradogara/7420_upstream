@@ -384,12 +384,12 @@ static int cpu_cache_sysfs_init(unsigned int cpu)
 /* Add cache interface for CPU device */
 static int __cpuinit cache_add_dev(struct sys_device * sys_dev)
 static int cache_add_dev(struct device *sys_dev)
+static int cache_add_dev(unsigned int cpu)
 {
-	unsigned int cpu = sys_dev->id;
+	struct device *sys_dev = get_cpu_device(cpu);
 	unsigned long i, j;
 	struct cache_info *this_object;
 	int retval = 0;
-	cpumask_t oldmask;
 
 	if (all_cpu_cache_info[cpu].kobj.parent)
 		return 0;
@@ -403,6 +403,8 @@ static int cache_add_dev(struct device *sys_dev)
 	retval = cpu_cache_sysfs_init(cpu);
 	set_cpus_allowed(current, oldmask);
 	set_cpus_allowed_ptr(current, &oldmask);
+
+	retval = cpu_cache_sysfs_init(cpu);
 	if (unlikely(retval < 0))
 		return retval;
 
@@ -438,8 +440,8 @@ static int cache_add_dev(struct device *sys_dev)
 /* Remove cache interface for CPU device */
 static int __cpuinit cache_remove_dev(struct sys_device * sys_dev)
 static int cache_remove_dev(struct device *sys_dev)
+static int cache_remove_dev(unsigned int cpu)
 {
-	unsigned int cpu = sys_dev->id;
 	unsigned long i;
 
 	for (i = 0; i < all_cpu_cache_info[cpu].num_cache_leaves; i++)
@@ -514,9 +516,13 @@ static int __init cache_sysfs_init(void)
 	__register_hotcpu_notifier(&cache_cpu_notifier);
 
 	cpu_notifier_register_done();
+static int __init cache_sysfs_init(void)
+{
+	int ret;
 
+	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "ia64/topology:online",
+				cache_add_dev, cache_remove_dev);
+	WARN_ON(ret < 0);
 	return 0;
 }
-
 device_initcall(cache_sysfs_init);
-

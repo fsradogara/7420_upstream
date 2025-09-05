@@ -651,13 +651,11 @@ int arch_add_memory(int nid, u64 start, u64 size)
 	pg_data_t *pgdat;
 	unsigned long start_pfn = start >> PAGE_SHIFT;
 int arch_add_memory(int nid, u64 start, u64 size, bool for_device)
+int arch_add_memory(int nid, u64 start, u64 size, bool want_memblock)
 {
-	pg_data_t *pgdat;
 	unsigned long start_pfn = PFN_DOWN(start);
 	unsigned long nr_pages = size >> PAGE_SHIFT;
 	int ret;
-
-	pgdat = NODE_DATA(nid);
 
 	/* We only have ZONE_NORMAL, so this is easy.. */
 	ret = __add_pages(pgdat->node_zones + ZONE_NORMAL, start_pfn, nr_pages);
@@ -665,6 +663,7 @@ int arch_add_memory(int nid, u64 start, u64 size, bool for_device)
 			zone_for_memory(nid, start, size, ZONE_NORMAL,
 			for_device),
 			start_pfn, nr_pages);
+	ret = __add_pages(nid, start_pfn, nr_pages, want_memblock);
 	if (unlikely(ret))
 		printk("%s: Failed, __add_pages() == %d\n", __func__, ret);
 

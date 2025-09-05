@@ -1063,8 +1063,6 @@ struct nes_hw_tune_timer {
 #define NES_TIMER_ENABLE_LIMIT      4
 #define NES_MAX_LINK_INTERRUPTS     128
 #define NES_MAX_LINK_CHECK          200
-#define NES_MAX_LRO_DESCRIPTORS     32
-#define NES_LRO_MAX_AGGR            64
 
 struct nes_adapter {
 	u64              fw_ver;

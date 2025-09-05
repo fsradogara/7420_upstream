@@ -3,8 +3,10 @@
 #include <asm/tlbflush.h>
 
 void *__kmap(struct page *page)
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/compiler.h>
-#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/export.h>
 #include <linux/highmem.h>
 #include <linux/sched.h>
 #include <linux/smp.h>

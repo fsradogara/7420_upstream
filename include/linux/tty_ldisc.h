@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_TTY_LDISC_H
 #define _LINUX_TTY_LDISC_H
 
@@ -108,12 +109,6 @@
  *	buffers of any input characters it may have queued to be
  *	delivered to the user mode process.
  *
- * ssize_t (*chars_in_buffer)(struct tty_struct *tty);
- *
- *	This function returns the number of input characters the line
- *	discipline may have queued up to be delivered to the user mode
- *	process.
- *
  * ssize_t (*read)(struct tty_struct * tty, struct file * file,
  *		   unsigned char * buf, size_t nr);
  *
@@ -186,11 +181,6 @@
  *	cease I/O to the tty driver. Can sleep. The driver should
  *	seek to perform this action quickly but should wait until
  *	any pending driver I/O is completed.
- *
- * void (*fasync)(struct tty_struct *, int on)
- *
- *	Notify line discipline when signal-driven I/O is enabled or
- *	disabled.
  *
  * void (*dcd_change)(struct tty_struct *tty, unsigned int status)
  *
@@ -309,7 +299,6 @@ struct tty_ldisc_ops {
 	struct  module *owner;
 	
 	void	(*dcd_change)(struct tty_struct *, unsigned int);
-	void	(*fasync)(struct tty_struct *tty, int on);
 	int	(*receive_buf2)(struct tty_struct *, const unsigned char *cp,
 				char *fp, int count);
 

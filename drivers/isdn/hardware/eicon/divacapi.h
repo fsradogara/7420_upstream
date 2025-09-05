@@ -57,6 +57,7 @@
 
 
 
+#include <linux/types.h>
 
 #define IMPLEMENT_DTMF 1
 #define IMPLEMENT_LINE_INTERCONNECT2 1
@@ -484,8 +485,8 @@ struct _PLCI {
 	word          ncci_ring_list;
 	byte          inc_dis_ncci_table[MAX_CHANNELS_PER_PLCI];
 	t_std_internal_command internal_command_queue[MAX_INTERNAL_COMMAND_LEVELS];
-	dword         c_ind_mask_table[C_IND_MASK_DWORDS];
-	dword         group_optimization_mask_table[C_IND_MASK_DWORDS];
+	DECLARE_BITMAP(c_ind_mask_table, MAX_APPL);
+	DECLARE_BITMAP(group_optimization_mask_table, MAX_APPL);
 	byte          RBuffer[200];
 	dword         msg_in_queue[MSG_IN_QUEUE_SIZE/sizeof(dword)];
 	API_SAVE      saved_msg;

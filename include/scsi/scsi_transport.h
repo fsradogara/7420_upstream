@@ -121,4 +121,6 @@ scsi_transport_device_data(struct scsi_device *sdev)
 		+ shost->transportt->device_private_offset;
 }
 
+void __scsi_init_queue(struct Scsi_Host *shost, struct request_queue *q);
+
 #endif /* SCSI_TRANSPORT_H */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/cio/qdio_debug.c
  *
@@ -529,8 +530,6 @@ void qdio_debug_exit(void)
 	qdio_unregister_dbf_views();
 	qdio_clear_dbf_list();
 	debugfs_remove(debugfs_root);
-	if (qdio_dbf_setup)
-		debug_unregister(qdio_dbf_setup);
-	if (qdio_dbf_error)
-		debug_unregister(qdio_dbf_error);
+	debug_unregister(qdio_dbf_setup);
+	debug_unregister(qdio_dbf_error);
 }

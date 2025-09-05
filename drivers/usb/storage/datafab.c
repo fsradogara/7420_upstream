@@ -1,4 +1,5 @@
-/* Driver for Datafab USB Compact Flash reader
+/*
+ * Driver for Datafab USB Compact Flash reader
  *
  * datafab driver v0.1:
  *
@@ -730,9 +731,10 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	}
 
 	if (srb->cmnd[0] == ALLOW_MEDIUM_REMOVAL) {
-		// sure.  whatever.  not like we can stop the user from
-		// popping the media out of the device (no locking doors, etc)
-		//
+		/*
+		 * sure.  whatever.  not like we can stop the user from
+		 * popping the media out of the device (no locking doors, etc)
+		 */
 		return USB_STOR_TRANSPORT_GOOD;
 	}
 
@@ -740,9 +742,15 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 		/* this is used by sd.c'check_scsidisk_media_change to detect
 		   media change */
 		US_DEBUGP("datafab_transport:  START_STOP.\n");
+		/*
+		 * this is used by sd.c'check_scsidisk_media_change to detect
+		 * media change
+		 */
 		usb_stor_dbg(us, "START_STOP\n");
-		/* the first datafab_id_device after a media change returns
-		   an error (determined experimentally) */
+		/*
+		 * the first datafab_id_device after a media change returns
+		 * an error (determined experimentally)
+		 */
 		rc = datafab_id_device(us, info);
 		if (rc == USB_STOR_TRANSPORT_GOOD) {
 			info->sense_key = NO_SENSE;

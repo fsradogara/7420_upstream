@@ -10,7 +10,10 @@
  */
 #include <linux/kernel.h>
 #include <asm/rtc.h>
+#include <linux/irq.h>
+#include <asm/cacheflush.h>
 #include <asm/fpu.h>
+#include <asm/irq.h>
 #include <asm/rtc.h>
 #include <asm/busctl-regs.h>
 

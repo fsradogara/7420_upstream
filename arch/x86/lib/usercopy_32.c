@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * User address space access functions.
  * The non inlined parts of asm-i386/uaccess.h are here.
@@ -5,13 +6,8 @@
  * Copyright 1997 Andi Kleen <ak@muc.de>
  * Copyright 1997 Linus Torvalds
  */
-#include <linux/mm.h>
-#include <linux/highmem.h>
-#include <linux/blkdev.h>
-#include <linux/module.h>
-#include <linux/backing-dev.h>
-#include <linux/interrupt.h>
-#include <asm/uaccess.h>
+#include <linux/export.h>
+#include <linux/uaccess.h>
 #include <asm/mmx.h>
 #include <asm/asm.h>
 
@@ -734,12 +730,8 @@ static unsigned long __copy_user_intel_nocache(void *to,
  * Leave these declared but undefined.  They should not be any references to
  * them
  */
-unsigned long __copy_user_zeroing_intel(void *to, const void __user *from,
-					unsigned long size);
 unsigned long __copy_user_intel(void __user *to, const void *from,
 					unsigned long size);
-unsigned long __copy_user_zeroing_intel_nocache(void *to,
-				const void __user *from, unsigned long size);
 #endif /* CONFIG_X86_INTEL_USERCOPY */
 
 /* Generic arbitrary sized copy.  */
@@ -829,6 +821,7 @@ do {									\
 
 unsigned long __copy_to_user_ll(void __user *to, const void *from,
 				unsigned long n)
+unsigned long __copy_user_ll(void *to, const void *from, unsigned long n)
 {
 #ifndef CONFIG_X86_WP_WORKS_OK
 	if (unlikely(boot_cpu_data.wp_works_ok == 0) &&
@@ -895,58 +888,14 @@ survive:
 	clac();
 	return n;
 }
-EXPORT_SYMBOL(__copy_to_user_ll);
-
-unsigned long __copy_from_user_ll(void *to, const void __user *from,
-					unsigned long n)
-{
-	stac();
-	if (movsl_is_ok(to, from, n))
-		__copy_user_zeroing(to, from, n);
-	else
-		n = __copy_user_zeroing_intel(to, from, n);
-	clac();
-	return n;
-}
-EXPORT_SYMBOL(__copy_from_user_ll);
-
-unsigned long __copy_from_user_ll_nozero(void *to, const void __user *from,
-					 unsigned long n)
-{
-	stac();
-	if (movsl_is_ok(to, from, n))
-		__copy_user(to, from, n);
-	else
-		n = __copy_user_intel((void __user *)to,
-				      (const void *)from, n);
-	clac();
-	return n;
-}
-EXPORT_SYMBOL(__copy_from_user_ll_nozero);
-
-unsigned long __copy_from_user_ll_nocache(void *to, const void __user *from,
-					unsigned long n)
-{
-	stac();
-#ifdef CONFIG_X86_INTEL_USERCOPY
-	if (n > 64 && cpu_has_xmm2)
-		n = __copy_user_zeroing_intel_nocache(to, from, n);
-	else
-		__copy_user_zeroing(to, from, n);
-#else
-	__copy_user_zeroing(to, from, n);
-#endif
-	clac();
-	return n;
-}
-EXPORT_SYMBOL(__copy_from_user_ll_nocache);
+EXPORT_SYMBOL(__copy_user_ll);
 
 unsigned long __copy_from_user_ll_nocache_nozero(void *to, const void __user *from,
 					unsigned long n)
 {
 	stac();
 #ifdef CONFIG_X86_INTEL_USERCOPY
-	if (n > 64 && cpu_has_xmm2)
+	if (n > 64 && static_cpu_has(X86_FEATURE_XMM2))
 		n = __copy_user_intel_nocache(to, from, n);
 	else
 		__copy_user(to, from, n);

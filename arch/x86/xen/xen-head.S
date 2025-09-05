@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* Xen-specific pieces of head.S, intended to be included in the right
 	place in head.S */
 
@@ -21,35 +22,22 @@
 #include <xen/interface/xen-mca.h>
 #include <asm/xen/interface.h>
 
-#ifdef CONFIG_XEN_PVH
-#define PVH_FEATURES_STR  "|writable_descriptor_tables|auto_translated_physmap|supervisor_mode_kernel"
-/* Note the lack of 'hvm_callback_vector'. Older hypervisor will
- * balk at this being part of XEN_ELFNOTE_FEATURES, so we put it in
- * XEN_ELFNOTE_SUPPORTED_FEATURES which older hypervisors will ignore.
- */
-#define PVH_FEATURES ((1 << XENFEAT_writable_page_tables) | \
-		      (1 << XENFEAT_auto_translated_physmap) | \
-		      (1 << XENFEAT_supervisor_mode_kernel) | \
-		      (1 << XENFEAT_hvm_callback_vector))
-/* The XENFEAT_writable_page_tables is not stricly neccessary as we set that
- * up regardless whether this CONFIG option is enabled or not, but it
- * clarifies what the right flags need to be.
- */
-#else
-#define PVH_FEATURES_STR  ""
-#define PVH_FEATURES (0)
-#endif
-
+#ifdef CONFIG_XEN_PV
 	__INIT
 ENTRY(startup_xen)
 	cld
-#ifdef CONFIG_X86_32
-	mov %esi,xen_start_info
-	mov $init_thread_union+THREAD_SIZE,%esp
-#else
-	mov %rsi,xen_start_info
-	mov $init_thread_union+THREAD_SIZE,%rsp
-#endif
+
+	/* Clear .bss */
+	xor %eax,%eax
+	mov $__bss_start, %_ASM_DI
+	mov $__bss_stop, %_ASM_CX
+	sub %_ASM_DI, %_ASM_CX
+	shr $__ASM_SEL(2, 3), %_ASM_CX
+	rep __ASM_SIZE(stos)
+
+	mov %_ASM_SI, xen_start_info
+	mov $init_thread_union+THREAD_SIZE, %_ASM_SP
+
 	jmp xen_start_kernel
 
 	__FINIT
@@ -89,9 +77,6 @@ ENTRY(xen_pvh_early_cpu_init)
 	cmp     $0, %r11b
 	jne     cpu_bringup_and_idle
 #endif
-	ret
-
-#endif /* CONFIG_XEN_PVH */
 
 .pushsection .text
 	.balign PAGE_SIZE
@@ -118,14 +103,16 @@ ENTRY(hypercall_page)
 	ELFNOTE(Xen, XEN_ELFNOTE_HYPERCALL_PAGE, _ASM_PTR hypercall_page)
 	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .asciz "!writable_page_tables|pae_pgdir_above_4gb")
 	/* Map the p2m table to a 512GB-aligned user address. */
-	ELFNOTE(Xen, XEN_ELFNOTE_INIT_P2M,       .quad PGDIR_SIZE)
+	ELFNOTE(Xen, XEN_ELFNOTE_INIT_P2M,       .quad (PUD_SIZE * PTRS_PER_PUD))
 #endif
+#ifdef CONFIG_XEN_PV
 	ELFNOTE(Xen, XEN_ELFNOTE_ENTRY,          _ASM_PTR startup_xen)
+#endif
 	ELFNOTE(Xen, XEN_ELFNOTE_HYPERCALL_PAGE, _ASM_PTR hypercall_page)
-	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .ascii "!writable_page_tables|pae_pgdir_above_4gb"; .asciz PVH_FEATURES_STR)
-	ELFNOTE(Xen, XEN_ELFNOTE_SUPPORTED_FEATURES, .long (PVH_FEATURES) |
-						(1 << XENFEAT_writable_page_tables) |
-						(1 << XENFEAT_dom0))
+	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,
+		.ascii "!writable_page_tables|pae_pgdir_above_4gb")
+	ELFNOTE(Xen, XEN_ELFNOTE_SUPPORTED_FEATURES,
+		.long (1 << XENFEAT_writable_page_tables) | (1 << XENFEAT_dom0))
 	ELFNOTE(Xen, XEN_ELFNOTE_PAE_MODE,       .asciz "yes")
 	ELFNOTE(Xen, XEN_ELFNOTE_LOADER,         .asciz "generic")
 	ELFNOTE(Xen, XEN_ELFNOTE_L1_MFN_VALID,

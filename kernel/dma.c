@@ -1,4 +1,5 @@
 /* $Id: dma.c,v 1.7 1994/12/28 03:35:33 root Exp root $
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/kernel/dma.c: A DMA channel allocator. Inspired by linux/kernel/irq.c.
  *

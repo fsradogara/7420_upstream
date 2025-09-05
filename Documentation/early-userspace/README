@@ -87,7 +87,7 @@ the 2.7 era (it missed the boat for 2.5).
 maintained separately from the kernel.
 
 You can obtain somewhat infrequent snapshots of klibc from
-ftp://ftp.kernel.org/pub/linux/libs/klibc/
+https://www.kernel.org/pub/linux/libs/klibc/
 
 For active users, you are better off using the klibc git
 repository, at http://git.kernel.org/?p=libs/klibc/klibc.git

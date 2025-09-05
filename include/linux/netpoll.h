@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Common code for low-level network console, dump, and debugger code
  *
@@ -11,6 +12,7 @@
 #include <linux/interrupt.h>
 #include <linux/rcupdate.h>
 #include <linux/list.h>
+#include <linux/refcount.h>
 
 union inet_addr {
 	__u32		all[4];
@@ -85,6 +87,7 @@ static inline int netpoll_receive_skb(struct sk_buff *skb)
 	return 0;
 }
 
+	refcount_t refcnt;
 
 	struct semaphore dev_lock;
 
@@ -129,8 +132,11 @@ static inline void *netpoll_poll_lock(struct napi_struct *napi)
 
 	rcu_read_lock(); /* deal with race on ->npinfo */
 	if (dev && dev->npinfo) {
-		spin_lock(&napi->poll_lock);
-		napi->poll_owner = smp_processor_id();
+		int owner = smp_processor_id();
+
+		while (cmpxchg(&napi->poll_owner, -1, owner) != -1)
+			cpu_relax();
+
 		return napi;
 	}
 	return NULL;
@@ -161,6 +167,8 @@ static inline int netpoll_receive_skb(struct sk_buff *skb)
 {
 	return 0;
 }
+	if (napi)
+		smp_store_release(&napi->poll_owner, -1);
 }
 
 static inline bool netpoll_tx_running(struct net_device *dev)

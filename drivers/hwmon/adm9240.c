@@ -105,6 +105,8 @@ static inline u8 IN_TO_REG(unsigned long val, int n)
 {
 	return SENSORS_LIMIT(SCALE(val, 192, nom_mv[n]), 0, 255);
 	return clamp_val(SCALE(val, 192, nom_mv[n]), 0, 255);
+	val = clamp_val(val, 0, nom_mv[n] * 255 / 192);
+	return SCALE(val, 192, nom_mv[n]);
 }
 
 /* temperature range: -40..125, 127 disables temperature alarm */
@@ -112,6 +114,8 @@ static inline s8 TEMP_TO_REG(long val)
 {
 	return SENSORS_LIMIT(SCALE(val, 1, 1000), -40, 127);
 	return clamp_val(SCALE(val, 1, 1000), -40, 127);
+	val = clamp_val(val, -40000, 127000);
+	return SCALE(val, 1, 1000);
 }
 
 /* two fans, each with low fan speed limit */
@@ -131,6 +135,8 @@ static inline u8 AOUT_TO_REG(unsigned long val)
 {
 	return SENSORS_LIMIT(SCALE(val, 255, 1250), 0, 255);
 	return clamp_val(SCALE(val, 255, 1250), 0, 255);
+	val = clamp_val(val, 0, 1250);
+	return SCALE(val, 255, 1250);
 }
 
 static inline unsigned int AOUT_FROM_REG(u8 reg)
@@ -234,10 +240,10 @@ static struct adm9240_data *adm9240_update_device(struct device *dev)
 		 * 0.5'C per two measurement cycles thus ignore possible
 		 * but unlikely aliasing error on lsb reading. --Grant
 		 */
-		data->temp = ((i2c_smbus_read_byte_data(client,
+		data->temp = (i2c_smbus_read_byte_data(client,
 					ADM9240_REG_TEMP) << 8) |
 					i2c_smbus_read_byte_data(client,
-					ADM9240_REG_TEMP_CONF)) / 128;
+					ADM9240_REG_TEMP_CONF);
 
 		for (i = 0; i < 2; i++) { /* read fans */
 			data->fan[i] = i2c_smbus_read_byte_data(client,
@@ -299,11 +305,11 @@ static struct adm9240_data *adm9240_update_device(struct device *dev)
 /*** sysfs accessors ***/
 
 /* temperature */
-static ssize_t show_temp(struct device *dev, struct device_attribute *dummy,
-		char *buf)
+static ssize_t temp1_input_show(struct device *dev,
+				struct device_attribute *dummy, char *buf)
 {
 	struct adm9240_data *data = adm9240_update_device(dev);
-	return sprintf(buf, "%d\n", data->temp * 500); /* 9-bit value */
+	return sprintf(buf, "%d\n", data->temp / 128 * 500); /* 9-bit value */
 }
 
 static ssize_t show_max(struct device *dev, struct device_attribute *devattr,
@@ -338,7 +344,7 @@ static ssize_t set_max(struct device *dev, struct device_attribute *devattr,
 	return count;
 }
 
-static DEVICE_ATTR(temp1_input, S_IRUGO, show_temp, NULL);
+static DEVICE_ATTR_RO(temp1_input);
 static SENSOR_DEVICE_ATTR(temp1_max, S_IWUSR | S_IRUGO,
 		show_max, set_max, 0);
 static SENSOR_DEVICE_ATTR(temp1_max_hyst, S_IWUSR | S_IRUGO,
@@ -568,13 +574,13 @@ fan(1);
 fan(2);
 
 /* alarms */
-static ssize_t show_alarms(struct device *dev,
+static ssize_t alarms_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct adm9240_data *data = adm9240_update_device(dev);
 	return sprintf(buf, "%u\n", data->alarms);
 }
-static DEVICE_ATTR(alarms, S_IRUGO, show_alarms, NULL);
+static DEVICE_ATTR_RO(alarms);
 
 static ssize_t show_alarm(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -594,25 +600,25 @@ static SENSOR_DEVICE_ATTR(fan1_alarm, S_IRUGO, show_alarm, NULL, 6);
 static SENSOR_DEVICE_ATTR(fan2_alarm, S_IRUGO, show_alarm, NULL, 7);
 
 /* vid */
-static ssize_t show_vid(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t cpu0_vid_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
 {
 	struct adm9240_data *data = adm9240_update_device(dev);
 	return sprintf(buf, "%d\n", vid_from_reg(data->vid, data->vrm));
 }
-static DEVICE_ATTR(cpu0_vid, S_IRUGO, show_vid, NULL);
+static DEVICE_ATTR_RO(cpu0_vid);
 
 /* analog output */
-static ssize_t show_aout(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t aout_output_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
 {
 	struct adm9240_data *data = adm9240_update_device(dev);
 	return sprintf(buf, "%d\n", AOUT_FROM_REG(data->aout));
 }
 
-static ssize_t set_aout(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t aout_output_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct adm9240_data *data = i2c_get_clientdata(client);
@@ -632,7 +638,7 @@ static ssize_t set_aout(struct device *dev,
 	mutex_unlock(&data->update_lock);
 	return count;
 }
-static DEVICE_ATTR(aout_output, S_IRUGO | S_IWUSR, show_aout, set_aout);
+static DEVICE_ATTR_RW(aout_output);
 
 /* chassis_clear */
 static ssize_t chassis_clear(struct device *dev,

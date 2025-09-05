@@ -323,9 +323,7 @@ struct nes_cm_node {
 	nes_addr_t                loc_addr, rem_addr;
 	u16                       loc_port, rem_port;
 	nes_addr_t                loc_addr, rem_addr;
-	nes_addr_t                mapped_loc_addr, mapped_rem_addr;
 	u16                       loc_port, rem_port;
-	u16                       mapped_loc_port, mapped_rem_port;
 
 	u8                        loc_mac[ETH_ALEN];
 	u8                        rem_mac[ETH_ALEN];
@@ -395,11 +393,6 @@ struct nes_cm_info {
 	u16 rem_port;
 	nes_addr_t loc_addr;
 	nes_addr_t rem_addr;
-	u16 mapped_loc_port;
-	u16 mapped_rem_port;
-	nes_addr_t mapped_loc_addr;
-	nes_addr_t mapped_rem_addr;
-
 	enum nes_cm_conn_type  conn_type;
 	int backlog;
 };
@@ -451,7 +444,7 @@ struct nes_cm_core {
 
 	struct timer_list       tcp_timer;
 
-	struct nes_cm_ops       *api;
+	const struct nes_cm_ops *api;
 
 	int (*post_event)(struct nes_cm_event *event);
 	atomic_t                events_posted;

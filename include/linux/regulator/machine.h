@@ -48,6 +48,13 @@ struct regulator;
  * This describes a regulators state during a system wide low power state.
 #define REGULATOR_CHANGE_BYPASS		0x20
 
+/* Regulator active discharge flags */
+enum regulator_active_discharge {
+	REGULATOR_ACTIVE_DISCHARGE_DEFAULT,
+	REGULATOR_ACTIVE_DISCHARGE_DISABLE,
+	REGULATOR_ACTIVE_DISCHARGE_ENABLE,
+};
+
 /**
  * struct regulator_state - regulator state during low power system states
  *
@@ -64,7 +71,7 @@ struct regulator_state {
 	int uV;	/* suspend voltage */
 	unsigned int mode; /* suspend regulator operating mode */
 	int enabled; /* is regulator enabled in this suspend state */
-	int disabled; /* is the regulator disbled in this suspend state */
+	int disabled; /* is the regulator disabled in this suspend state */
 };
 
 /**
@@ -100,6 +107,7 @@ struct regulation_constraints {
  * @ramp_disable: Disable ramp delay when initialising or when setting voltage.
  * @soft_start: Enable soft start so that voltage ramps slowly.
  * @pull_down: Enable pull down when regulator is disabled.
+ * @over_current_protection: Auto disable on over current event.
  *
  * @input_uV: Input voltage for regulator when supplied by another regulator.
  *
@@ -110,6 +118,15 @@ struct regulation_constraints {
  * @initial_state: Suspend state to set by default.
  * @initial_mode: Mode to set at startup.
  * @ramp_delay: Time to settle down after voltage change (unit: uV/us)
+ * @settling_time: Time to settle down after voltage change when voltage
+ *		   change is non-linear (unit: microseconds).
+ * @settling_time_up: Time to settle down after voltage increase when voltage
+ *		      change is non-linear (unit: microseconds).
+ * @settling_time_down : Time to settle down after voltage decrease when
+ *			 voltage change is non-linear (unit: microseconds).
+ * @active_discharge: Enable/disable active discharge. The enum
+ *		      regulator_active_discharge values are used for
+ *		      initialisation.
  * @enable_time: Turn-on time of the rails (unit: microseconds)
  */
 struct regulation_constraints {
@@ -168,7 +185,12 @@ int regulator_suspend_prepare(suspend_state_t state);
 	unsigned int initial_mode;
 
 	unsigned int ramp_delay;
+	unsigned int settling_time;
+	unsigned int settling_time_up;
+	unsigned int settling_time_down;
 	unsigned int enable_time;
+
+	unsigned int active_discharge;
 
 	/* constraint flags */
 	unsigned always_on:1;	/* regulator never off when system is on */

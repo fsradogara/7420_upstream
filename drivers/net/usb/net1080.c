@@ -337,7 +337,6 @@ static inline void nc_dump_status(struct usbnet *dev, u16 status)
  * TTL register
  */
 
-#define	TTL_THIS(ttl)	(0x00ff & ttl)
 #define	TTL_OTHER(ttl)	(0x00ff & (ttl >> 8))
 #define MK_TTL(this,other)	((u16)(((other)<<8)|(0x00ff&(this))))
 
@@ -411,7 +410,6 @@ static int net1080_reset(struct usbnet *dev)
 		goto done;
 	}
 	ttl = vp;
-	// nc_dump_ttl(dev, ttl);
 
 	nc_register_write(dev, REG_TTL,
 			MK_TTL(NC_READ_TTL_MS, TTL_OTHER(ttl)) );
@@ -680,15 +678,15 @@ net1080_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 
 encapsulate:
 	/* header first */
-	header = (struct nc_header *) skb_push(skb, sizeof *header);
+	header = skb_push(skb, sizeof *header);
 	header->hdr_len = cpu_to_le16(sizeof (*header));
 	header->packet_len = cpu_to_le16(len);
 	header->packet_id = cpu_to_le16((u16)dev->xid++);
 
 	/* maybe pad; then trailer */
 	if (!((skb->len + sizeof *trailer) & 0x01))
-		*skb_put(skb, 1) = PAD_BYTE;
-	trailer = (struct nc_trailer *) skb_put(skb, sizeof *trailer);
+		skb_put_u8(skb, PAD_BYTE);
+	trailer = skb_put(skb, sizeof *trailer);
 	put_unaligned(header->packet_id, &trailer->packet_id);
 #if 0
 	devdbg(dev, "frame >tx h %d p %d id %d",

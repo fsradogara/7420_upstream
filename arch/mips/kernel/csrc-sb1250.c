@@ -42,6 +42,7 @@ static cycle_t sb1250_hpt_read(void)
 
 	count = G_SCD_TIMER_CNT(__raw_readq(IOADDR(A_SCD_TIMER_REGISTER(SB1250_HPT_NUM, R_SCD_TIMER_CNT))));
 static inline cycle_t sb1250_hpt_get_cycles(void)
+static inline u64 sb1250_hpt_get_cycles(void)
 {
 	unsigned int count;
 	void __iomem *addr;
@@ -56,6 +57,7 @@ struct clocksource bcm1250_clocksource = {
 	.name	= "bcm1250-counter-3",
 	.rating	= 200,
 static cycle_t sb1250_hpt_read(struct clocksource *cs)
+static u64 sb1250_hpt_read(struct clocksource *cs)
 {
 	return sb1250_hpt_get_cycles();
 }

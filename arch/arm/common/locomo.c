@@ -198,7 +198,7 @@ static void locomo_handler(unsigned int irq, struct irq_desc *desc)
 				desc_handle_irq(irq, d);
 static void locomo_handler(struct irq_desc *desc)
 {
-	struct locomo *lchip = irq_desc_get_chip_data(desc);
+	struct locomo *lchip = irq_desc_get_handler_data(desc);
 	int req, i;
 
 	/* Acknowledge the parent IRQ */
@@ -579,8 +579,7 @@ static void locomo_setup_irq(struct locomo *lchip)
 		set_irq_handler(irq, handle_edge_irq);
 		set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
 	irq_set_irq_type(lchip->irq, IRQ_TYPE_EDGE_FALLING);
-	irq_set_chip_data(lchip->irq, lchip);
-	irq_set_chained_handler(lchip->irq, locomo_handler);
+	irq_set_chained_handler_and_data(lchip->irq, locomo_handler, lchip);
 
 	/* Install handlers for IRQ_LOCOMO_* */
 	for ( ; irq <= lchip->irq_base + 3; irq++) {

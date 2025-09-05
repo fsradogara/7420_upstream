@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	linux/arch/alpha/kernel/sys_mikasa.c
  *
@@ -183,9 +184,10 @@ mikasa_init_irq(void)
 
 static int __init
 mikasa_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
+static int
 mikasa_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
-	static char irq_tab[8][5] __initdata = {
+	static char irq_tab[8][5] = {
 		/*INT    INTA   INTB   INTC   INTD */
 		{16+12, 16+12, 16+12, 16+12, 16+12},	/* IdSel 17,  SCSI */
 		{   -1,    -1,    -1,    -1,    -1},	/* IdSel 18,  PCEB */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/m32r/kernel/process.c
  *
@@ -28,6 +29,9 @@
 #include <linux/slab.h>
 #include <linux/hardirq.h>
 #include <linux/slab.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/module.h>
 #include <linux/ptrace.h>
 #include <linux/unistd.h>
@@ -35,7 +39,7 @@
 #include <linux/rcupdate.h>
 
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/elf.h>
 #include <asm/m32r.h>

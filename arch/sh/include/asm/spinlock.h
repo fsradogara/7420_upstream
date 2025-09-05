@@ -11,12 +11,12 @@
 #ifndef __ASM_SH_SPINLOCK_H
 #define __ASM_SH_SPINLOCK_H
 
-/*
- * The only locking implemented here uses SH-4A opcodes. For others,
- * split this out as per atomic-*.h.
- */
-#ifndef CONFIG_CPU_SH4A
-#error "Need movli.l/movco.l for spinlocks"
+#if defined(CONFIG_CPU_SH4A)
+#include <asm/spinlock-llsc.h>
+#elif defined(CONFIG_CPU_J2)
+#include <asm/spinlock-cas.h>
+#else
+#error "The configured cpu type does not support spinlocks"
 #endif
 
 /*

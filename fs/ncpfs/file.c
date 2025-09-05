@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  file.c
  *
@@ -10,7 +11,7 @@
 #include <asm/system.h>
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <linux/time.h>
 #include <linux/kernel.h>
@@ -36,7 +37,7 @@ static int ncp_fsync(struct file *file, struct dentry *dentry, int datasync)
 
 static int ncp_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
-	return filemap_write_and_wait_range(file->f_mapping, start, end);
+	return file_write_and_wait_range(file, start, end);
 }
 
 /*
@@ -331,7 +332,7 @@ ncp_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 				      bufsize - (pos % bufsize),
 				      iov_iter_count(from));
 
-		if (copy_from_iter(bouncebuffer, to_write, from) != to_write) {
+		if (!copy_from_iter_full(bouncebuffer, to_write, from)) {
 			errno = -EFAULT;
 			break;
 		}
@@ -370,10 +371,10 @@ ncp_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	iocb->ki_pos = pos;
 
 	if (pos > i_size_read(inode)) {
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		if (pos > i_size_read(inode))
 			i_size_write(inode, pos);
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 	}
 	ncp_dbg(1, "exit %pD2\n", file);
 outrel:

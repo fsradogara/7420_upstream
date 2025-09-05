@@ -132,6 +132,7 @@ typedef struct fstrm_item
 #include "xfs_trans_resv.h"
 #include "xfs_sb.h"
 #include "xfs_mount.h"
+#include "xfs_defer.h"
 #include "xfs_inode.h"
 #include "xfs_bmap.h"
 #include "xfs_bmap_util.h"
@@ -139,6 +140,7 @@ typedef struct fstrm_item
 #include "xfs_mru_cache.h"
 #include "xfs_filestream.h"
 #include "xfs_trace.h"
+#include "xfs_ag_resv.h"
 
 struct xfs_fstrm_item {
 	struct xfs_mru_cache_elem	mru;
@@ -272,7 +274,7 @@ xfs_filestream_pick_ag(
 	xfs_agnumber_t		ag, max_ag = NULLAGNUMBER;
 	int			err, trylock, nscan;
 
-	ASSERT(S_ISDIR(ip->i_d.di_mode));
+	ASSERT(S_ISDIR(VFS_I(ip)->i_mode));
 
 	/* 2% of an AG's blocks must be free for it to be chosen. */
 	minfree = mp->m_sb.sb_agblocks / 50;
@@ -333,7 +335,8 @@ xfs_filestream_pick_ag(
 		          (pag->pagf_flcount > 0 || pag->pagf_longest > 0);
 
 		longest = xfs_alloc_longest_free_extent(mp, pag,
-					xfs_alloc_min_freelist(mp, pag));
+				xfs_alloc_min_freelist(mp, pag),
+				xfs_ag_resv_needed(pag, XFS_AG_RESV_NONE));
 		if (((minlen && longest >= minlen) ||
 		     (!minlen && pag->pagf_freeblks >= minfree)) &&
 		    (!pag->pagf_metadata || !(flags & XFS_PICK_USERDATA) ||
@@ -783,7 +786,7 @@ xfs_filestream_lookup_ag(
 	xfs_agnumber_t		startag, ag = NULLAGNUMBER;
 	struct xfs_mru_cache_elem *mru;
 
-	ASSERT(S_ISREG(ip->i_d.di_mode));
+	ASSERT(S_ISREG(VFS_I(ip)->i_mode));
 
 	pip = xfs_filestream_get_parent(ip);
 	if (!pip)
@@ -1019,7 +1022,8 @@ xfs_filestream_new_ag(
 	struct xfs_mount	*mp = ip->i_mount;
 	xfs_extlen_t		minlen = ap->length;
 	xfs_agnumber_t		startag = 0;
-	int			flags, err = 0;
+	int			flags = 0;
+	int			err = 0;
 	struct xfs_mru_cache_elem *mru;
 
 	*agp = NULLAGNUMBER;
@@ -1035,8 +1039,10 @@ xfs_filestream_new_ag(
 		startag = (item->ag + 1) % mp->m_sb.sb_agcount;
 	}
 
-	flags = (ap->userdata ? XFS_PICK_USERDATA : 0) |
-	        (ap->flist->xbf_low ? XFS_PICK_LOWSPACE : 0);
+	if (xfs_alloc_is_userdata(ap->datatype))
+		flags |= XFS_PICK_USERDATA;
+	if (ap->dfops->dop_low)
+		flags |= XFS_PICK_LOWSPACE;
 
 	err = xfs_filestream_pick_ag(pip, startag, agp, flags, minlen);
 

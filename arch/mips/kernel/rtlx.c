@@ -103,6 +103,8 @@ static irqreturn_t rtlx_interrupt(int irq, void *dev_id)
 #include <linux/syscalls.h>
 #include <linux/moduleloader.h>
 #include <linux/atomic.h>
+#include <linux/sched/signal.h>
+
 #include <asm/mipsmtregs.h>
 #include <asm/mips_mt.h>
 #include <asm/processor.h>

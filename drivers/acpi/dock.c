@@ -26,7 +26,7 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/types.h>
@@ -40,12 +40,7 @@
 
 #include "internal.h"
 
-#define ACPI_DOCK_DRIVER_DESCRIPTION "ACPI Dock Station Driver"
-
 ACPI_MODULE_NAME("dock");
-MODULE_AUTHOR("Kristen Carlson Accardi");
-MODULE_DESCRIPTION(ACPI_DOCK_DRIVER_DESCRIPTION);
-MODULE_LICENSE("GPL");
 
 static int immediate_undock = 1;
 static bool immediate_undock = 1;
@@ -1263,7 +1258,7 @@ static struct attribute *dock_attributes[] = {
 	NULL
 };
 
-static struct attribute_group dock_attribute_group = {
+static const struct attribute_group dock_attribute_group = {
 	.attrs = dock_attributes
 };
 

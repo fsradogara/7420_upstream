@@ -37,6 +37,7 @@
 
 struct mlx4_dev;
 
+#include <net/devlink.h>
 #include <linux/mlx4/device.h>
 
 struct mlx4_dev;
@@ -81,6 +82,11 @@ static inline int mlx4_is_bonded(struct mlx4_dev *dev)
 	return !!(dev->flags & MLX4_FLAG_BONDED);
 }
 
+static inline int mlx4_is_mf_bonded(struct mlx4_dev *dev)
+{
+	return (mlx4_is_bonded(dev) && mlx4_is_mfunc(dev));
+}
+
 struct mlx4_port_map {
 	u8	port1;
 	u8	port2;
@@ -89,6 +95,8 @@ struct mlx4_port_map {
 int mlx4_port_map_set(struct mlx4_dev *dev, struct mlx4_port_map *v2p);
 
 void *mlx4_get_protocol_dev(struct mlx4_dev *dev, enum mlx4_protocol proto, int port);
+
+struct devlink_port *mlx4_get_devlink_port(struct mlx4_dev *dev, int port);
 
 static inline u64 mlx4_mac_to_u64(u8 *addr)
 {
@@ -100,6 +108,16 @@ static inline u64 mlx4_mac_to_u64(u8 *addr)
 		mac |= addr[i];
 	}
 	return mac;
+}
+
+static inline void mlx4_u64_to_mac(u8 *addr, u64 mac)
+{
+	int i;
+
+	for (i = ETH_ALEN; i > 0; i--) {
+		addr[i - 1] = mac & 0xFF;
+		mac >>= 8;
+	}
 }
 
 #endif /* MLX4_DRIVER_H */

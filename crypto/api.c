@@ -22,7 +22,7 @@
 #include <linux/kmod.h>
 #include <linux/module.h>
 #include <linux/param.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include "internal.h"
@@ -239,8 +239,8 @@ struct crypto_alg *crypto_larval_lookup(const char *name, u32 type, u32 mask)
 	if (!name)
 		return ERR_PTR(-ENOENT);
 
+	type &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 	mask &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
-	type &= mask;
 
 	alg = try_then_request_module(crypto_alg_lookup(name, type, mask),
 				      name);
@@ -399,6 +399,8 @@ static void crypto_exit_ops(struct crypto_tfm *tfm)
 	default:
 		BUG();
 	}
+	if (type && tfm->exit)
+		tfm->exit(tfm);
 }
 
 static unsigned int crypto_ctxsize(struct crypto_alg *alg, u32 type, u32 mask)

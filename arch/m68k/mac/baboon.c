@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Baboon Custom IC Management
  *
@@ -139,18 +140,10 @@ int baboon_irq_pending(int irq)
 
 void baboon_irq_enable(int irq)
 {
-#ifdef DEBUG_IRQUSE
-	printk("baboon_irq_enable(%d)\n", irq);
-#endif
-
 	mac_irq_enable(irq_get_irq_data(IRQ_NUBUS_C));
 }
 
 void baboon_irq_disable(int irq)
 {
-#ifdef DEBUG_IRQUSE
-	printk("baboon_irq_disable(%d)\n", irq);
-#endif
-
 	mac_irq_disable(irq_get_irq_data(IRQ_NUBUS_C));
 }

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 
 ifeq ($(CONFIG_PM_DEBUG),y)
 EXTRA_CFLAGS	+=	-DDEBUG
@@ -7,6 +8,8 @@ obj-y				:= main.o
 obj-$(CONFIG_PM_SLEEP)		+= process.o console.o
 obj-$(CONFIG_HIBERNATION)	+= swsusp.o disk.o snapshot.o swap.o user.o
 ccflags-$(CONFIG_PM_DEBUG)	:= -DDEBUG
+
+KASAN_SANITIZE_snapshot.o	:= n
 
 obj-y				+= qos.o
 obj-$(CONFIG_PM)		+= main.o

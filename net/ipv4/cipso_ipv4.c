@@ -386,7 +386,7 @@ static int cipso_v4_cache_check(const unsigned char *key,
 		    entry->key_len == key_len &&
 		    memcmp(entry->key, key, key_len) == 0) {
 			entry->activity += 1;
-			atomic_inc(&entry->lsm_data->refcount);
+			refcount_inc(&entry->lsm_data->refcount);
 			secattr->cache = entry->lsm_data;
 			secattr->flags |= NETLBL_SECATTR_CACHE;
 			secattr->type = NETLBL_NLTYPE_CIPSOV4;
@@ -464,7 +464,7 @@ int cipso_v4_cache_add(const unsigned char *cipso_ptr,
 	}
 	entry->key_len = cipso_ptr_len;
 	entry->hash = cipso_v4_map_cache_hash(cipso_ptr, cipso_ptr_len);
-	atomic_inc(&secattr->cache->refcount);
+	refcount_inc(&secattr->cache->refcount);
 	entry->lsm_data = secattr->cache;
 
 	bkt = entry->hash & (CIPSO_V4_CACHE_BUCKETS - 1);
@@ -510,6 +510,7 @@ static struct cipso_v4_doi *cipso_v4_doi_search(u32 doi)
 	list_for_each_entry_rcu(iter, &cipso_v4_doi_list, list)
 		if (iter->doi == doi && iter->valid)
 		if (iter->doi == doi && atomic_read(&iter->refcount))
+		if (iter->doi == doi && refcount_read(&iter->refcount))
 			return iter;
 	return NULL;
 }
@@ -600,7 +601,7 @@ doi_add_failure:
 		}
 	}
 
-	atomic_set(&doi_def->refcount, 1);
+	refcount_set(&doi_def->refcount, 1);
 
 	spin_lock(&cipso_v4_doi_list_lock);
 	if (cipso_v4_doi_search(doi_def->doi)) {
@@ -743,7 +744,7 @@ int cipso_v4_doi_remove(u32 doi, struct netlbl_audit *audit_info)
 		ret_val = -ENOENT;
 		goto doi_remove_return;
 	}
-	if (!atomic_dec_and_test(&doi_def->refcount)) {
+	if (!refcount_dec_and_test(&doi_def->refcount)) {
 		spin_unlock(&cipso_v4_doi_list_lock);
 		ret_val = -EBUSY;
 		goto doi_remove_return;
@@ -788,7 +789,7 @@ struct cipso_v4_doi *cipso_v4_doi_getdef(u32 doi)
 	doi_def = cipso_v4_doi_search(doi);
 	if (!doi_def)
 		goto doi_getdef_return;
-	if (!atomic_inc_not_zero(&doi_def->refcount))
+	if (!refcount_inc_not_zero(&doi_def->refcount))
 		doi_def = NULL;
 
 doi_getdef_return:
@@ -809,7 +810,7 @@ void cipso_v4_doi_putdef(struct cipso_v4_doi *doi_def)
 	if (!doi_def)
 		return;
 
-	if (!atomic_dec_and_test(&doi_def->refcount))
+	if (!refcount_dec_and_test(&doi_def->refcount))
 		return;
 	spin_lock(&cipso_v4_doi_list_lock);
 	list_del_rcu(&doi_def->list);
@@ -844,6 +845,7 @@ int cipso_v4_doi_walk(u32 *skip_cnt,
 	list_for_each_entry_rcu(iter_doi, &cipso_v4_doi_list, list)
 		if (iter_doi->valid) {
 		if (atomic_read(&iter_doi->refcount) > 0) {
+		if (refcount_read(&iter_doi->refcount) > 0) {
 			if (doi_cnt++ < *skip_cnt)
 				continue;
 			ret_val = callback(iter_doi, cb_arg);
@@ -1066,10 +1068,10 @@ static int cipso_v4_map_cat_rbm_valid(const struct cipso_v4_doi *doi_def,
 		cipso_cat_size = doi_def->map.std->cat.cipso_size;
 		cipso_array = doi_def->map.std->cat.cipso;
 		for (;;) {
-			cat = cipso_v4_bitmap_walk(bitmap,
-						   bitmap_len_bits,
-						   cat + 1,
-						   1);
+			cat = netlbl_bitmap_walk(bitmap,
+						 bitmap_len_bits,
+						 cat + 1,
+						 1);
 			if (cat < 0)
 				break;
 			if (cat >= cipso_cat_size ||
@@ -1139,7 +1141,7 @@ static int cipso_v4_map_cat_rbm_hton(const struct cipso_v4_doi *doi_def,
 		}
 		if (net_spot >= net_clen_bits)
 			return -ENOSPC;
-		cipso_v4_bitmap_setbit(net_cat, net_spot, 1);
+		netlbl_bitmap_setbit(net_cat, net_spot, 1);
 
 		if (net_spot > net_spot_max)
 			net_spot_max = net_spot;
@@ -1182,10 +1184,10 @@ static int cipso_v4_map_cat_rbm_ntoh(const struct cipso_v4_doi *doi_def,
 	}
 
 	for (;;) {
-		net_spot = cipso_v4_bitmap_walk(net_cat,
-						net_clen_bits,
-						net_spot + 1,
-						1);
+		net_spot = netlbl_bitmap_walk(net_cat,
+					      net_clen_bits,
+					      net_spot + 1,
+					      1);
 		if (net_spot < 0) {
 			if (net_spot == -2)
 				return -EFAULT;
@@ -1861,9 +1863,17 @@ unsigned char *cipso_v4_optptr(const struct sk_buff *skb)
 	int taglen;
 
 	for (optlen = iph->ihl*4 - sizeof(struct iphdr); optlen > 0; ) {
-		if (optptr[0] == IPOPT_CIPSO)
+		switch (optptr[0]) {
+		case IPOPT_CIPSO:
 			return optptr;
-		taglen = optptr[1];
+		case IPOPT_END:
+			return NULL;
+		case IPOPT_NOOP:
+			taglen = 1;
+			break;
+		default:
+			taglen = optptr[1];
+		}
 		optlen -= taglen;
 		optptr += taglen;
 	}
@@ -1928,6 +1938,10 @@ int cipso_v4_validate(const struct sk_buff *skb, unsigned char **option)
 				goto validate_return_locked;
 			}
 
+		if (opt_iter + 1 == opt_len) {
+			err_offset = opt_iter;
+			goto validate_return_locked;
+		}
 		tag_len = tag[1];
 		if (tag_len > (opt_len - opt_iter)) {
 			err_offset = opt_iter + 1;
@@ -2275,7 +2289,8 @@ int cipso_v4_sock_setattr(struct sock *sk,
 	opt = xchg(&sk_inet->opt, opt);
 	kfree(opt);
 
-	old = rcu_dereference_protected(sk_inet->inet_opt, sock_owned_by_user(sk));
+	old = rcu_dereference_protected(sk_inet->inet_opt,
+					lockdep_sock_is_held(sk));
 	if (sk_inet->is_icsk) {
 		sk_conn = inet_csk(sk);
 		if (old)
@@ -2350,7 +2365,7 @@ int cipso_v4_req_setattr(struct request_sock *req,
 	buf = NULL;
 
 	req_inet = inet_rsk(req);
-	opt = xchg(&req_inet->opt, opt);
+	opt = xchg((__force struct ip_options_rcu **)&req_inet->ireq_opt, opt);
 	if (opt)
 		kfree_rcu(opt, rcu);
 
@@ -2372,11 +2387,13 @@ req_setattr_failure:
  * values on failure.
  *
  */
-static int cipso_v4_delopt(struct ip_options_rcu **opt_ptr)
+static int cipso_v4_delopt(struct ip_options_rcu __rcu **opt_ptr)
 {
+	struct ip_options_rcu *opt = rcu_dereference_protected(*opt_ptr, 1);
 	int hdr_delta = 0;
-	struct ip_options_rcu *opt = *opt_ptr;
 
+	if (!opt || opt->opt.cipso == 0)
+		return 0;
 	if (opt->opt.srr || opt->opt.rr || opt->opt.ts || opt->opt.router_alert) {
 		u8 cipso_len;
 		u8 cipso_off;
@@ -2438,14 +2455,10 @@ static int cipso_v4_delopt(struct ip_options_rcu **opt_ptr)
  */
 void cipso_v4_sock_delattr(struct sock *sk)
 {
-	int hdr_delta;
-	struct ip_options_rcu *opt;
 	struct inet_sock *sk_inet;
+	int hdr_delta;
 
 	sk_inet = inet_sk(sk);
-	opt = rcu_dereference_protected(sk_inet->inet_opt, 1);
-	if (!opt || opt->opt.cipso == 0)
-		return;
 
 	hdr_delta = cipso_v4_delopt(&sk_inet->inet_opt);
 	if (sk_inet->is_icsk && hdr_delta > 0) {
@@ -2465,15 +2478,7 @@ void cipso_v4_sock_delattr(struct sock *sk)
  */
 void cipso_v4_req_delattr(struct request_sock *req)
 {
-	struct ip_options_rcu *opt;
-	struct inet_request_sock *req_inet;
-
-	req_inet = inet_rsk(req);
-	opt = req_inet->opt;
-	if (!opt || opt->opt.cipso == 0)
-		return;
-
-	cipso_v4_delopt(&req_inet->opt);
+	cipso_v4_delopt(&inet_rsk(req)->ireq_opt);
 }
 
 /**

@@ -106,7 +106,7 @@ static ssize_t path_show(struct pci_slot *pci_slot, char *buf)
 	if (!slot)
 		return retval;
 
-	retval = sprintf (buf, "%s\n", slot->physical_path);
+	retval = sprintf(buf, "%s\n", slot->physical_path);
 	return retval;
 }
 
@@ -342,7 +342,7 @@ static int sn_slot_disable(struct hotplug_slot *bss_hotplug_slot,
 	}
 
 	if ((action == PCI_REQ_SLOT_DISABLE) && rc) {
-		dev_dbg(&slot->pci_bus->self->dev,"remove failed rc = %d\n", rc);
+		dev_dbg(&slot->pci_bus->self->dev, "remove failed rc = %d\n", rc);
 	}
 
 	return rc;
@@ -585,6 +585,7 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
             PCI_CONTROLLER(slot->pci_bus)->acpi_handle) {
 		unsigned long adr;
             PCI_CONTROLLER(slot->pci_bus)->companion) {
+		PCI_CONTROLLER(slot->pci_bus)->companion) {
 		unsigned long long adr;
 		struct acpi_device *device;
 		acpi_handle phandle;

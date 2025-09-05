@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 #  Makefile for the Linux Controller Area Network core.
 #
@@ -11,6 +12,8 @@ can-raw-objs		:= raw.o
 obj-$(CONFIG_CAN_BCM)	+= can-bcm.o
 can-bcm-objs		:= bcm.o
 can-y			:= af_can.o proc.o
+can-y			:= af_can.o
+can-$(CONFIG_PROC_FS)	+= proc.o
 
 obj-$(CONFIG_CAN_RAW)	+= can-raw.o
 can-raw-y		:= raw.o

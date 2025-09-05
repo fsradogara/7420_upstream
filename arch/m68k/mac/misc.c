@@ -1,10 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Miscellaneous Mac68K-specific stuff
  */
 
 #include <linux/types.h>
 #include <linux/errno.h>
-#include <linux/miscdevice.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/sched.h>
@@ -17,7 +17,7 @@
 #include <linux/cuda.h>
 #include <linux/pmu.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 #include <asm/rtc.h>
 #include <asm/system.h>
@@ -358,8 +358,7 @@ static long via_read_time(void)
 		last_result.idata = result.idata;
 	}
 
-	pr_err("via_read_time: failed to read a stable value; "
-	       "got 0x%08lx then 0x%08lx\n",
+	pr_err("via_read_time: failed to read a stable value; got 0x%08lx then 0x%08lx\n",
 	       last_result.idata, result.idata);
 
 	return 0;
@@ -435,6 +434,17 @@ static void cuda_shutdown(void)
 	struct adb_request req;
 	if (cuda_request(&req, NULL, 2, CUDA_PACKET, CUDA_POWERDOWN) < 0)
 		return;
+
+	/* Avoid infinite polling loop when PSU is not under Cuda control */
+	switch (macintosh_config->ident) {
+	case MAC_MODEL_C660:
+	case MAC_MODEL_Q605:
+	case MAC_MODEL_Q605_ACC:
+	case MAC_MODEL_P475:
+	case MAC_MODEL_P475F:
+		return;
+	}
+
 	while (!req.complete)
 		cuda_poll();
 }
@@ -486,11 +496,10 @@ void mac_pram_read(int offset, __u8 *buffer, int len)
 	int i;
 
 	switch(macintosh_config->adb_type) {
-	case MAC_ADB_IISI:
-		func = maciisi_read_pram; break;
 	case MAC_ADB_PB1:
 	case MAC_ADB_PB2:
 		func = pmu_read_pram; break;
+	case MAC_ADB_EGRET:
 	case MAC_ADB_CUDA:
 		func = cuda_read_pram; break;
 	default:
@@ -509,11 +518,10 @@ void mac_pram_write(int offset, __u8 *buffer, int len)
 	int i;
 
 	switch(macintosh_config->adb_type) {
-	case MAC_ADB_IISI:
-		func = maciisi_write_pram; break;
 	case MAC_ADB_PB1:
 	case MAC_ADB_PB2:
 		func = pmu_write_pram; break;
+	case MAC_ADB_EGRET:
 	case MAC_ADB_CUDA:
 		func = cuda_write_pram; break;
 	default:
@@ -528,17 +536,13 @@ void mac_pram_write(int offset, __u8 *buffer, int len)
 
 void mac_poweroff(void)
 {
-	/*
-	 * MAC_ADB_IISI may need to be moved up here if it doesn't actually
-	 * work using the ADB packet method.  --David Kilzer
-	 */
-
 	if (oss_present) {
 		oss_shutdown();
 	} else if (macintosh_config->adb_type == MAC_ADB_II) {
 		via_shutdown();
 #ifdef CONFIG_ADB_CUDA
-	} else if (macintosh_config->adb_type == MAC_ADB_CUDA) {
+	} else if (macintosh_config->adb_type == MAC_ADB_EGRET ||
+	           macintosh_config->adb_type == MAC_ADB_CUDA) {
 		cuda_shutdown();
 #endif
 #ifdef CONFIG_ADB_PMU68K
@@ -547,8 +551,9 @@ void mac_poweroff(void)
 		pmu_shutdown();
 #endif
 	}
-	local_irq_enable();
-	printk("It is now safe to turn off your Macintosh.\n");
+
+	pr_crit("It is now safe to turn off your Macintosh.\n");
+	local_irq_disable();
 	while(1);
 }
 
@@ -578,7 +583,8 @@ void mac_reset(void)
 			local_irq_restore(flags);
 		}
 #ifdef CONFIG_ADB_CUDA
-	} else if (macintosh_config->adb_type == MAC_ADB_CUDA) {
+	} else if (macintosh_config->adb_type == MAC_ADB_EGRET ||
+	           macintosh_config->adb_type == MAC_ADB_CUDA) {
 		cuda_restart();
 #endif
 #ifdef CONFIG_ADB_PMU68K
@@ -637,8 +643,8 @@ void mac_reset(void)
 	}
 
 	/* should never get here */
-	local_irq_enable();
-	printk ("Restart failed.  Please restart manually.\n");
+	pr_crit("Restart failed. Please restart manually.\n");
+	local_irq_disable();
 	while(1);
 }
 
@@ -727,13 +733,11 @@ int mac_hwclk(int op, struct rtc_time *t)
 		case MAC_ADB_IOP:
 			now = via_read_time();
 			break;
-		case MAC_ADB_IISI:
-			now = maciisi_read_time();
-			break;
 		case MAC_ADB_PB1:
 		case MAC_ADB_PB2:
 			now = pmu_read_time();
 			break;
+		case MAC_ADB_EGRET:
 		case MAC_ADB_CUDA:
 			now = cuda_read_time();
 			break;
@@ -757,12 +761,13 @@ int mac_hwclk(int op, struct rtc_time *t)
 			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			t->tm_hour, t->tm_min, t->tm_sec);
 #endif
+		pr_debug("%s: read %04d-%02d-%-2d %02d:%02d:%02d\n",
+		         __func__, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+		         t->tm_hour, t->tm_min, t->tm_sec);
 	} else { /* write */
-#if 0
-		printk("mac_hwclk: tried to write %04d-%02d-%-2d %02d:%02d:%02d\n",
-			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-			t->tm_hour, t->tm_min, t->tm_sec);
-#endif
+		pr_debug("%s: tried to write %04d-%02d-%-2d %02d:%02d:%02d\n",
+		         __func__, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+		         t->tm_hour, t->tm_min, t->tm_sec);
 
 		now = mktime(t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			     t->tm_hour, t->tm_min, t->tm_sec);
@@ -772,6 +777,7 @@ int mac_hwclk(int op, struct rtc_time *t)
 		case MAC_ADB_IOP:
 			via_write_time(now);
 			break;
+		case MAC_ADB_EGRET:
 		case MAC_ADB_CUDA:
 			cuda_write_time(now);
 			break;
@@ -779,8 +785,6 @@ int mac_hwclk(int op, struct rtc_time *t)
 		case MAC_ADB_PB2:
 			pmu_write_time(now);
 			break;
-		case MAC_ADB_IISI:
-			maciisi_write_time(now);
 		}
 #endif
 	}

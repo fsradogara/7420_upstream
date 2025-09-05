@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  drivers/s390/char/keyboard.c
  *    ebcdic keycode functions for s390 console drivers
@@ -12,14 +13,14 @@
  */
 
 #include <linux/module.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/sysrq.h>
 
 #include <linux/consolemap.h>
 #include <linux/kbd_kern.h>
 #include <linux/kbd_diacr.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "keyboard.h"
 
@@ -501,6 +502,9 @@ do_kdgkb_ioctl(struct kbd_data *kbd, struct kbsentry __user *u_kbs,
 		 * modified it between us running strnlen_user() and copying it.
 		 */
 		p[len - 1] = 0;
+		p = strndup_user(u_kbs->kb_string, sizeof(u_kbs->kb_string));
+		if (IS_ERR(p))
+			return PTR_ERR(p);
 		kfree(kbd->func_table[kb_func]);
 		kbd->func_table[kb_func] = p;
 		break;

@@ -367,35 +367,6 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 	acpiphp_let_context_go(context);
 }
 
-/* Check whether the PCI device is managed by native PCIe hotplug driver */
-static bool device_is_managed_by_native_pciehp(struct pci_dev *pdev)
-{
-	u32 reg32;
-	acpi_handle tmp;
-	struct acpi_pci_root *root;
-
-	/* Check whether the PCIe port supports native PCIe hotplug */
-	if (pcie_capability_read_dword(pdev, PCI_EXP_SLTCAP, &reg32))
-		return false;
-	if (!(reg32 & PCI_EXP_SLTCAP_HPC))
-		return false;
-
-	/*
-	 * Check whether native PCIe hotplug has been enabled for
-	 * this PCIe hierarchy.
-	 */
-	tmp = acpi_find_root_bridge_handle(pdev);
-	if (!tmp)
-		return false;
-	root = acpi_pci_find_root(tmp);
-	if (!root)
-		return false;
-	if (!(root->osc_control_set & OSC_PCI_EXPRESS_NATIVE_HP_CONTROL))
-		return false;
-
-	return true;
-}
-
 /**
  * acpiphp_add_context - Add ACPIPHP context to an ACPI device object.
  * @handle: ACPI handle of the object to add a context to.
@@ -599,7 +570,7 @@ static acpi_status acpiphp_add_context(acpi_handle handle, u32 lvl, void *data,
 	 * expose slots to user space in those cases.
 	 */
 	if ((acpi_pci_check_ejectable(pbus, handle) || is_dock_device(adev))
-	    && !(pdev && device_is_managed_by_native_pciehp(pdev))) {
+	    && !(pdev && pdev->is_hotplug_bridge && pciehp_is_native(pdev))) {
 		unsigned long long sun;
 		int retval;
 
@@ -1981,6 +1952,9 @@ static void acpiphp_check_bridge(struct acpiphp_bridge *bridge)
 	if (bridge->is_going_away)
 		return;
 
+	if (bridge->pci_dev)
+		pm_runtime_get_sync(&bridge->pci_dev->dev);
+
 	list_for_each_entry(slot, &bridge->slots, node) {
 		struct pci_bus *bus = slot->bus;
 		struct pci_dev *dev, *tmp;
@@ -2000,6 +1974,9 @@ static void acpiphp_check_bridge(struct acpiphp_bridge *bridge)
 			disable_slot(slot);
 		}
 	}
+
+	if (bridge->pci_dev)
+		pm_runtime_put(&bridge->pci_dev->dev);
 }
 
 /*
@@ -2018,7 +1995,7 @@ static void acpiphp_sanitize_bus(struct pci_bus *bus)
 	unsigned long type_mask = IORESOURCE_IO | IORESOURCE_MEM;
 
 	list_for_each_entry_safe_reverse(dev, tmp, &bus->devices, bus_list) {
-		for (i=0; i<PCI_BRIDGE_RESOURCES; i++) {
+		for (i = 0; i < PCI_BRIDGE_RESOURCES; i++) {
 			struct resource *res = &dev->resource[i];
 			if ((res->flags & type_mask) && !res->start &&
 					res->end) {
@@ -2631,8 +2608,10 @@ int acpiphp_disable_slot(struct acpiphp_slot *slot)
 
 	pci_lock_rescan_remove();
 
-	if (slot->flags & SLOT_IS_GOING_AWAY)
+	if (slot->flags & SLOT_IS_GOING_AWAY) {
+		pci_unlock_rescan_remove();
 		return -ENODEV;
+	}
 
 	/* configure all functions */
 	if (!(slot->flags & SLOT_ENABLED))

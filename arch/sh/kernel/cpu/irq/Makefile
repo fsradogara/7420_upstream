@@ -1,5 +1,5 @@
 #
-# Makefile for the Linux/SuperH CPU-specifc IRQ handlers.
+# Makefile for the Linux/SuperH CPU-specific IRQ handlers.
 #
 obj-y	+= intc.o
 

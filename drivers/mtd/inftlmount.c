@@ -41,6 +41,7 @@
 #include <linux/mtd/nftl.h>
 #include <linux/mtd/inftl.h>
 #include <linux/mtd/compatmac.h>
+#include <linux/uaccess.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/mtd/mtd.h>

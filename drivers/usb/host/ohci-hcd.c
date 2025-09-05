@@ -111,6 +111,7 @@ static inline void amd_iso_dev_put(void)
 #endif
 
 #define	IO_WATCHDOG_DELAY	msecs_to_jiffies(250)
+#define	IO_WATCHDOG_DELAY	msecs_to_jiffies(275)
 
 #include "ohci.h"
 #include "pci-quirks.h"
@@ -139,6 +140,7 @@ static void io_watchdog_func(unsigned long _ohci);
 /* Some boards misreport power switching/overcurrent */
 static int distrust_firmware = 1;
 static bool distrust_firmware = 1;
+static bool distrust_firmware = true;
 module_param (distrust_firmware, bool, 0);
 MODULE_PARM_DESC (distrust_firmware,
 	"true to distrust firmware power/overcurrent setup");
@@ -146,6 +148,7 @@ MODULE_PARM_DESC (distrust_firmware,
 /* Some boards leave IR set wrongly, since they fail BIOS/SMM handshakes */
 static int no_handshake = 0;
 static bool no_handshake = 0;
+static bool no_handshake;
 module_param (no_handshake, bool, 0);
 MODULE_PARM_DESC (no_handshake, "true (not default) disables BIOS handshake");
 
@@ -288,7 +291,8 @@ static int ohci_urb_enqueue (
 
 		/* Start up the I/O watchdog timer, if it's not running */
 		if (!timer_pending(&ohci->io_watchdog) &&
-				list_empty(&ohci->eds_in_use)) {
+				list_empty(&ohci->eds_in_use) &&
+				!(ohci->flags & OHCI_QUIRK_QEMU)) {
 			ohci->prev_frame_no = ohci_frame_no(ohci);
 			mod_timer(&ohci->io_watchdog,
 					jiffies + IO_WATCHDOG_DELAY);
@@ -695,7 +699,6 @@ static int ohci_init (struct ohci_hcd *ohci)
 			sizeof *ohci->hcca, &ohci->hcca_dma, 0);
 	setup_timer(&ohci->io_watchdog, io_watchdog_func,
 			(unsigned long) ohci);
-	set_timer_slack(&ohci->io_watchdog, msecs_to_jiffies(20));
 
 	ohci->hcca = dma_alloc_coherent (hcd->self.controller,
 			sizeof(*ohci->hcca), &ohci->hcca_dma, GFP_KERNEL);
@@ -1314,7 +1317,7 @@ static void ohci_stop (struct usb_hcd *hcd)
 
 /*-------------------------------------------------------------------------*/
 
-#if defined(CONFIG_PM) || defined(CONFIG_PCI)
+#if defined(CONFIG_PM) || defined(CONFIG_USB_PCI)
 
 /* must not be called from interrupt context */
 static int ohci_restart (struct ohci_hcd *ohci)
@@ -1650,11 +1653,6 @@ MODULE_LICENSE ("GPL");
 #define TMIO_OHCI_DRIVER	ohci_hcd_tmio_driver
 #endif
 
-#ifdef CONFIG_MACH_JZ4740
-#include "ohci-jz4740.c"
-#define PLATFORM_DRIVER	ohci_hcd_jz4740_driver
-#endif
-
 #ifdef CONFIG_TILE_USB
 #include "ohci-tilegx.c"
 #define PLATFORM_DRIVER		ohci_hcd_tilegx_driver
@@ -1674,7 +1672,7 @@ static int __init ohci_hcd_mod_init(void)
 #ifdef DEBUG
 	ohci_debug_root = debugfs_create_dir("ohci", NULL);
 	printk(KERN_INFO "%s: " DRIVER_DESC "\n", hcd_name);
-	pr_debug ("%s: block sizes: ed %Zd td %Zd\n", hcd_name,
+	pr_debug ("%s: block sizes: ed %zd td %zd\n", hcd_name,
 		sizeof (struct ed), sizeof (struct td));
 	set_bit(USB_OHCI_LOADED, &usb_hcds_loaded);
 
@@ -1747,19 +1745,9 @@ static int __init ohci_hcd_mod_init(void)
 		goto error_tmio;
 #endif
 
-#ifdef DAVINCI_PLATFORM_DRIVER
-	retval = platform_driver_register(&DAVINCI_PLATFORM_DRIVER);
-	if (retval < 0)
-		goto error_davinci;
-#endif
-
 	return retval;
 
 	/* Error path */
-#ifdef DAVINCI_PLATFORM_DRIVER
-	platform_driver_unregister(&DAVINCI_PLATFORM_DRIVER);
- error_davinci:
-#endif
 #ifdef TMIO_OHCI_DRIVER
 	platform_driver_unregister(&TMIO_OHCI_DRIVER);
  error_tmio:

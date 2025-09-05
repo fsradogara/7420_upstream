@@ -1,4 +1,5 @@
 __NR_readlink,
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifdef __NR_readlink
 __NR_readlink,
 #endif

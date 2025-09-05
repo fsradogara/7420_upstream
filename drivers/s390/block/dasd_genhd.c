@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * File...........: linux/drivers/s390/block/dasd_genhd.c
  * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
@@ -18,7 +19,7 @@
 #include <linux/fs.h>
 #include <linux/blkpg.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /* This is ugly... */
 #define PRINTK_HEADER "dasd_gendisk:"
@@ -47,7 +48,6 @@ int dasd_gendisk_alloc(struct dasd_block *block)
 	gdp->major = DASD_MAJOR;
 	gdp->first_minor = base->devindex << DASD_PARTN_BITS;
 	gdp->fops = &dasd_device_operations;
-	gdp->driverfs_dev = &base->cdev->dev;
 
 	/*
 	 * Set device name.
@@ -81,7 +81,7 @@ int dasd_gendisk_alloc(struct dasd_block *block)
 	gdp->queue = block->request_queue;
 	block->gdp = gdp;
 	set_capacity(block->gdp, 0);
-	add_disk(block->gdp);
+	device_add_disk(&base->cdev->dev, block->gdp);
 	return 0;
 }
 
@@ -199,6 +199,8 @@ int dasd_gendisk_init(void)
 			"major no %d", DASD_MAJOR);
 		pr_warning("Registering the device driver with major number "
 			   "%d failed\n", DASD_MAJOR);
+		pr_warn("Registering the device driver with major number %d failed\n",
+			DASD_MAJOR);
 		return rc;
 	}
 	return 0;

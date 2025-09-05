@@ -5,6 +5,7 @@
 
 #include <locale.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,7 +59,7 @@ static int tty_stdio;
 static int valid_stdin = 1;
 static int sync_kconfig;
 static int conf_cnt;
-static char line[128];
+static char line[PATH_MAX];
 static struct menu *rootEntry;
 
 static char nohelp_text[] = N_("Sorry, no help available for this option yet.\n");
@@ -139,7 +140,7 @@ static int conf_askvalue(struct symbol *sym, const char *def)
 		/* fall through */
 	case oldaskconfig:
 		fflush(stdout);
-		xfgets(line, 128, stdin);
+		xfgets(line, sizeof(line), stdin);
 		if (!tty_stdio)
 			printf("\n");
 		return 1;
@@ -362,7 +363,7 @@ static int conf_choice(struct menu *menu)
 			/* fall through */
 		case oldaskconfig:
 			fflush(stdout);
-			xfgets(line, 128, stdin);
+			xfgets(line, sizeof(line), stdin);
 			strip(line);
 			if (line[0] == '?') {
 				print_help(menu);

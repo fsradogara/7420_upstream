@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  dir.c
  *
@@ -40,7 +41,7 @@ static int ncp_mkdir(struct inode *, struct dentry *, int);
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <linux/namei.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/byteorder.h>
 
 #include "ncp_fs.h"
@@ -58,7 +59,7 @@ static int ncp_unlink(struct inode *, struct dentry *);
 static int ncp_mkdir(struct inode *, struct dentry *, umode_t);
 static int ncp_rmdir(struct inode *, struct dentry *);
 static int ncp_rename(struct inode *, struct dentry *,
-	  	      struct inode *, struct dentry *);
+		      struct inode *, struct dentry *, unsigned int);
 static int ncp_mknod(struct inode * dir, struct dentry *dentry,
 		     int mode, dev_t rdev);
 		     umode_t mode, dev_t rdev);
@@ -106,7 +107,7 @@ static int ncp_delete_dentry(struct dentry *);
 static struct dentry_operations ncp_dentry_operations =
 static int ncp_lookup_validate(struct dentry *, unsigned int);
 static int ncp_hash_dentry(const struct dentry *, struct qstr *);
-static int ncp_compare_dentry(const struct dentry *, const struct dentry *,
+static int ncp_compare_dentry(const struct dentry *,
 		unsigned int, const char *, const struct qstr *);
 static int ncp_delete_dentry(const struct dentry *);
 static void ncp_d_prune(struct dentry *dentry);
@@ -185,13 +186,12 @@ ncp_hash_dentry(const struct dentry *dentry, struct qstr *this)
 		return 0;
 
 	if (!ncp_case_sensitive(inode)) {
-		struct super_block *sb = dentry->d_sb;
 		struct nls_table *t;
 		unsigned long hash;
 		int i;
 
-		t = NCP_IO_TABLE(sb);
-		hash = init_name_hash();
+		t = NCP_IO_TABLE(dentry->d_sb);
+		hash = init_name_hash(dentry);
 		for (i=0; i<this->len ; i++)
 			hash = partial_name_hash(ncp_tolower(t, this->name[i]),
 									hash);
@@ -216,7 +216,7 @@ ncp_compare_dentry(struct dentry *dentry, struct qstr *a, struct qstr *b)
  * the callers will handle races.
  */
 static int
-ncp_compare_dentry(const struct dentry *parent, const struct dentry *dentry,
+ncp_compare_dentry(const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
 	struct inode *pinode;
@@ -224,7 +224,7 @@ ncp_compare_dentry(const struct dentry *parent, const struct dentry *dentry,
 	if (len != name->len)
 		return 1;
 
-	pinode = d_inode_rcu(parent);
+	pinode = d_inode_rcu(dentry->d_parent);
 	if (!pinode)
 		return 1;
 
@@ -466,7 +466,7 @@ finished:
 	DDPRINTK("ncp_lookup_validate: result=%d\n", val);
 		struct inode *inode = d_inode(dentry);
 
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		if (finfo.i.dirEntNum == NCP_FINFO(inode)->dirEntNum) {
 			ncp_new_dentry(dentry);
 			val=1;
@@ -474,7 +474,7 @@ finished:
 			ncp_dbg(2, "found, but dirEntNum changed\n");
 
 		ncp_update_inode2(inode, &finfo);
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 	}
 
 finished:
@@ -704,7 +704,7 @@ static int ncp_readdir(struct file *file, struct dir_context *ctx)
 			kunmap(ctl.page);
 			SetPageUptodate(ctl.page);
 			unlock_page(ctl.page);
-			page_cache_release(ctl.page);
+			put_page(ctl.page);
 			ctl.page = NULL;
 		}
 		ctl.idx  = 0;
@@ -714,7 +714,7 @@ invalid_cache:
 	if (ctl.page) {
 		kunmap(ctl.page);
 		unlock_page(ctl.page);
-		page_cache_release(ctl.page);
+		put_page(ctl.page);
 		ctl.page = NULL;
 	}
 	ctl.cache = cache;
@@ -752,14 +752,14 @@ finished:
 		kunmap(ctl.page);
 		SetPageUptodate(ctl.page);
 		unlock_page(ctl.page);
-		page_cache_release(ctl.page);
+		put_page(ctl.page);
 	}
 	if (page) {
 		cache->head = ctl.head;
 		kunmap(page);
 		SetPageUptodate(page);
 		unlock_page(page);
-		page_cache_release(page);
+		put_page(page);
 	}
 	if (ctl.page) {
 		kunmap(ctl.page);
@@ -883,15 +883,15 @@ ncp_fill_cache(struct file *file, struct dir_context *ctx,
 				d_rehash(newdent);
 		} else {
 			spin_lock(&dentry->d_lock);
-			NCP_FINFO(inode)->flags &= ~NCPI_DIR_CACHE;
+			NCP_FINFO(dir)->flags &= ~NCPI_DIR_CACHE;
 			spin_unlock(&dentry->d_lock);
 		}
 	} else {
 		struct inode *inode = d_inode(newdent);
 
-		mutex_lock_nested(&inode->i_mutex, I_MUTEX_CHILD);
+		inode_lock_nested(inode, I_MUTEX_CHILD);
 		ncp_update_inode2(inode, entry);
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 	}
 
 	if (ctl.idx >= NCP_DIRCACHE_SIZE) {
@@ -899,7 +899,7 @@ ncp_fill_cache(struct file *file, struct dir_context *ctx,
 			kunmap(ctl.page);
 			SetPageUptodate(ctl.page);
 			unlock_page(ctl.page);
-			page_cache_release(ctl.page);
+			put_page(ctl.page);
 		}
 		ctl.cache = NULL;
 		ctl.idx  -= NCP_DIRCACHE_SIZE;
@@ -1501,7 +1501,8 @@ out:
 }
 
 static int ncp_rename(struct inode *old_dir, struct dentry *old_dentry,
-		      struct inode *new_dir, struct dentry *new_dentry)
+		      struct inode *new_dir, struct dentry *new_dentry,
+		      unsigned int flags)
 {
 	struct ncp_server *server = NCP_SERVER(old_dir);
 	int error;
@@ -1516,6 +1517,9 @@ static int ncp_rename(struct inode *old_dir, struct dentry *old_dentry,
 	lock_kernel();
 	if (!ncp_conn_valid(server))
 		goto out;
+	if (flags)
+		return -EINVAL;
+
 	ncp_dbg(1, "%pd2 to %pd2\n", old_dentry, new_dentry);
 
 	ncp_age_dentry(server, old_dentry);

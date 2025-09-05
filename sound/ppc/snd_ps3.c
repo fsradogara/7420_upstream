@@ -652,9 +652,7 @@ static int snd_ps3_pcm_hw_params(struct snd_pcm_substream *substream,
 
 static int snd_ps3_pcm_hw_free(struct snd_pcm_substream *substream)
 {
-	int ret;
-	ret = snd_pcm_lib_free_pages(substream);
-	return ret;
+	return snd_pcm_lib_free_pages(substream);
 };
 
 static int snd_ps3_delay_to_bytes(struct snd_pcm_substream *substream,
@@ -1050,7 +1048,7 @@ static struct snd_kcontrol_new spdif_ctls[] = {
 	},
 };
 
-static struct snd_pcm_ops snd_ps3_pcm_spdif_ops = {
+static const struct snd_pcm_ops snd_ps3_pcm_spdif_ops = {
 	.open = snd_ps3_pcm_open,
 	.close = snd_ps3_pcm_close,
 	.ioctl = snd_pcm_lib_ioctl,
@@ -1170,7 +1168,7 @@ static int __init snd_ps3_driver_probe(struct ps3_system_bus_device *dev)
 static void snd_ps3_audio_fixup(struct snd_ps3_card_info *card)
 {
 	/*
-	 * avsetting driver seems to never change the followings
+	 * avsetting driver seems to never change the following
 	 * so, init them here once
 	 */
 

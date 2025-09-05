@@ -17,6 +17,7 @@
 #include <asm/system.h>
 #include <asm/rtc.h>
 #include <asm/intersil.h>
+#include <asm/machdep.h>
 
 
 /* bits to set for start/run of the intersil */

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  include/linux/signalfd.h
  *
@@ -51,7 +52,7 @@ struct signalfd_siginfo {
 #define _LINUX_SIGNALFD_H
 
 #include <uapi/linux/signalfd.h>
-
+#include <linux/sched/signal.h>
 
 #ifdef CONFIG_SIGNALFD
 

@@ -1,6 +1,7 @@
 if ARCH_OMAP
 
 menu "TI OMAP Implementations"
+# SPDX-License-Identifier: GPL-2.0
 config ARCH_OMAP
 	bool
 

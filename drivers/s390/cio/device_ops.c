@@ -9,8 +9,10 @@
  *
  * Author(s): Martin Schwidefsky (schwidefsky@de.ibm.com)
  *	      Cornelia Huck (cornelia.huck@de.ibm.com)
+ *
+ * License: GPL
  */
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
@@ -106,7 +108,7 @@ void ccw_device_clear_options(struct ccw_device *cdev, unsigned long flags)
 }
 
 /**
- * ccw_device_is_pathgroup - determine if paths to this device are grouped
+ * ccw_device_is_pathgroup() - determine if paths to this device are grouped
  * @cdev: ccw device
  *
  * Return non-zero if there is a path group, zero otherwise.
@@ -118,7 +120,7 @@ int ccw_device_is_pathgroup(struct ccw_device *cdev)
 EXPORT_SYMBOL(ccw_device_is_pathgroup);
 
 /**
- * ccw_device_is_multipath - determine if device is operating in multipath mode
+ * ccw_device_is_multipath() - determine if device is operating in multipath mode
  * @cdev: ccw device
  *
  * Return non-zero if device is operating in multipath mode, zero otherwise.
@@ -623,7 +625,7 @@ void *ccw_device_get_chp_desc(struct ccw_device *cdev, int chp_no)
 }
 
 /**
- * chp_get_chp_desc - return newly allocated channel-path descriptor
+ * ccw_device_get_chp_desc() - return newly allocated channel-path descriptor
  * @cdev: device to obtain the descriptor for
  * @chp_idx: index of the channel path
  *
@@ -644,7 +646,7 @@ struct channel_path_desc *ccw_device_get_chp_desc(struct ccw_device *cdev,
 }
 
 /**
- * ccw_device_get_id - obtain a ccw device id
+ * ccw_device_get_id() - obtain a ccw device id
  * @cdev: device to obtain the id for
  * @dev_id: where to fill in the values
  */
@@ -655,7 +657,7 @@ void ccw_device_get_id(struct ccw_device *cdev, struct ccw_dev_id *dev_id)
 EXPORT_SYMBOL(ccw_device_get_id);
 
 /**
- * ccw_device_tm_start_key - perform start function
+ * ccw_device_tm_start_key() - perform start function
  * @cdev: ccw device on which to perform the start function
  * @tcw: transport-command word to be started
  * @intparm: user defined parameter to be passed to the interrupt handler
@@ -705,7 +707,7 @@ int ccw_device_tm_start_key(struct ccw_device *cdev, struct tcw *tcw,
 EXPORT_SYMBOL(ccw_device_tm_start_key);
 
 /**
- * ccw_device_tm_start_timeout_key - perform start function
+ * ccw_device_tm_start_timeout_key() - perform start function
  * @cdev: ccw device on which to perform the start function
  * @tcw: transport-command word to be started
  * @intparm: user defined parameter to be passed to the interrupt handler
@@ -731,7 +733,7 @@ int ccw_device_tm_start_timeout_key(struct ccw_device *cdev, struct tcw *tcw,
 EXPORT_SYMBOL(ccw_device_tm_start_timeout_key);
 
 /**
- * ccw_device_tm_start - perform start function
+ * ccw_device_tm_start() - perform start function
  * @cdev: ccw device on which to perform the start function
  * @tcw: transport-command word to be started
  * @intparm: user defined parameter to be passed to the interrupt handler
@@ -749,7 +751,7 @@ int ccw_device_tm_start(struct ccw_device *cdev, struct tcw *tcw,
 EXPORT_SYMBOL(ccw_device_tm_start);
 
 /**
- * ccw_device_tm_start_timeout - perform start function
+ * ccw_device_tm_start_timeout() - perform start function
  * @cdev: ccw device on which to perform the start function
  * @tcw: transport-command word to be started
  * @intparm: user defined parameter to be passed to the interrupt handler
@@ -768,7 +770,7 @@ int ccw_device_tm_start_timeout(struct ccw_device *cdev, struct tcw *tcw,
 EXPORT_SYMBOL(ccw_device_tm_start_timeout);
 
 /**
- * ccw_device_get_mdc - accumulate max data count
+ * ccw_device_get_mdc() - accumulate max data count
  * @cdev: ccw device for which the max data count is accumulated
  * @mask: mask of paths to use
  *
@@ -814,7 +816,7 @@ int ccw_device_get_mdc(struct ccw_device *cdev, u8 mask)
 EXPORT_SYMBOL(ccw_device_get_mdc);
 
 /**
- * ccw_device_tm_intrg - perform interrogate function
+ * ccw_device_tm_intrg() - perform interrogate function
  * @cdev: ccw device on which to perform the interrogate function
  *
  * Perform an interrogate function on the given ccw device. Return zero on
@@ -848,7 +850,7 @@ _ccw_device_get_subchannel_number(struct ccw_device *cdev)
 }
 
 /**
- * ccw_device_get_schid - obtain a subchannel id
+ * ccw_device_get_schid() - obtain a subchannel id
  * @cdev: device to obtain the id for
  * @schid: where to fill in the values
  */
@@ -860,7 +862,6 @@ void ccw_device_get_schid(struct ccw_device *cdev, struct subchannel_id *schid)
 }
 EXPORT_SYMBOL_GPL(ccw_device_get_schid);
 
-MODULE_LICENSE("GPL");
 EXPORT_SYMBOL(ccw_device_set_options_mask);
 EXPORT_SYMBOL(ccw_device_set_options);
 EXPORT_SYMBOL(ccw_device_clear_options);

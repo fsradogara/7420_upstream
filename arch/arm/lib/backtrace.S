@@ -10,6 +10,7 @@
  * 27/03/03 Ian Molton Clean up CONFIG_CPU
  *
  */
+#include <linux/kern_levels.h>
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 		.text
@@ -93,14 +94,14 @@ for_each_frame:	tst	frame, mask		@ Check for address exceptions
 		teq	r3, r1, lsr #11
 		ldreq	r0, [frame, #-8]	@ get sp
 		subeq	r0, r0, #4		@ point at the last arg
-		bleq	.Ldumpstm		@ dump saved registers
+		bleq	dump_backtrace_stm	@ dump saved registers
 
 1004:		ldr	r1, [sv_pc, #0]		@ if stmfd sp!, {..., fp, ip, lr, pc}
 		ldr	r3, .Ldsi		@ instruction exists,
 		teq	r3, r1, lsr #10
 		teq	r3, r1, lsr #11
 		subeq	r0, frame, #16
-		bleq	.Ldumpstm		@ dump saved registers
+		bleq	dump_backtrace_stm	@ dump saved registers
 
 		teq	sv_fp, #0		@ zero saved fp means
 		beq	no_frame		@ no further frames

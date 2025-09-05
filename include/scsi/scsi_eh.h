@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _SCSI_SCSI_EH_H
 #define _SCSI_SCSI_EH_H
 
@@ -54,6 +55,7 @@ extern int scsi_command_normalize_sense(struct scsi_cmnd *cmd,
 static inline int scsi_sense_is_deferred(struct scsi_sense_hdr *sshdr)
 extern bool scsi_command_normalize_sense(const struct scsi_cmnd *cmd,
 					 struct scsi_sense_hdr *sshdr);
+extern int scsi_check_sense(struct scsi_cmnd *);
 
 static inline bool scsi_sense_is_deferred(const struct scsi_sense_hdr *sshdr)
 {
@@ -79,12 +81,15 @@ extern void scsi_build_sense_buffer(int desc, u8 *buf, u8 key, u8 asc, u8 ascq);
 extern int scsi_reset_provider(struct scsi_device *, int);
 extern int scsi_get_sense_info_fld(const u8 * sense_buffer, int sb_len,
 				   u64 * info_out);
+extern bool scsi_get_sense_info_fld(const u8 *sense_buffer, int sb_len,
+				    u64 *info_out);
 
 extern int scsi_ioctl_reset(struct scsi_device *, int __user *);
 
 struct scsi_eh_save {
 	/* saved state */
 	int result;
+	int eh_eflags;
 	enum dma_data_direction data_direction;
 	unsigned underflow;
 	unsigned char cmd_len;

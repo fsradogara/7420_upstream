@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Wrapper functions for accessing the file_struct fd array.
  */
@@ -39,7 +40,7 @@ extern int alloc_fd(unsigned start, unsigned flags);
 extern int get_unused_fd(void);
 #define get_unused_fd_flags(flags) alloc_fd(0, (flags))
 struct path;
-extern struct file *alloc_file(struct path *, fmode_t mode,
+extern struct file *alloc_file(const struct path *, fmode_t mode,
 	const struct file_operations *fop);
 
 static inline void fput_light(struct file *file, int fput_needed)
@@ -66,6 +67,7 @@ extern struct file *fget_raw(unsigned int fd);
 extern unsigned long __fdget(unsigned int fd);
 extern unsigned long __fdget_raw(unsigned int fd);
 extern unsigned long __fdget_pos(unsigned int fd);
+extern void __f_unlock_pos(struct file *);
 
 static inline struct fd __to_fd(unsigned long v)
 {
@@ -80,6 +82,18 @@ static inline struct fd fdget(unsigned int fd)
 static inline struct fd fdget_raw(unsigned int fd)
 {
 	return __to_fd(__fdget_raw(fd));
+}
+
+static inline struct fd fdget_pos(int fd)
+{
+	return __to_fd(__fdget_pos(fd));
+}
+
+static inline void fdput_pos(struct fd f)
+{
+	if (f.flags & FDPUT_POS_UNLOCK)
+		__f_unlock_pos(f.file);
+	fdput(f);
 }
 
 extern int f_dupfd(unsigned int from, struct file *file, unsigned flags);

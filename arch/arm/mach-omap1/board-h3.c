@@ -24,7 +24,7 @@
 #include <linux/workqueue.h>
 #include <linux/i2c.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/input.h>
 #include <linux/spi/spi.h>
@@ -95,7 +95,7 @@ static int h3_keymap[] = {
 #include <linux/mtd/physmap.h>
 #include <linux/input.h>
 #include <linux/spi/spi.h>
-#include <linux/i2c/tps65010.h>
+#include <linux/mfd/tps65010.h>
 #include <linux/smc91x.h>
 #include <linux/omapfb.h>
 #include <linux/platform_data/gpio-omap.h>
@@ -111,7 +111,7 @@ static int h3_keymap[] = {
 #include <mach/tc.h>
 #include <linux/platform_data/keypad-omap.h>
 #include <linux/omap-dma.h>
-#include <mach/flash.h>
+#include "flash.h"
 
 #include <mach/hardware.h>
 #include <mach/irqs.h>
@@ -594,7 +594,7 @@ static struct omap_usb_config h3_usb_config __initdata = {
 #ifdef CONFIG_USB_GADGET_OMAP
 #if IS_ENABLED(CONFIG_USB_OMAP)
 	.hmc_mode       = 19,   /* 0:host(off) 1:dev|otg 2:disabled */
-#elif  defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
+#elif IS_ENABLED(CONFIG_USB_OHCI_HCD)
 	/* NONSTANDARD CABLE NEEDED (B-to-Mini-B) */
 	.hmc_mode       = 20,   /* 1:dev|otg(off) 1:host 2:disabled */
 #endif

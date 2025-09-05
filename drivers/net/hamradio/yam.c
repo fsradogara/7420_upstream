@@ -72,7 +72,7 @@
 #include <linux/seq_file.h>
 #include <net/net_namespace.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/init.h>
 
 #include <linux/yam.h>
@@ -634,7 +634,7 @@ static netdev_tx_t yam_send_packet(struct sk_buff *skb,
 		return ax25_ip_xmit(skb);
 
 	skb_queue_tail(&yp->send_queue, skb);
-	dev->trans_start = jiffies;
+	netif_trans_update(dev);
 	return NETDEV_TX_OK;
 }
 
@@ -1051,6 +1051,10 @@ static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			kfree(ym);
 			return -EFAULT;
 		}
+		ym = memdup_user(ifr->ifr_data,
+				 sizeof(struct yamdrv_ioctl_mcs));
+		if (IS_ERR(ym))
+			return PTR_ERR(ym);
 		if (ym->bitrate > YAM_MAXBITRATE) {
 			kfree(ym);
 			return -EINVAL;

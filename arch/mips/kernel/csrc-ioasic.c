@@ -31,6 +31,7 @@
 
 static cycle_t dec_ioasic_hpt_read(void)
 static cycle_t dec_ioasic_hpt_read(struct clocksource *cs)
+static u64 dec_ioasic_hpt_read(struct clocksource *cs)
 {
 	return ioasic_read(IO_REG_FCTR);
 }

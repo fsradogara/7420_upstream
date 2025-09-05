@@ -66,6 +66,9 @@ static int sctp_copy_one_addr(struct sctp_bind_addr *, union sctp_addr *,
 static int sctp_copy_one_addr(struct net *, struct sctp_bind_addr *,
 			      union sctp_addr *, sctp_scope_t scope, gfp_t gfp,
 			      int flags);
+static int sctp_copy_one_addr(struct net *net, struct sctp_bind_addr *dest,
+			      union sctp_addr *addr, enum sctp_scope scope,
+			      gfp_t gfp, int flags);
 static void sctp_bind_addr_clean(struct sctp_bind_addr *);
 
 /* First Level Abstractions. */
@@ -76,7 +79,7 @@ static void sctp_bind_addr_clean(struct sctp_bind_addr *);
 int sctp_bind_addr_copy(struct sctp_bind_addr *dest,
 int sctp_bind_addr_copy(struct net *net, struct sctp_bind_addr *dest,
 			const struct sctp_bind_addr *src,
-			sctp_scope_t scope, gfp_t gfp,
+			enum sctp_scope scope, gfp_t gfp,
 			int flags)
 {
 	struct sctp_sockaddr_entry *addr;
@@ -132,7 +135,8 @@ int sctp_bind_addr_dup(struct sctp_bind_addr *dest,
 	dest->port = src->port;
 
 	list_for_each_entry(addr, &src->address_list, list) {
-		error = sctp_add_bind_addr(dest, &addr->a, 1, gfp);
+		error = sctp_add_bind_addr(dest, &addr->a, sizeof(addr->a),
+					   1, gfp);
 		if (error < 0)
 			break;
 	}
@@ -186,7 +190,7 @@ void sctp_bind_addr_free(struct sctp_bind_addr *bp)
 
 /* Add an address to the bind address list in the SCTP_bind_addr structure. */
 int sctp_add_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *new,
-		       __u8 addr_state, gfp_t gfp)
+		       int new_size, __u8 addr_state, gfp_t gfp)
 {
 	struct sctp_sockaddr_entry *addr;
 
@@ -196,7 +200,7 @@ int sctp_add_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *new,
 	if (!addr)
 		return -ENOMEM;
 
-	memcpy(&addr->a, new, sizeof(*new));
+	memcpy(&addr->a, new, min_t(size_t, sizeof(*new), new_size));
 
 	/* Fix up the port if it has not yet been set.
 	 * Both v4 and v6 have the port at the same offset.
@@ -330,13 +334,17 @@ int sctp_raw_to_bind_addrs(struct sctp_bind_addr *bp, __u8 *raw_addr_list,
 		}
 
 		af->from_addr_param(&addr, rawaddr, htons(port), 0);
-		retval = sctp_add_bind_addr(bp, &addr, SCTP_ADDR_SRC, gfp);
+		if (sctp_bind_addr_state(bp, &addr) != -1)
+			goto next;
+		retval = sctp_add_bind_addr(bp, &addr, sizeof(addr),
+					    SCTP_ADDR_SRC, gfp);
 		if (retval) {
 			/* Can't finish building the list, clean up. */
 			sctp_bind_addr_clean(bp);
 			break;
 		}
 
+next:
 		len = ntohs(param->length);
 		addrs_len -= len;
 		raw_addr_list += len;
@@ -476,9 +484,8 @@ union sctp_addr *sctp_find_unmatch_addr(struct sctp_bind_addr	*bp,
 /* Copy out addresses from the global local address list. */
 static int sctp_copy_one_addr(struct sctp_bind_addr *dest,
 static int sctp_copy_one_addr(struct net *net, struct sctp_bind_addr *dest,
-			      union sctp_addr *addr,
-			      sctp_scope_t scope, gfp_t gfp,
-			      int flags)
+			      union sctp_addr *addr, enum sctp_scope scope,
+			      gfp_t gfp, int flags)
 {
 	int error = 0;
 
@@ -497,8 +504,8 @@ static int sctp_copy_one_addr(struct net *net, struct sctp_bind_addr *dest,
 		    (((AF_INET6 == addr->sa.sa_family) &&
 		      (flags & SCTP_ADDR6_ALLOWED) &&
 		      (flags & SCTP_ADDR6_PEERSUPP))))
-			error = sctp_add_bind_addr(dest, addr, SCTP_ADDR_SRC,
-						    gfp);
+			error = sctp_add_bind_addr(dest, addr, sizeof(*addr),
+						   SCTP_ADDR_SRC, gfp);
 	}
 
 	return error;
@@ -531,8 +538,10 @@ int sctp_is_any(struct sock *sk, const union sctp_addr *addr)
 /* Is 'addr' valid for 'scope'?  */
 int sctp_in_scope(const union sctp_addr *addr, sctp_scope_t scope)
 int sctp_in_scope(struct net *net, const union sctp_addr *addr, sctp_scope_t scope)
+int sctp_in_scope(struct net *net, const union sctp_addr *addr,
+		  enum sctp_scope scope)
 {
-	sctp_scope_t addr_scope = sctp_scope(addr);
+	enum sctp_scope addr_scope = sctp_scope(addr);
 
 	/* The unusable SCTP addresses will not be considered with
 	 * any defined scopes.
@@ -593,7 +602,7 @@ int sctp_is_ep_boundall(struct sock *sk)
  ********************************************************************/
 
 /* What is the scope of 'addr'?  */
-sctp_scope_t sctp_scope(const union sctp_addr *addr)
+enum sctp_scope sctp_scope(const union sctp_addr *addr)
 {
 	struct sctp_af *af;
 

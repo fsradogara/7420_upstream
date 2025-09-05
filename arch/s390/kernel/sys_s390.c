@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  arch/s390/kernel/sys_s390.c
  *
@@ -31,7 +32,7 @@
 #include <linux/personality.h>
 #include <linux/unistd.h>
 #include <linux/ipc.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include "entry.h"
 
 /* common code for old and new mmaps */

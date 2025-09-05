@@ -24,7 +24,7 @@
 
 #define DEBUG 1
 
-#include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
 #include <linux/io.h>
@@ -37,6 +37,7 @@
 #include <linux/mmiotrace.h>
 #include <asm/e820.h> /* for ISA_START_ADDRESS */
 #include <asm/atomic.h>
+#include <asm/e820/api.h> /* for ISA_START_ADDRESS */
 #include <linux/atomic.h>
 #include <linux/percpu.h>
 #include <linux/cpu.h>

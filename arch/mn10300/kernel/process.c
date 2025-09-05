@@ -11,6 +11,9 @@
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
@@ -34,7 +37,7 @@
 #include <asm/system.h>
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/io.h>
 #include <asm/processor.h>
@@ -118,10 +121,6 @@ void arch_cpu_idle(void)
 }
 #endif
 
-void release_segments(struct mm_struct *mm)
-{
-}
-
 void machine_restart(char *cmd)
 {
 #ifdef CONFIG_GDBSTUB
@@ -184,9 +183,9 @@ EXPORT_SYMBOL(kernel_thread);
 /*
  * free current thread data structures etc..
  */
-void exit_thread(void)
+void exit_thread(struct task_struct *tsk)
 {
-	exit_fpu();
+	exit_fpu(tsk);
 }
 
 void flush_thread(void)

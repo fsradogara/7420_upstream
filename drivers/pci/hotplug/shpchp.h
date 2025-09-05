@@ -33,7 +33,7 @@
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
 #include <linux/delay.h>
-#include <linux/sched.h>	/* signal_pending(), struct timer_list */
+#include <linux/sched/signal.h>	/* signal_pending(), struct timer_list */
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 
@@ -60,14 +60,14 @@ extern bool shpchp_debug;
 #define dbg(format, arg...)						\
 do {									\
 	if (shpchp_debug)						\
-		printk(KERN_DEBUG "%s: " format, MY_NAME , ## arg);	\
+		printk(KERN_DEBUG "%s: " format, MY_NAME, ## arg);	\
 } while (0)
 #define err(format, arg...)						\
-	printk(KERN_ERR "%s: " format, MY_NAME , ## arg)
+	printk(KERN_ERR "%s: " format, MY_NAME, ## arg)
 #define info(format, arg...)						\
-	printk(KERN_INFO "%s: " format, MY_NAME , ## arg)
+	printk(KERN_INFO "%s: " format, MY_NAME, ## arg)
 #define warn(format, arg...)						\
-	printk(KERN_WARNING "%s: " format, MY_NAME , ## arg)
+	printk(KERN_WARNING "%s: " format, MY_NAME, ## arg)
 
 #define ctrl_dbg(ctrl, format, arg...)					\
 	do {								\
@@ -96,7 +96,7 @@ struct slot {
 	struct timer_list task_event;
 	u8 hp_slot;
 	struct controller *ctrl;
-	struct hpc_ops *hpc_ops;
+	const struct hpc_ops *hpc_ops;
 	struct hotplug_slot *hotplug_slot;
 	struct list_head	slot_list;
 	char name[SLOT_NAME_SIZE];
@@ -121,7 +121,7 @@ struct controller {
 	int slot_num_inc;		/* 1 or -1 */
 	struct pci_dev *pci_dev;
 	struct list_head slot_list;
-	struct hpc_ops *hpc_ops;
+	const struct hpc_ops *hpc_ops;
 	wait_queue_head_t queue;	/* sleep & wake process */
 	u8 slot_device_offset;
 	u32 pcix_misc2_reg;	/* for amd pogo errata */
@@ -354,6 +354,7 @@ static inline void amd_pogo_errata_restore_misc_reg(struct slot *p_slot)
 	/* restore MiscII register */
 	pci_read_config_dword( p_slot->ctrl->pci_dev, PCIX_MISCII_OFFSET, &pcix_misc2_temp );
 	pci_read_config_dword(p_slot->ctrl->pci_dev, PCIX_MISCII_OFFSET, &pcix_misc2_temp );
+	pci_read_config_dword(p_slot->ctrl->pci_dev, PCIX_MISCII_OFFSET, &pcix_misc2_temp);
 
 	if (p_slot->ctrl->pcix_misc2_reg & SERRFATALENABLE_MASK)
 		pcix_misc2_temp |= SERRFATALENABLE_MASK;

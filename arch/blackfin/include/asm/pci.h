@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* Changed from asm-m68k version, Lineo Inc. 	May 2001	*/
 
 #ifndef _ASM_BFIN_PCI_H
@@ -146,7 +147,6 @@ static inline void pci_dma_sync_sg(struct pci_dev *hwdev,
 }
 
 #include <linux/scatterlist.h>
-#include <asm-generic/pci-dma-compat.h>
 #include <asm-generic/pci.h>
 
 #define PCIBIOS_MIN_IO 0x00001000

@@ -13,6 +13,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/bitops.h>
 #include <net/pkt_sched.h>
+#include <net/pkt_cls.h>
 #include <net/dsfield.h>
 #include <net/inet_ecn.h>
 #include <asm/byteorder.h>
@@ -51,6 +52,7 @@ struct mask_value {
 struct dsmark_qdisc_data {
 	struct Qdisc		*q;
 	struct tcf_proto __rcu	*filter_list;
+	struct tcf_block	*block;
 	struct mask_value	*mv;
 	u16			indices;
 	u8			set_tc_index;
@@ -96,6 +98,7 @@ static int dsmark_graft(struct Qdisc *sch, unsigned long arg,
 	qdisc_reset(*old);
 	sch_tree_unlock(sch);
 
+	*old = qdisc_replace(sch, new, &p->q);
 	return 0;
 }
 
@@ -105,7 +108,7 @@ static struct Qdisc *dsmark_leaf(struct Qdisc *sch, unsigned long arg)
 	return p->q;
 }
 
-static unsigned long dsmark_get(struct Qdisc *sch, u32 classid)
+static unsigned long dsmark_find(struct Qdisc *sch, u32 classid)
 {
 	pr_debug("dsmark_get(sch %p,[qdisc %p],classid %x)\n",
 		sch, qdisc_priv(sch), classid);
@@ -118,10 +121,13 @@ static unsigned long dsmark_get(struct Qdisc *sch, u32 classid)
 static unsigned long dsmark_bind_filter(struct Qdisc *sch,
 					unsigned long parent, u32 classid)
 {
-	return dsmark_get(sch, classid);
+	pr_debug("%s(sch %p,[qdisc %p],classid %x)\n",
+		 __func__, sch, qdisc_priv(sch), classid);
+
+	return dsmark_find(sch, classid);
 }
 
-static void dsmark_put(struct Qdisc *sch, unsigned long cl)
+static void dsmark_unbind_filter(struct Qdisc *sch, unsigned long cl)
 {
 }
 
@@ -156,7 +162,7 @@ static int dsmark_change(struct Qdisc *sch, u32 classid, u32 parent,
 	if (!opt)
 		goto errout;
 
-	err = nla_parse_nested(tb, TCA_DSMARK_MAX, opt, dsmark_policy);
+	err = nla_parse_nested(tb, TCA_DSMARK_MAX, opt, dsmark_policy, NULL);
 	if (err < 0)
 		goto errout;
 
@@ -229,14 +235,17 @@ static inline struct tcf_proto **dsmark_find_tcf(struct Qdisc *sch,
 						 unsigned long cl)
 static inline struct tcf_proto __rcu **dsmark_find_tcf(struct Qdisc *sch,
 						       unsigned long cl)
+static struct tcf_block *dsmark_tcf_block(struct Qdisc *sch, unsigned long cl)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
-	return &p->filter_list;
+
+	return p->block;
 }
 
 /* --------------------------- Qdisc operations ---------------------------- */
 
-static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+			  struct sk_buff **to_free)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 	int err;
@@ -249,9 +258,13 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	pr_debug("%s(skb %p,sch %p,[qdisc %p])\n", __func__, skb, sch, p);
 
 	if (p->set_tc_index) {
+		int wlen = skb_network_offset(skb);
+
 		switch (tc_skb_protocol(skb)) {
 		case htons(ETH_P_IP):
-			if (skb_cow_head(skb, sizeof(struct iphdr)))
+			wlen += sizeof(struct iphdr);
+			if (!pskb_may_pull(skb, wlen) ||
+			    skb_try_make_writable(skb, wlen))
 				goto drop;
 
 			skb->tc_index = ipv4_get_dsfield(ip_hdr(skb))
@@ -260,7 +273,9 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 
 		case __constant_htons(ETH_P_IPV6):
 		case htons(ETH_P_IPV6):
-			if (skb_cow_head(skb, sizeof(struct ipv6hdr)))
+			wlen += sizeof(struct ipv6hdr);
+			if (!pskb_may_pull(skb, wlen) ||
+			    skb_try_make_writable(skb, wlen))
 				goto drop;
 
 			skb->tc_index = ipv6_get_dsfield(ipv6_hdr(skb))
@@ -278,7 +293,7 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		struct tcf_result res;
 		int result = tc_classify(skb, p->filter_list, &res);
 		struct tcf_proto *fl = rcu_dereference_bh(p->filter_list);
-		int result = tc_classify(skb, fl, &res, false);
+		int result = tcf_classify(skb, fl, &res, false);
 
 		pr_debug("result %d class 0x%04x\n", result, res.classid);
 
@@ -286,7 +301,8 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 #ifdef CONFIG_NET_CLS_ACT
 		case TC_ACT_QUEUED:
 		case TC_ACT_STOLEN:
-			kfree_skb(skb);
+		case TC_ACT_TRAP:
+			__qdisc_drop(skb, to_free);
 			return NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 
 		case TC_ACT_SHOT:
@@ -303,7 +319,7 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		}
 	}
 
-	err = qdisc_enqueue(skb, p->q);
+	err = qdisc_enqueue(skb, p->q, to_free);
 	if (err != NET_XMIT_SUCCESS) {
 		if (net_xmit_drop_count(err))
 			sch->qstats.drops++;
@@ -316,6 +332,7 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		return err;
 	}
 
+	qdisc_qstats_backlog_inc(sch, skb);
 	sch->q.qlen++;
 
 	return NET_XMIT_SUCCESS;
@@ -324,6 +341,7 @@ drop:
 	kfree_skb(skb);
 	sch->qstats.drops++;
 	qdisc_drop(skb, sch);
+	qdisc_drop(skb, sch, to_free);
 	return NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
 }
 
@@ -336,11 +354,12 @@ static struct sk_buff *dsmark_dequeue(struct Qdisc *sch)
 	pr_debug("dsmark_dequeue(sch %p,[qdisc %p])\n", sch, p);
 	pr_debug("%s(sch %p,[qdisc %p])\n", __func__, sch, p);
 
-	skb = p->q->ops->dequeue(p->q);
+	skb = qdisc_dequeue_peeked(p->q);
 	if (skb == NULL)
 		return NULL;
 
 	qdisc_bstats_update(sch, skb);
+	qdisc_qstats_backlog_dec(sch, skb);
 	sch->q.qlen--;
 
 	index = skb->tc_index & (p->indices - 1);
@@ -444,7 +463,11 @@ static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
 	if (!opt)
 		goto errout;
 
-	err = nla_parse_nested(tb, TCA_DSMARK_MAX, opt, dsmark_policy);
+	err = tcf_block_get(&p->block, &p->filter_list);
+	if (err)
+		return err;
+
+	err = nla_parse_nested(tb, TCA_DSMARK_MAX, opt, dsmark_policy, NULL);
 	if (err < 0)
 		goto errout;
 
@@ -494,6 +517,8 @@ static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
 	p->q = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops, sch->handle);
 	if (p->q == NULL)
 		p->q = &noop_qdisc;
+	else
+		qdisc_hash_add(p->q, true);
 
 	pr_debug("%s: qdisc %p\n", __func__, p->q);
 
@@ -509,6 +534,7 @@ static void dsmark_reset(struct Qdisc *sch)
 	pr_debug("dsmark_reset(sch %p,[qdisc %p])\n", sch, p);
 	pr_debug("%s(sch %p,[qdisc %p])\n", __func__, sch, p);
 	qdisc_reset(p->q);
+	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 }
 
@@ -523,7 +549,7 @@ static void dsmark_destroy(struct Qdisc *sch)
 	kfree(p->mask);
 	pr_debug("%s(sch %p,[qdisc %p])\n", __func__, sch, p);
 
-	tcf_destroy_chain(&p->filter_list);
+	tcf_block_put(p->block);
 	qdisc_destroy(p->q);
 	if (p->mv != p->embedded)
 		kfree(p->mv);
@@ -597,14 +623,13 @@ nla_put_failure:
 static const struct Qdisc_class_ops dsmark_class_ops = {
 	.graft		=	dsmark_graft,
 	.leaf		=	dsmark_leaf,
-	.get		=	dsmark_get,
-	.put		=	dsmark_put,
+	.find		=	dsmark_find,
 	.change		=	dsmark_change,
 	.delete		=	dsmark_delete,
 	.walk		=	dsmark_walk,
-	.tcf_chain	=	dsmark_find_tcf,
+	.tcf_block	=	dsmark_tcf_block,
 	.bind_tcf	=	dsmark_bind_filter,
-	.unbind_tcf	=	dsmark_put,
+	.unbind_tcf	=	dsmark_unbind_filter,
 	.dump		=	dsmark_dump_class,
 };
 
@@ -617,7 +642,6 @@ static struct Qdisc_ops dsmark_qdisc_ops __read_mostly = {
 	.dequeue	=	dsmark_dequeue,
 	.requeue	=	dsmark_requeue,
 	.peek		=	dsmark_peek,
-	.drop		=	dsmark_drop,
 	.init		=	dsmark_init,
 	.reset		=	dsmark_reset,
 	.destroy	=	dsmark_destroy,

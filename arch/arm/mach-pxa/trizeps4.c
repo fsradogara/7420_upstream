@@ -18,6 +18,7 @@
 #include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/interrupt.h>
+#include <linux/leds.h>
 #include <linux/export.h>
 #include <linux/sched.h>
 #include <linux/bitops.h>
@@ -58,6 +59,7 @@
 #include <mach/irda.h>
 #include <mach/ohci.h>
 #include <mach/pxa27x.h>
+#include "pxa27x.h"
 #include <mach/trizeps4.h>
 #include <mach/audio.h>
 #include <linux/platform_data/video-pxafb.h>

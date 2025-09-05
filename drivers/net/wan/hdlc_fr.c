@@ -1188,7 +1188,6 @@ static int fr_add_pvc(struct net_device *frad, unsigned int dlci, int type)
 static const struct net_device_ops pvc_ops = {
 	.ndo_open       = pvc_open,
 	.ndo_stop       = pvc_close,
-	.ndo_change_mtu = hdlc_change_mtu,
 	.ndo_start_xmit = pvc_xmit,
 	.ndo_do_ioctl   = pvc_ioctl,
 };
@@ -1259,6 +1258,8 @@ static int fr_add_pvc(struct net_device *frad, unsigned int dlci, int type)
 	}
 	dev->netdev_ops = &pvc_ops;
 	dev->mtu = HDLC_MAX_MTU;
+	dev->min_mtu = 68;
+	dev->max_mtu = HDLC_MAX_MTU;
 	dev->priv_flags |= IFF_NO_QUEUE;
 	dev->ml_priv = pvc;
 
@@ -1268,7 +1269,7 @@ static int fr_add_pvc(struct net_device *frad, unsigned int dlci, int type)
 		return -EIO;
 	}
 
-	dev->destructor = free_netdev;
+	dev->needs_free_netdev = true;
 	*get_dev_p(pvc, type) = dev;
 	if (!used) {
 		state(hdlc)->dce_changed = 1;
@@ -1412,6 +1413,7 @@ static int fr_ioctl(struct net_device *dev, struct ifreq *ifr)
 
 		dev->hard_start_xmit = hdlc->xmit;
 		dev->type = ARPHRD_FRAD;
+		call_netdevice_notifiers(NETDEV_POST_TYPE_CHANGE, dev);
 		return 0;
 
 	case IF_PROTO_FR_ADD_PVC:

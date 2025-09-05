@@ -128,10 +128,11 @@ static void write_one_revoke_record(journal_t *, transaction_t *,
 				    struct journal_head **, int *,
 				    struct jbd2_revoke_record_s *);
 static void flush_descriptor(journal_t *, struct journal_head *, int);
+static void write_one_revoke_record(transaction_t *,
 				    struct list_head *,
 				    struct buffer_head **, int *,
-				    struct jbd2_revoke_record_s *, int);
-static void flush_descriptor(journal_t *, struct buffer_head *, int, int);
+				    struct jbd2_revoke_record_s *);
+static void flush_descriptor(journal_t *, struct buffer_head *, int);
 #endif
 
 /* Utility functions to maintain the revoke table */
@@ -318,6 +319,7 @@ int jbd2_journal_init_revoke(journal_t *journal, int hash_size)
 
 fail1:
 	jbd2_journal_destroy_revoke_table(journal->j_revoke_table[0]);
+	journal->j_revoke_table[0] = NULL;
 fail0:
 	return -ENOMEM;
 }
@@ -567,11 +569,10 @@ void jbd2_journal_write_revoke_records(journal_t *journal,
 {
 	struct journal_head *descriptor;
  */
-void jbd2_journal_write_revoke_records(journal_t *journal,
-				       transaction_t *transaction,
-				       struct list_head *log_bufs,
-				       int write_op)
+void jbd2_journal_write_revoke_records(transaction_t *transaction,
+				       struct list_head *log_bufs)
 {
+	journal_t *journal = transaction->t_journal;
 	struct buffer_head *descriptor;
 	struct jbd2_revoke_record_s *record;
 	struct jbd2_revoke_table_s *revoke;
@@ -598,6 +599,8 @@ void jbd2_journal_write_revoke_records(journal_t *journal,
 			write_one_revoke_record(journal, transaction, log_bufs,
 						&descriptor, &offset,
 						record, write_op);
+			write_one_revoke_record(transaction, log_bufs,
+						&descriptor, &offset, record);
 			count++;
 			list_del(&record->hash);
 			kmem_cache_free(jbd2_revoke_record_cache, record);
@@ -622,16 +625,16 @@ static void write_one_revoke_record(journal_t *journal,
 {
 	struct journal_head *descriptor;
 	int offset;
+static void write_one_revoke_record(transaction_t *transaction,
 				    struct list_head *log_bufs,
 				    struct buffer_head **descriptorp,
 				    int *offsetp,
-				    struct jbd2_revoke_record_s *record,
-				    int write_op)
+				    struct jbd2_revoke_record_s *record)
 {
+	journal_t *journal = transaction->t_journal;
 	int csum_size = 0;
 	struct buffer_head *descriptor;
 	int sz, offset;
-	journal_header_t *header;
 
 	/* If we are already aborting, this all becomes a noop.  We
            still need to go round the loop in
@@ -649,7 +652,7 @@ static void write_one_revoke_record(journal_t *journal,
 			flush_descriptor(journal, descriptor, offset);
 	/* Do we need to leave space at the end for a checksum? */
 	if (jbd2_journal_has_csum_v2or3(journal))
-		csum_size = sizeof(struct jbd2_journal_revoke_tail);
+		csum_size = sizeof(struct jbd2_journal_block_tail);
 
 	if (jbd2_has_feature_64bit(journal))
 		sz = 8;
@@ -659,13 +662,14 @@ static void write_one_revoke_record(journal_t *journal,
 	/* Make sure we have a descriptor with space left for the record */
 	if (descriptor) {
 		if (offset + sz > journal->j_blocksize - csum_size) {
-			flush_descriptor(journal, descriptor, offset, write_op);
+			flush_descriptor(journal, descriptor, offset);
 			descriptor = NULL;
 		}
 	}
 
 	if (!descriptor) {
-		descriptor = jbd2_journal_get_descriptor_buffer(journal);
+		descriptor = jbd2_journal_get_descriptor_buffer(transaction,
+							JBD2_REVOKE_BLOCK);
 		if (!descriptor)
 			return;
 		header = (journal_header_t *) &jh2bh(descriptor)->b_data[0];
@@ -705,21 +709,6 @@ static void write_one_revoke_record(journal_t *journal,
 	*offsetp = offset;
 }
 
-static void jbd2_revoke_csum_set(journal_t *j, struct buffer_head *bh)
-{
-	struct jbd2_journal_revoke_tail *tail;
-	__u32 csum;
-
-	if (!jbd2_journal_has_csum_v2or3(j))
-		return;
-
-	tail = (struct jbd2_journal_revoke_tail *)(bh->b_data + j->j_blocksize -
-			sizeof(struct jbd2_journal_revoke_tail));
-	tail->r_checksum = 0;
-	csum = jbd2_chksum(j, j->j_csum_seed, bh->b_data, j->j_blocksize);
-	tail->r_checksum = cpu_to_be32(csum);
-}
-
 /*
  * Flush a revoke descriptor out to the journal.  If we are aborting,
  * this is a noop; otherwise we are generating a buffer which needs to
@@ -746,7 +735,7 @@ static void flush_descriptor(journal_t *journal,
 	set_buffer_dirty(bh);
 	ll_rw_block(SWRITE, 1, &bh);
 			     struct buffer_head *descriptor,
-			     int offset, int write_op)
+			     int offset)
 {
 	jbd2_journal_revoke_header_t *header;
 
@@ -757,12 +746,12 @@ static void flush_descriptor(journal_t *journal,
 
 	header = (jbd2_journal_revoke_header_t *)descriptor->b_data;
 	header->r_count = cpu_to_be32(offset);
-	jbd2_revoke_csum_set(journal, descriptor);
+	jbd2_descriptor_block_csum_set(journal, descriptor);
 
 	set_buffer_jwrite(descriptor);
 	BUFFER_TRACE(descriptor, "write");
 	set_buffer_dirty(descriptor);
-	write_dirty_buffer(descriptor, write_op);
+	write_dirty_buffer(descriptor, REQ_SYNC);
 }
 #endif
 

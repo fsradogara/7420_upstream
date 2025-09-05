@@ -401,6 +401,7 @@ static int snd_ca0106_capture_mic_line_in_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new snd_ca0106_capture_mic_line_in __devinitdata =
 static struct snd_kcontrol_new snd_ca0106_capture_mic_line_in =
+static const struct snd_kcontrol_new snd_ca0106_capture_mic_line_in =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name =		"Shared Mic/Line in Capture Switch",
@@ -411,6 +412,7 @@ static struct snd_kcontrol_new snd_ca0106_capture_mic_line_in =
 
 static struct snd_kcontrol_new snd_ca0106_capture_line_in_side_out __devinitdata =
 static struct snd_kcontrol_new snd_ca0106_capture_line_in_side_out =
+static const struct snd_kcontrol_new snd_ca0106_capture_line_in_side_out =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name =		"Shared Line in/Side out Capture Switch",

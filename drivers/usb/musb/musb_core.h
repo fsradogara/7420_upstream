@@ -294,9 +294,13 @@ struct musb_io;
  * @adjust_channel_params: pre check for standard dma channel_program func
  * @pre_root_reset_end: called before the root usb port reset flag gets cleared
  * @post_root_reset_end: called after the root usb port reset flag gets cleared
+ * @phy_callback: optional callback function for the phy to call
  */
 struct musb_platform_ops {
 
+#define MUSB_G_NO_SKB_RESERVE	BIT(9)
+#define MUSB_DA8XX		BIT(8)
+#define MUSB_PRESERVE_SESSION	BIT(7)
 #define MUSB_DMA_UX500		BIT(6)
 #define MUSB_DMA_CPPI41		BIT(5)
 #define MUSB_DMA_CPPI		BIT(4)
@@ -340,6 +344,8 @@ struct musb_platform_ops {
 				dma_addr_t *dma_addr, u32 *len);
 	void	(*pre_root_reset_end)(struct musb *musb);
 	void	(*post_root_reset_end)(struct musb *musb);
+	int	(*phy_callback)(enum musb_vbus_id_status status);
+	void	(*clear_ep_rxintr)(struct musb *musb, int epnum);
 };
 
 /*
@@ -463,15 +469,17 @@ struct musb {
 	irqreturn_t		(*isr)(int, void *);
 	struct work_struct	irq_work;
 
+	spinlock_t		list_lock;	/* resume work list lock */
 
 	struct musb_io		io;
 	const struct musb_platform_ops *ops;
 	struct musb_context_registers context;
 
 	irqreturn_t		(*isr)(int, void *);
-	struct work_struct	irq_work;
+	struct delayed_work	irq_work;
 	struct delayed_work	deassert_reset_work;
 	struct delayed_work	finish_resume_work;
+	struct delayed_work	gadget_work;
 	u16			hwvers;
 
 	u16			intrrxe;
@@ -504,6 +512,7 @@ struct musb {
 	 * and waiting at least a_wait_vrise_tmout.
 	 */
 	void			(*board_set_vbus)(struct musb *, int is_on);
+	struct list_head	pending_list;	/* pending work list */
 
 	struct timer_list	otg_timer;
 	struct notifier_block	nb;
@@ -559,10 +568,15 @@ struct musb {
 	u8			min_power;	/* vbus for periph, in mA/2 */
 
 	int			port_mode;	/* MUSB_PORT_MODE_* */
+	bool			session;
+	unsigned long		quirk_retries;
 	bool			is_host;
 
 	int			a_wait_bcon;	/* VBUS timeout in msecs */
 	unsigned long		idle_timeout;	/* Next timeout in jiffies */
+
+	unsigned		is_initialized:1;
+	unsigned		is_runtime_suspended:1;
 
 	/* active means connected and not suspended */
 	unsigned		is_active:1;
@@ -604,7 +618,6 @@ struct musb {
 
 	/* is_suspended means USB B_PERIPHERAL suspend */
 	unsigned		is_suspended:1;
-	unsigned		need_finish_resume :1;
 
 	/* may_wakeup means remote wakeup is enabled */
 	unsigned		may_wakeup:1;
@@ -619,6 +632,8 @@ struct musb {
 	unsigned		set_address:1;
 	unsigned		test_mode:1;
 	unsigned		softconnect:1;
+
+	unsigned		flush_irq_work:1;
 
 	u8			address;
 	u8			test_mode_nr;
@@ -656,7 +671,7 @@ static inline void musb_set_vbus(struct musb *musb, int is_on)
 	 */
 	unsigned                double_buffer_not_ok:1;
 
-	struct musb_hdrc_config	*config;
+	const struct musb_hdrc_config *config;
 
 	int			xceiv_old_state;
 #ifdef CONFIG_DEBUG_FS
@@ -672,6 +687,30 @@ static inline struct musb *gadget_to_musb(struct usb_gadget *g)
 	return container_of(g, struct musb, g);
 }
 #endif
+
+static inline char *musb_ep_xfertype_string(u8 type)
+{
+	char *s;
+
+	switch (type) {
+	case USB_ENDPOINT_XFER_CONTROL:
+		s = "ctrl";
+		break;
+	case USB_ENDPOINT_XFER_ISOC:
+		s = "iso";
+		break;
+	case USB_ENDPOINT_XFER_BULK:
+		s = "bulk";
+		break;
+	case USB_ENDPOINT_XFER_INT:
+		s = "int";
+		break;
+	default:
+		s = "";
+		break;
+	}
+	return s;
+}
 
 #ifdef CONFIG_BLACKFIN
 static inline int musb_read_fifosize(struct musb *musb,
@@ -780,6 +819,10 @@ extern int __init musb_platform_init(struct musb *musb);
 extern int musb_platform_exit(struct musb *musb);
 extern void musb_hnp_stop(struct musb *musb);
 
+int musb_queue_resume_work(struct musb *musb,
+			   int (*callback)(struct musb *musb, void *data),
+			   void *data);
+
 static inline void musb_platform_set_vbus(struct musb *musb, int is_on)
 {
 	if (musb->ops->set_vbus)
@@ -856,5 +899,17 @@ static inline void musb_platform_post_root_reset_end(struct musb *musb)
 	if (musb->ops->post_root_reset_end)
 		musb->ops->post_root_reset_end(musb);
 }
+
+static inline void musb_platform_clear_ep_rxintr(struct musb *musb, int epnum)
+{
+	if (musb->ops->clear_ep_rxintr)
+		musb->ops->clear_ep_rxintr(musb, epnum);
+}
+
+/*
+ * gets the "dr_mode" property from DT and converts it into musb_mode
+ * if the property is not found or not recognized returns MUSB_OTG
+ */
+extern enum musb_mode musb_get_mode(struct device *dev);
 
 #endif	/* __MUSB_CORE_H__ */

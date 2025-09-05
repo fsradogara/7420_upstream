@@ -1033,7 +1033,7 @@ static int snd_atiixp_pcm_hw_free(struct snd_pcm_substream *substream)
 /*
  * pcm hardware definition, identical for all DMA types
  */
-static struct snd_pcm_hardware snd_atiixp_pcm_hw =
+static const struct snd_pcm_hardware snd_atiixp_pcm_hw =
 {
 	.info =			(SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -1174,7 +1174,7 @@ static int snd_atiixp_spdif_close(struct snd_pcm_substream *substream)
 }
 
 /* AC97 playback */
-static struct snd_pcm_ops snd_atiixp_playback_ops = {
+static const struct snd_pcm_ops snd_atiixp_playback_ops = {
 	.open =		snd_atiixp_playback_open,
 	.close =	snd_atiixp_playback_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1186,7 +1186,7 @@ static struct snd_pcm_ops snd_atiixp_playback_ops = {
 };
 
 /* AC97 capture */
-static struct snd_pcm_ops snd_atiixp_capture_ops = {
+static const struct snd_pcm_ops snd_atiixp_capture_ops = {
 	.open =		snd_atiixp_capture_open,
 	.close =	snd_atiixp_capture_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1198,7 +1198,7 @@ static struct snd_pcm_ops snd_atiixp_capture_ops = {
 };
 
 /* SPDIF playback */
-static struct snd_pcm_ops snd_atiixp_spdif_ops = {
+static const struct snd_pcm_ops snd_atiixp_spdif_ops = {
 	.open =		snd_atiixp_spdif_open,
 	.close =	snd_atiixp_spdif_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1211,6 +1211,7 @@ static struct snd_pcm_ops snd_atiixp_spdif_ops = {
 
 static struct ac97_pcm atiixp_pcm_defs[] __devinitdata = {
 static struct ac97_pcm atiixp_pcm_defs[] = {
+static const struct ac97_pcm atiixp_pcm_defs[] = {
 	/* front PCM */
 	{
 		.exclusive = 1,
@@ -1246,7 +1247,7 @@ static struct ac97_pcm atiixp_pcm_defs[] = {
 	},
 };
 
-static struct atiixp_dma_ops snd_atiixp_playback_dma_ops = {
+static const struct atiixp_dma_ops snd_atiixp_playback_dma_ops = {
 	.type = ATI_DMA_PLAYBACK,
 	.llp_offset = ATI_REG_OUT_DMA_LINKPTR,
 	.dt_cur = ATI_REG_OUT_DMA_DT_CUR,
@@ -1255,7 +1256,7 @@ static struct atiixp_dma_ops snd_atiixp_playback_dma_ops = {
 	.flush_dma = atiixp_out_flush_dma,
 };
 	
-static struct atiixp_dma_ops snd_atiixp_capture_dma_ops = {
+static const struct atiixp_dma_ops snd_atiixp_capture_dma_ops = {
 	.type = ATI_DMA_CAPTURE,
 	.llp_offset = ATI_REG_IN_DMA_LINKPTR,
 	.dt_cur = ATI_REG_IN_DMA_DT_CUR,
@@ -1264,7 +1265,7 @@ static struct atiixp_dma_ops snd_atiixp_capture_dma_ops = {
 	.flush_dma = atiixp_in_flush_dma,
 };
 	
-static struct atiixp_dma_ops snd_atiixp_spdif_dma_ops = {
+static const struct atiixp_dma_ops snd_atiixp_spdif_dma_ops = {
 	.type = ATI_DMA_SPDIF,
 	.llp_offset = ATI_REG_SPDF_DMA_LINKPTR,
 	.dt_cur = ATI_REG_SPDF_DMA_DT_CUR,

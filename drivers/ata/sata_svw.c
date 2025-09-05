@@ -30,7 +30,7 @@
  *
  *
  *  libata documentation is available via 'make {ps|pdf}docs',
- *  as Documentation/DocBook/libata.*
+ *  as Documentation/driver-api/libata.rst
  *
  *  Hardware documentation available under NDA.
  *
@@ -395,7 +395,7 @@ static struct scsi_host_template k2_sata_sht = {
 	.proc_info		= k2_sata_proc_info,
 #endif
 		if (index == *reg) {
-			seq_printf(m, "devspec: %s\n", np->full_name);
+			seq_printf(m, "devspec: %pOF\n", np);
 			break;
 		}
 	}

@@ -49,7 +49,7 @@
 #include <linux/slab.h>
 
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/atomic.h>
 #include <asm/byteorder.h>
 
@@ -138,7 +138,7 @@ static int idt77252_proc_read(struct atm_dev *dev, loff_t * pos,
 static void idt77252_softint(struct work_struct *work);
 
 
-static struct atmdev_ops idt77252_ops =
+static const struct atmdev_ops idt77252_ops =
 {
 	.dev_close	= idt77252_dev_close,
 	.open		= idt77252_open,
@@ -739,7 +739,7 @@ push_on_scq(struct idt77252_dev *card, struct vc_map *vc, struct sk_buff *skb)
 		struct sock *sk = sk_atm(vcc);
 
 		vc->estimator->cells += (skb->len + 47) / 48;
-		if (atomic_read(&sk->sk_wmem_alloc) >
+		if (refcount_read(&sk->sk_wmem_alloc) >
 		    (sk->sk_sndbuf >> 1)) {
 			u32 cps = vc->estimator->maxcps;
 
@@ -1119,8 +1119,7 @@ dequeue_rx(struct idt77252_dev *card, struct rsq_entry *rsqe)
 
 			*((u32 *) sb->data) = aal0;
 			skb_put(sb, sizeof(u32));
-			memcpy(skb_put(sb, ATM_CELL_PAYLOAD),
-			       cell, ATM_CELL_PAYLOAD);
+			skb_put_data(sb, cell, ATM_CELL_PAYLOAD);
 
 			ATM_SKB(sb)->vcc = vcc;
 			__net_timestamp(sb);
@@ -1200,8 +1199,7 @@ dequeue_rx(struct idt77252_dev *card, struct rsq_entry *rsqe)
 				sb = sb->next;
 			}
 			skb_queue_walk(&rpp->queue, sb)
-				memcpy(skb_put(skb, sb->len),
-				       sb->data, sb->len);
+				skb_put_data(skb, sb->data, sb->len);
 
 			recycle_rx_pool_skb(card, rpp);
 
@@ -1374,8 +1372,7 @@ idt77252_rx_raw(struct idt77252_dev *card)
 
 		*((u32 *) sb->data) = header;
 		skb_put(sb, sizeof(u32));
-		memcpy(skb_put(sb, ATM_CELL_PAYLOAD), &(queue->data[16]),
-		       ATM_CELL_PAYLOAD);
+		skb_put_data(sb, &(queue->data[16]), ATM_CELL_PAYLOAD);
 
 		ATM_SKB(sb)->vcc = vcc;
 		__net_timestamp(sb);
@@ -2101,9 +2098,9 @@ idt77252_send_oam(struct atm_vcc *vcc, void *cell, int flags)
 		atomic_inc(&vcc->stats->tx_err);
 		return -ENOMEM;
 	}
-	atomic_add(skb->truesize, &sk_atm(vcc)->sk_wmem_alloc);
+	refcount_add(skb->truesize, &sk_atm(vcc)->sk_wmem_alloc);
 
-	memcpy(skb_put(skb, 52), cell, 52);
+	skb_put_data(skb, cell, 52);
 
 	return idt77252_send_skb(vcc, skb, 1);
 }
@@ -2221,12 +2218,8 @@ idt77252_init_est(struct vc_map *vc, int pcr)
 
 	est->interval = 2;		/* XXX: make this configurable */
 	est->ewma_log = 2;		/* XXX: make this configurable */
-	init_timer(&est->timer);
-	est->timer.data = (unsigned long)vc;
-	est->timer.function = idt77252_est_timer;
-
-	est->timer.expires = jiffies + ((HZ / 4) << est->interval);
-	add_timer(&est->timer);
+	setup_timer(&est->timer, idt77252_est_timer, (unsigned long)vc);
+	mod_timer(&est->timer, jiffies + ((HZ / 4) << est->interval));
 
 	return est;
 }
@@ -3819,9 +3812,7 @@ static int idt77252_init_one(struct pci_dev *pcidev,
 	spin_lock_init(&card->cmd_lock);
 	spin_lock_init(&card->tst_lock);
 
-	init_timer(&card->tst_timer);
-	card->tst_timer.data = (unsigned long)card;
-	card->tst_timer.function = tst_timer;
+	setup_timer(&card->tst_timer, tst_timer, (unsigned long)card);
 
 	/* Do the I/O remapping... */
 	card->membase = ioremap(membase, 1024);
@@ -3916,7 +3907,7 @@ err_out_disable_pdev:
 	return err;
 }
 
-static struct pci_device_id idt77252_pci_tbl[] =
+static const struct pci_device_id idt77252_pci_tbl[] =
 {
 	{ PCI_VENDOR_ID_IDT, PCI_DEVICE_ID_IDT_IDT77252,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },

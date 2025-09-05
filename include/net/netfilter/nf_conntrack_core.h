@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * This header is used to share core functionality between the
  * standalone connection tracking module, and the compatibility layer's use
@@ -93,7 +94,7 @@ int __nf_conntrack_confirm(struct sk_buff *skb);
 /* Confirm a connection: returns NF_DROP if packet must be dropped. */
 static inline int nf_conntrack_confirm(struct sk_buff *skb)
 {
-	struct nf_conn *ct = (struct nf_conn *)skb->nfct;
+	struct nf_conn *ct = (struct nf_conn *)skb_nfct(skb);
 	int ret = NF_ACCEPT;
 
 	if (ct) {
@@ -123,7 +124,10 @@ extern struct hlist_head unconfirmed;
 #else
 # define CONNTRACK_LOCKS 1024
 #endif
+#define CONNTRACK_LOCKS 1024
+
 extern spinlock_t nf_conntrack_locks[CONNTRACK_LOCKS];
+void nf_conntrack_lock(spinlock_t *lock);
 
 extern spinlock_t nf_conntrack_expect_lock;
 

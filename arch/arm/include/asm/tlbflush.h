@@ -20,6 +20,10 @@
 #include <asm/glue.h>
 
 #define TLB_V3_PAGE	(1 << 0)
+#ifndef __ASSEMBLY__
+# include <linux/mm_types.h>
+#endif
+
 #ifdef CONFIG_MMU
 
 #include <asm/glue.h>
@@ -831,9 +835,6 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 #elif defined(CONFIG_SMP)	/* !CONFIG_MMU */
 
 #ifndef __ASSEMBLY__
-
-#include <linux/mm_types.h>
-
 static inline void local_flush_tlb_all(void)									{ }
 static inline void local_flush_tlb_mm(struct mm_struct *mm)							{ }
 static inline void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)			{ }

@@ -1,6 +1,7 @@
 void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs);
 
 unsigned long search_exception_table(unsigned long addr);
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ARCH_ARM_FAULT_H
 #define __ARCH_ARM_FAULT_H
 
@@ -14,11 +15,15 @@ unsigned long search_exception_table(unsigned long addr);
 #define FSR_FS5_0		(0x3f)
 
 #ifdef CONFIG_ARM_LPAE
+#define FSR_FS_AEA		17
+
 static inline int fsr_fs(unsigned int fsr)
 {
 	return fsr & FSR_FS5_0;
 }
 #else
+#define FSR_FS_AEA		22
+
 static inline int fsr_fs(unsigned int fsr)
 {
 	return (fsr & FSR_FS3_0) | (fsr & FSR_FS4) >> 6;
@@ -26,7 +31,6 @@ static inline int fsr_fs(unsigned int fsr)
 #endif
 
 void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs);
-unsigned long search_exception_table(unsigned long addr);
 void early_abt_enable(void);
 
 #endif	/* __ARCH_ARM_FAULT_H */

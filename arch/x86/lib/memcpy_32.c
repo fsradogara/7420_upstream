@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/string.h>
-#include <linux/module.h>
+#include <linux/export.h>
 
 #undef memcpy
 #undef memset
@@ -7,7 +8,7 @@
 void *memcpy(void *to, const void *from, size_t n)
 __visible void *memcpy(void *to, const void *from, size_t n)
 {
-#ifdef CONFIG_X86_USE_3DNOW
+#if defined(CONFIG_X86_USE_3DNOW) && !defined(CONFIG_FORTIFY_SOURCE)
 	return __memcpy3d(to, from, n);
 #else
 	return __memcpy(to, from, n);

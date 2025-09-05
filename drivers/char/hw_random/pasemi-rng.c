@@ -26,7 +26,7 @@
 #include <linux/delay.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
-#include <asm/io.h>
+#include <linux/io.h>
 
 #define SDCRNG_CTL_REG			0x00
 #define   SDCRNG_CTL_FVLD_M		0x0000f000
@@ -101,20 +101,15 @@ static int __devinit rng_probe(struct of_device *ofdev,
 	void __iomem *rng_regs;
 	struct device_node *rng_np = ofdev->node;
 static int rng_probe(struct platform_device *ofdev)
+static int rng_probe(struct platform_device *pdev)
 {
 	void __iomem *rng_regs;
-	struct device_node *rng_np = ofdev->dev.of_node;
-	struct resource res;
-	int err = 0;
+	struct resource *res;
 
-	err = of_address_to_resource(rng_np, 0, &res);
-	if (err)
-		return -ENODEV;
-
-	rng_regs = ioremap(res.start, 0x100);
-
-	if (!rng_regs)
-		return -ENOMEM;
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	rng_regs = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(rng_regs))
+		return PTR_ERR(rng_regs);
 
 	pasemi_rng.priv = (unsigned long)rng_regs;
 
@@ -138,6 +133,7 @@ static int rng_remove(struct platform_device *dev)
 	iounmap(rng_regs);
 
 	return 0;
+	return devm_hwrng_register(&pdev->dev, &pasemi_rng);
 }
 
 static struct of_device_id rng_match[] = {
@@ -158,7 +154,6 @@ static struct platform_driver rng_driver = {
 		.of_match_table = rng_match,
 	},
 	.probe		= rng_probe,
-	.remove		= rng_remove,
 };
 
 static int __init rng_init(void)

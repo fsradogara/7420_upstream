@@ -7,6 +7,7 @@
  * found in RTC chips).
  */
 
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _BCD_H
 #define _BCD_H
 

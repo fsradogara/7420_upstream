@@ -16,6 +16,7 @@ snd-hda-intel-$(CONFIG_SND_HDA_CODEC_CONEXANT) += patch_conexant.o
 snd-hda-intel-$(CONFIG_SND_HDA_CODEC_VIA) += patch_via.o
 
 obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-intel.o
+# SPDX-License-Identifier: GPL-2.0
 snd-hda-intel-objs := hda_intel.o
 snd-hda-tegra-objs := hda_tegra.o
 

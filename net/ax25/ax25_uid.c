@@ -27,6 +27,7 @@
 #include <net/sock.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
+#include <linux/uaccess.h>
 #include <linux/fcntl.h>
 #include <linux/mm.h>
 #include <linux/interrupt.h>
@@ -127,6 +128,7 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 
 		atomic_set(&ax25_uid->refcount, 1);
 		ax25_uid->uid  = sax->sax25_uid;
+		refcount_set(&ax25_uid->refcount, 1);
 		ax25_uid->uid  = sax25_kuid;
 		ax25_uid->call = sax->sax25_call;
 

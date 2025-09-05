@@ -104,7 +104,8 @@ static int sierra_vsc_set_nmea(struct usb_device *udev, __u16 enable)
 	return result;
 }
 
-static int sierra_calc_num_ports(struct usb_serial *serial)
+static int sierra_calc_num_ports(struct usb_serial *serial,
+					struct usb_serial_endpoints *epds)
 {
 	int result;
 	int *num_ports = usb_get_serial_data(serial);
@@ -168,7 +169,7 @@ static int is_himemory(const u8 ifnum,
 	return 0;
 }
 
-static int sierra_calc_interface(struct usb_serial *serial)
+static u8 sierra_interface_num(struct usb_serial *serial)
 {
 	int interface;
 	struct usb_interface *p_interface;
@@ -187,6 +188,7 @@ static int sierra_calc_interface(struct usb_serial *serial)
 	interface = p_host_interface->desc.bInterfaceNumber;
 
 	return interface;
+	return serial->interface->cur_altsetting->desc.bInterfaceNumber;
 }
 
 static int sierra_probe(struct usb_serial *serial,
@@ -212,7 +214,7 @@ static int sierra_probe(struct usb_serial *serial,
 	u8 ifnum;
 
 	udev = serial->dev;
-	ifnum = sierra_calc_interface(serial);
+	ifnum = sierra_interface_num(serial);
 
 	/*
 	 * If this interface supports more than 1 alternate
@@ -503,7 +505,7 @@ static int sierra_tiocmget(struct tty_struct *tty, struct file *file)
 
 	/* If composite device then properly report interface */
 	if (serial->num_ports == 1) {
-		interface = sierra_calc_interface(serial);
+		interface = sierra_interface_num(serial);
 		/* Control message is sent only to interfaces with
 		 * interrupt_in endpoints
 		 */
@@ -1135,7 +1137,7 @@ static void sierra_close(struct usb_serial_port *port)
 
 	/*
 	 * Need to take susp_lock to make sure port is not already being
-	 * resumed, but no need to hold it due to ASYNC_INITIALIZED.
+	 * resumed, but no need to hold it due to initialized
 	 */
 	spin_lock_irq(&intfdata->susp_lock);
 	if (--intfdata->open_ports == 0)
@@ -1351,7 +1353,7 @@ static int sierra_port_probe(struct usb_serial_port *port)
 	/* Determine actual memory requirements */
 	if (serial->num_ports == 1) {
 		/* Get interface number for composite device */
-		ifnum = sierra_calc_interface(serial);
+		ifnum = sierra_interface_num(serial);
 		himemoryp = &typeB_interface_list;
 	} else {
 		/* This is really the usb-serial port number of the interface
@@ -1474,7 +1476,7 @@ static int sierra_resume(struct usb_serial *serial)
 	for (i = 0; i < serial->num_ports; i++) {
 		port = serial->port[i];
 
-		if (!test_bit(ASYNCB_INITIALIZED, &port->port.flags))
+		if (!tty_port_initialized(&port->port))
 			continue;
 
 		err = sierra_submit_delayed_urbs(port);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/arch/xtensa/kernel/irq.c
  *
@@ -61,7 +62,7 @@ asmlinkage void do_IRQ(int irq, struct pt_regs *regs)
 #include <linux/of.h>
 
 #include <asm/mxregs.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/platform.h>
 
 DECLARE_PER_CPU(unsigned long, nmi_count);
@@ -69,11 +70,6 @@ DECLARE_PER_CPU(unsigned long, nmi_count);
 asmlinkage void do_IRQ(int hwirq, struct pt_regs *regs)
 {
 	int irq = irq_find_mapping(NULL, hwirq);
-
-	if (hwirq >= NR_IRQS) {
-		printk(KERN_EMERG "%s: cannot handle IRQ %d\n",
-				__func__, hwirq);
-	}
 
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
 	/* Debugging check for stack overflow: is there less than 1KB free? */

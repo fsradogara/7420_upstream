@@ -20,8 +20,22 @@
 #include <linux/delay.h>
 #include <asm/delay.h>
 
-#include "../w1.h"
-#include "../w1_int.h"
+#include <linux/w1.h>
+
+/**
+ * Allow the active pullup to be disabled, default is enabled.
+ *
+ * Note from the DS2482 datasheet:
+ * The APU bit controls whether an active pullup (controlled slew-rate
+ * transistor) or a passive pullup (Rwpu resistor) will be used to drive
+ * a 1-Wire line from low to high. When APU = 0, active pullup is disabled
+ * (resistor mode). Active Pullup should always be selected unless there is
+ * only a single slave on the 1-Wire line.
+ */
+static int ds2482_active_pullup = 1;
+module_param_named(active_pullup, ds2482_active_pullup, int, 0644);
+MODULE_PARM_DESC(active_pullup, "Active pullup (apply to all buses): " \
+				"0-disable, 1-enable (default)");
 
 /**
  * Address is selected using 2 pins, resulting in 4 possible addresses.
@@ -73,6 +87,8 @@ I2C_CLIENT_INSMOD_1(ds2482);
 #define DS2482_REG_CFG_PPM		0x02	/* presence pulse masking */
 #define DS2482_REG_CFG_APU		0x01	/* active pull-up */
 
+/* extra configurations - e.g. 1WS */
+int extra_config;
 
 /**
  * Write and verify codes for the CHANNEL_SELECT command (DS2482-800 only).
@@ -163,6 +179,9 @@ struct ds2482_data {
  */
 static inline u8 ds2482_calculate_config(u8 conf)
 {
+	if (ds2482_active_pullup)
+		conf |= DS2482_REG_CFG_APU;
+
 	return conf | ((~conf & 0x0f) << 4);
 }
 
@@ -439,6 +458,7 @@ static u8 ds2482_w1_reset_bus(void *data)
 			ds2482_send_cmd_data(pdev, DS2482_CMD_WRITE_CONFIG,
 					     0xF0);
 					     ds2482_calculate_config(0x00));
+					ds2482_calculate_config(extra_config));
 	}
 
 	mutex_unlock(&pdev->access_lock);
@@ -478,8 +498,7 @@ static u8 ds2482_w1_set_pullup(void *data, int delay)
 		ds2482_wait_1wire_idle(pdev);
 		/* note: it seems like both SPU and APU have to be set! */
 		retval = ds2482_send_cmd_data(pdev, DS2482_CMD_WRITE_CONFIG,
-			ds2482_calculate_config(DS2482_REG_CFG_SPU |
-						DS2482_REG_CFG_APU));
+			ds2482_calculate_config(extra_config|DS2482_REG_CFG_SPU|DS2482_REG_CFG_APU));
 		ds2482_wait_1wire_idle(pdev);
 	}
 
@@ -533,7 +552,7 @@ static int ds2482_probe(struct i2c_client *client,
 	/* Set all config items to 0 (off) */
 	ds2482_send_cmd_data(data, DS2482_CMD_WRITE_CONFIG, 0xF0);
 	ds2482_send_cmd_data(data, DS2482_CMD_WRITE_CONFIG,
-		ds2482_calculate_config(0x00));
+		ds2482_calculate_config(extra_config));
 
 	mutex_init(&data->access_lock);
 
@@ -596,10 +615,30 @@ static void __exit sensors_ds2482_exit(void)
 {
 	i2c_del_driver(&ds2482_driver);
 }
+/**
+ * Driver data (common to all clients)
+ */
+static const struct i2c_device_id ds2482_id[] = {
+	{ "ds2482", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, ds2482_id);
+
+static struct i2c_driver ds2482_driver = {
+	.driver = {
+		.name	= "ds2482",
+	},
+	.probe		= ds2482_probe,
+	.remove		= ds2482_remove,
+	.id_table	= ds2482_id,
+};
 module_i2c_driver(ds2482_driver);
 
 MODULE_AUTHOR("Ben Gardner <bgardner@wabtec.com>");
 MODULE_DESCRIPTION("DS2482 driver");
+module_param(extra_config, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(extra_config, "Extra Configuration settings 1=APU,2=PPM,3=SPU,8=1WS");
+
 MODULE_LICENSE("GPL");
 
 module_init(sensors_ds2482_init);

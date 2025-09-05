@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* spinlock.h: 64-bit Sparc spinlock support.
  *
  * Copyright (C) 1997 David S. Miller (davem@caip.rutgers.edu)
@@ -258,6 +259,10 @@ static int inline arch_write_trylock(arch_rwlock_t *lock)
 
 	return result;
 }
+#include <asm/processor.h>
+#include <asm/barrier.h>
+#include <asm/qrwlock.h>
+#include <asm/qspinlock.h>
 
 #define __raw_read_lock(p)	__read_lock(p)
 #define __raw_read_trylock(p)	__read_trylock(p)
@@ -274,9 +279,6 @@ static int inline arch_write_trylock(arch_rwlock_t *lock)
 #define _raw_write_relax(lock)	cpu_relax()
 #define arch_read_lock_flags(p, f) arch_read_lock(p)
 #define arch_write_lock_flags(p, f) arch_write_lock(p)
-
-#define arch_read_can_lock(rw)		(!((rw)->lock & 0x80000000UL))
-#define arch_write_can_lock(rw)	(!(rw)->lock)
 
 #define arch_spin_relax(lock)	cpu_relax()
 #define arch_read_relax(lock)	cpu_relax()

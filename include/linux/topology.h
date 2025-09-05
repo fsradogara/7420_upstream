@@ -34,10 +34,6 @@
 #include <linux/percpu.h>
 #include <asm/topology.h>
 
-#ifndef node_has_online_mem
-#define node_has_online_mem(nid) (1)
-#endif
-
 #ifndef nr_cpus_node
 #define nr_cpus_node(node)				\
 	({						\
@@ -68,6 +64,7 @@ int arch_update_cpu_topology(void);
  */
 #define RECLAIM_DISTANCE 20
  * and zone_reclaim_mode is enabled then the VM will only call zone_reclaim()
+ * and node_reclaim_mode is enabled then the VM will only call node_reclaim()
  * on nodes within this distance.
  */
 #define RECLAIM_DISTANCE 30

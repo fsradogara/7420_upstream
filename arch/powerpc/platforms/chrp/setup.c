@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  Copyright (C) 1995  Linus Torvalds
  *  Adapted from 'alpha' version by Gary Thomas
@@ -243,7 +244,7 @@ out:
 	of_node_put(np);
 }
 
-static void briq_restart(char *cmd)
+static void __noreturn briq_restart(char *cmd)
 {
 	local_irq_disable();
 	if (briq_SPOR)
@@ -259,6 +260,7 @@ static void briq_restart(char *cmd)
  */
 static void chrp_init_early(void)
 static __init void chrp_init_early(void)
+static __init void chrp_init(void)
 {
 	struct device_node *node;
 	const char *property;
@@ -393,7 +395,7 @@ static void chrp_8259_cascade(struct irq_desc *desc)
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	unsigned int cascade_irq = i8259_irq();
 
-	if (cascade_irq != NO_IRQ)
+	if (cascade_irq)
 		generic_handle_irq(cascade_irq);
 
 	chip->irq_eoi(&desc->irq_data);
@@ -542,7 +544,7 @@ static void __init chrp_find_8259(void)
 	}
 	if (chrp_mpic != NULL) {
 		cascade_irq = irq_of_parse_and_map(pic, 0);
-		if (cascade_irq == NO_IRQ)
+		if (!cascade_irq)
 			printk(KERN_ERR "i8259: failed to map cascade irq\n");
 		else
 			set_irq_chained_handler(cascade_irq,
@@ -655,6 +657,8 @@ static int __init chrp_probe(void)
 
 	pm_power_off = rtas_power_off;
 
+	chrp_init();
+
 	return 1;
 }
 
@@ -663,7 +667,6 @@ define_machine(chrp) {
 	.probe			= chrp_probe,
 	.setup_arch		= chrp_setup_arch,
 	.init			= chrp_init2,
-	.init_early		= chrp_init_early,
 	.show_cpuinfo		= chrp_show_cpuinfo,
 	.init_IRQ		= chrp_init_IRQ,
 	.restart		= rtas_restart,

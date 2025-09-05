@@ -1,3 +1,5 @@
+Msc Keyboard Scan Expansion/GPIO Expansion device
+
 What is smsc-ece1099?
 ----------------------
 

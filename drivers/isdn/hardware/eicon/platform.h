@@ -273,6 +273,7 @@ typedef struct _diva_os_adapter_irq_info {
 int diva_os_register_irq (void* context, byte irq, const char* name);
 void diva_os_remove_irq (void* context, byte irq);
 int diva_os_register_io_port(void *adapter, int register, unsigned long port,
+int diva_os_register_io_port(void *adapter, int reg, unsigned long port,
 			     unsigned long length, const char *name, int id);
 /*
 **  I/O port access abstraction
@@ -383,12 +384,13 @@ diva_os_atomic_decrement(diva_os_atomic_t* pv)
 }
 
 /* 
+static inline diva_os_atomic_t
 diva_os_atomic_increment(diva_os_atomic_t *pv)
 {
 	*pv += 1;
 	return (*pv);
 }
-static diva_os_atomic_t __inline__
+static inline diva_os_atomic_t
 diva_os_atomic_decrement(diva_os_atomic_t *pv)
 {
 	*pv -= 1;

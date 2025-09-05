@@ -404,6 +404,9 @@ __do_get_tspec:
 	mfspr	r4, SPRN_TBRL
 	mfspr	r0, SPRN_TBRU
 #endif
+2:	MFTBU(r3)
+	MFTBL(r4)
+	MFTBU(r0)
 	cmplw	cr0,r3,r0
 	bne-	2b
 

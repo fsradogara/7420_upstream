@@ -4,7 +4,7 @@
  * (C) 2007 SoftwareBitMaker (http://www.softwarebitmaker.com)
  * file for managing the edac_device subsystem of devices for EDAC
  *
- * (C) 2007 SoftwareBitMaker 
+ * (C) 2007 SoftwareBitMaker
  *
  * This file may be distributed under the terms of the
  * GNU General Public License.
@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/edac.h>
 
-#include "edac_core.h"
+#include "edac_device.h"
 #include "edac_module.h"
 
 #define EDAC_DEVICE_SYMLINK	"device"
@@ -251,11 +251,6 @@ int edac_device_register_sysfs_main_kobj(struct edac_device_ctl_info *edac_dev)
 
 	/* get the /sys/devices/system/edac reference */
 	edac_subsys = edac_get_sysfs_subsys();
-	if (edac_subsys == NULL) {
-		edac_dbg(1, "no edac_subsys error\n");
-		err = -ENODEV;
-		goto err_out;
-	}
 
 	/* Point to the 'edac_class' this instance 'reports' to */
 	edac_dev->edac_class = edac_class;
@@ -306,9 +301,6 @@ int edac_device_register_sysfs_main_kobj(struct edac_device_ctl_info *edac_dev)
 err_kobj_reg:
 	module_put(edac_dev->owner);
 
-err_mod_get:
-	edac_put_sysfs_subsys();
-
 err_out:
 	return err;
 }
@@ -337,7 +329,6 @@ void edac_device_unregister_sysfs_main_kobj(struct edac_device_ctl_info *dev)
 	 */
 	kobject_put(&edac_dev->kobj);
 	kobject_put(&dev->kobj);
-	edac_put_sysfs_subsys();
 }
 
 /* edac_dev -> instance information */

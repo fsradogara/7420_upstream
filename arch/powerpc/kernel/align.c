@@ -24,11 +24,14 @@
 #include <asm/system.h>
 #include <asm/cache.h>
 #include <asm/cputable.h>
+#include <linux/uaccess.h>
 #include <asm/cache.h>
 #include <asm/cputable.h>
 #include <asm/emulated_ops.h>
 #include <asm/switch_to.h>
 #include <asm/disassemble.h>
+#include <asm/cpu_has_feature.h>
+#include <asm/sstep.h>
 
 struct aligninfo {
 	unsigned char len;
@@ -44,13 +47,7 @@ struct aligninfo {
 #define LD	0	/* load */
 #define ST	1	/* store */
 #define SE	2	/* sign-extend value, or FP ld/st as word */
-#define F	4	/* to/from fp regs */
-#define U	8	/* update index register */
-#define M	0x10	/* multiple load/store */
 #define SW	0x20	/* byte swap */
-#define S	0x40	/* single-precision fp or... */
-#define SX	0x40	/* ... byte count in XER */
-#define HARD	0x80	/* string, stwcx. */
 #define E4	0x40	/* SPE endianness is word */
 #define E8	0x80	/* SPE endianness is double word */
 #define SPLT	0x80	/* VSX SPLAT load */
@@ -832,6 +829,8 @@ static int emulate_vsx(unsigned char __user *addr, unsigned int reg,
  * Return 1 on success
  * Return 0 if unable to handle the interrupt
  * Return -EFAULT if data address is bad
+ * Other negative return values indicate that the instruction can't
+ * be emulated, and the process should be given a SIGBUS.
  */
 
 int fix_alignment(struct pt_regs *regs)
@@ -873,6 +872,9 @@ int fix_alignment(struct pt_regs *regs)
 #endif
 		} x16;
 	} data;
+	unsigned int instr;
+	struct instruction_op op;
+	int r, type;
 
 	/*
 	 * We require a complete register set, if not, then our assembly
@@ -880,40 +882,25 @@ int fix_alignment(struct pt_regs *regs)
 	 */
 	CHECK_FULL_REGS(regs);
 
-	dsisr = regs->dsisr;
-
-	/* Some processors don't provide us with a DSISR we can use here,
-	 * let's make one up from the instruction
-	 */
-	if (cpu_has_feature(CPU_FTR_NODSISRALIGN)) {
-		unsigned long pc = regs->nip;
-
-		if (cpu_has_feature(CPU_FTR_PPC_LE) && (regs->msr & MSR_LE))
-			pc ^= 4;
-		if (unlikely(__get_user_inatomic(instr,
-						 (unsigned int __user *)pc)))
-			return -EFAULT;
-		if (cpu_has_feature(CPU_FTR_REAL_LE) && (regs->msr & MSR_LE))
-			instr = cpu_to_le32(instr);
-		dsisr = make_dsisr(instr);
-		instruction = instr;
+	if (unlikely(__get_user(instr, (unsigned int __user *)regs->nip)))
+		return -EFAULT;
+	if ((regs->msr & MSR_LE) != (MSR_KERNEL & MSR_LE)) {
+		/* We don't handle PPC little-endian any more... */
+		if (cpu_has_feature(CPU_FTR_PPC_LE))
+			return -EIO;
+		instr = swab32(instr);
 	}
-
-	/* extract the operation and registers from the dsisr */
-	reg = (dsisr >> 5) & 0x1f;	/* source/dest register */
-	areg = dsisr & 0x1f;		/* register to update */
 
 #ifdef CONFIG_SPE
 	if ((instr >> 26) == 0x4)
 		return emulate_spe(regs, reg, instr);
 	if ((instr >> 26) == 0x4) {
+		int reg = (instr >> 21) & 0x1f;
 		PPC_WARN_ALIGNMENT(spe, regs);
 		return emulate_spe(regs, reg, instr);
 	}
 #endif
 
-	instr = (dsisr >> 10) & 0x7f;
-	instr |= (dsisr >> 13) & 0x60;
 
 	/* Lookup the operation in our table */
 	nb = aligninfo[instr].len;
@@ -1225,4 +1212,37 @@ int fix_alignment(struct pt_regs *regs)
 		regs->gpr[areg] = regs->dar;
 
 	return 1;
+	/*
+	 * ISA 3.0 (such as P9) copy, copy_first, paste and paste_last alignment
+	 * check.
+	 *
+	 * Send a SIGBUS to the process that caused the fault.
+	 *
+	 * We do not emulate these because paste may contain additional metadata
+	 * when pasting to a co-processor. Furthermore, paste_last is the
+	 * synchronisation point for preceding copy/paste sequences.
+	 */
+	if ((instr & 0xfc0006fe) == (PPC_INST_COPY & 0xfc0006fe))
+		return -EIO;
+
+	r = analyse_instr(&op, regs, instr);
+	if (r < 0)
+		return -EINVAL;
+
+	type = op.type & INSTR_TYPE_MASK;
+	if (!OP_IS_LOAD_STORE(type)) {
+		if (op.type != CACHEOP + DCBZ)
+			return -EINVAL;
+		PPC_WARN_ALIGNMENT(dcbz, regs);
+		r = emulate_dcbz(op.ea, regs);
+	} else {
+		if (type == LARX || type == STCX)
+			return -EIO;
+		PPC_WARN_ALIGNMENT(unaligned, regs);
+		r = emulate_loadstore(regs, &op);
+	}
+
+	if (!r)
+		return 1;
+	return r;
 }

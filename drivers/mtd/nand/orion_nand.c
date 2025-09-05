@@ -26,7 +26,7 @@ static const char *part_probes[] = { "cmdlinepart", NULL };
 #endif
 #include <linux/of.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/clk.h>
 #include <linux/err.h>
@@ -34,10 +34,15 @@ static const char *part_probes[] = { "cmdlinepart", NULL };
 #include <asm/sizes.h>
 #include <linux/platform_data/mtd-orion_nand.h>
 
+struct orion_nand_info {
+	struct nand_chip chip;
+	struct clk *clk;
+};
+
 static void orion_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 {
-	struct nand_chip *nc = mtd->priv;
-	struct orion_nand_data *board = nc->priv;
+	struct nand_chip *nc = mtd_to_nand(mtd);
+	struct orion_nand_data *board = nand_get_controller_data(nc);
 	u32 offs;
 
 	if (cmd == NAND_CMD_NONE)
@@ -90,15 +95,18 @@ static int __init orion_nand_probe(struct platform_device *pdev)
 	mtd->owner = THIS_MODULE;
 static void orion_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	void __iomem *io_base = chip->IO_ADDR_R;
+#if __LINUX_ARM_ARCH__ >= 5
 	uint64_t *buf64;
+#endif
 	int i = 0;
 
 	while (len && (unsigned long)buf & 7) {
 		*buf++ = readb(io_base);
 		len--;
 	}
+#if __LINUX_ARM_ARCH__ >= 5
 	buf64 = (uint64_t *)buf;
 	while (i < len/8) {
 		/*
@@ -112,28 +120,32 @@ static void orion_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		buf64[i++] = x;
 	}
 	i *= 8;
+#else
+	readsl(io_base, buf, len/4);
+	i = len / 4 * 4;
+#endif
 	while (i < len)
 		buf[i++] = readb(io_base);
 }
 
 static int __init orion_nand_probe(struct platform_device *pdev)
 {
+	struct orion_nand_info *info;
 	struct mtd_info *mtd;
-	struct mtd_part_parser_data ppdata = {};
 	struct nand_chip *nc;
 	struct orion_nand_data *board;
 	struct resource *res;
-	struct clk *clk;
 	void __iomem *io_base;
 	int ret = 0;
 	u32 val = 0;
 
-	nc = devm_kzalloc(&pdev->dev,
-			sizeof(struct nand_chip) + sizeof(struct mtd_info),
+	info = devm_kzalloc(&pdev->dev,
+			sizeof(struct orion_nand_info),
 			GFP_KERNEL);
-	if (!nc)
+	if (!info)
 		return -ENOMEM;
-	mtd = (struct mtd_info *)(nc + 1);
+	nc = &info->chip;
+	mtd = nand_to_mtd(nc);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	io_base = devm_ioremap_resource(&pdev->dev, res);
@@ -166,14 +178,15 @@ static int __init orion_nand_probe(struct platform_device *pdev)
 		board = dev_get_platdata(&pdev->dev);
 	}
 
-	mtd->priv = nc;
 	mtd->dev.parent = &pdev->dev;
 
-	nc->priv = board;
+	nand_set_controller_data(nc, board);
+	nand_set_flash_node(nc, pdev->dev.of_node);
 	nc->IO_ADDR_R = nc->IO_ADDR_W = io_base;
 	nc->cmd_ctrl = orion_nand_cmd_ctrl;
 	nc->read_buf = orion_nand_read_buf;
 	nc->ecc.mode = NAND_ECC_SOFT;
+	nc->ecc.algo = NAND_ECC_HAMMING;
 
 	if (board->chip_delay)
 		nc->chip_delay = board->chip_delay;
@@ -193,19 +206,25 @@ static int __init orion_nand_probe(struct platform_device *pdev)
 	if (board->dev_ready)
 		nc->dev_ready = board->dev_ready;
 
-	platform_set_drvdata(pdev, mtd);
+	platform_set_drvdata(pdev, info);
 
 	/* Not all platforms can gate the clock, so it is not
 	   an error if the clock does not exists. */
-	clk = clk_get(&pdev->dev, NULL);
-	if (!IS_ERR(clk)) {
-		clk_prepare_enable(clk);
-		clk_put(clk);
+	info->clk = devm_clk_get(&pdev->dev, NULL);
+	if (IS_ERR(info->clk)) {
+		ret = PTR_ERR(info->clk);
+		if (ret == -ENOENT) {
+			info->clk = NULL;
+		} else {
+			dev_err(&pdev->dev, "failed to get clock!\n");
+			return ret;
+		}
 	}
 
-	if (nand_scan(mtd, 1)) {
-		ret = -ENXIO;
-		goto no_dev;
+	ret = clk_prepare_enable(info->clk);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to prepare clock!\n");
+		return ret;
 	}
 
 #ifdef CONFIG_MTD_PARTITIONS
@@ -226,11 +245,12 @@ static int __init orion_nand_probe(struct platform_device *pdev)
 #else
 	ret = add_mtd_device(mtd);
 #endif
+	ret = nand_scan(mtd, 1);
+	if (ret)
+		goto no_dev;
 
 	mtd->name = "orion_nand";
-	ppdata.of_node = pdev->dev.of_node;
-	ret = mtd_device_parse_register(mtd, NULL, &ppdata,
-			board->parts, board->nr_parts);
+	ret = mtd_device_register(mtd, board->parts, board->nr_parts);
 	if (ret) {
 		nand_release(mtd);
 		goto no_dev;
@@ -248,6 +268,7 @@ no_res:
 		clk_put(clk);
 	}
 
+	clk_disable_unprepare(info->clk);
 	return ret;
 }
 
@@ -263,16 +284,13 @@ static int __devexit orion_nand_remove(struct platform_device *pdev)
 	kfree(nc);
 static int orion_nand_remove(struct platform_device *pdev)
 {
-	struct mtd_info *mtd = platform_get_drvdata(pdev);
-	struct clk *clk;
+	struct orion_nand_info *info = platform_get_drvdata(pdev);
+	struct nand_chip *chip = &info->chip;
+	struct mtd_info *mtd = nand_to_mtd(chip);
 
 	nand_release(mtd);
 
-	clk = clk_get(&pdev->dev, NULL);
-	if (!IS_ERR(clk)) {
-		clk_disable_unprepare(clk);
-		clk_put(clk);
-	}
+	clk_disable_unprepare(info->clk);
 
 	return 0;
 }

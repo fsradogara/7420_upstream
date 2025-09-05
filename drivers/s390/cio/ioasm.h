@@ -1,28 +1,16 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef S390_CIO_IOASM_H
 #define S390_CIO_IOASM_H
 
 #include <asm/chpid.h>
 #include <asm/schid.h>
+#include <asm/crw.h>
 #include "orb.h"
 #include "cio.h"
+#include "trace.h"
 
 /*
- * TPI info structure
- */
-struct tpi_info {
-	struct subchannel_id schid;
-	__u32 intparm;		 /* interruption parameter */
-	__u32 adapter_IO : 1;
-	__u32 reserved2	 : 1;
-	__u32 isc	 : 3;
-	__u32 reserved3	 : 12;
-	__u32 int_type	 : 3;
-	__u32 reserved4	 : 12;
-} __attribute__ ((packed));
-
-
-/*
- * Some S390 specific IO instructions as inline
+ * Some S390 specific IO instructions
  */
 
 static inline int stsch(struct subchannel_id schid,
@@ -210,5 +198,17 @@ static inline int rchp(struct chp_id chpid)
 		: "=d" (ccode) : "d" (reg1) : "cc");
 	return ccode;
 }
+int stsch(struct subchannel_id schid, struct schib *addr);
+int msch(struct subchannel_id schid, struct schib *addr);
+int tsch(struct subchannel_id schid, struct irb *addr);
+int ssch(struct subchannel_id schid, union orb *addr);
+int csch(struct subchannel_id schid);
+int tpi(struct tpi_info *addr);
+int chsc(void *chsc_area);
+int rchp(struct chp_id chpid);
+int rsch(struct subchannel_id schid);
+int hsch(struct subchannel_id schid);
+int xsch(struct subchannel_id schid);
+int stcrw(struct crw *crw);
 
 #endif

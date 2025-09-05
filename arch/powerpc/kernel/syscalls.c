@@ -37,10 +37,11 @@
 #include <linux/init.h>
 #include <linux/personality.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/syscalls.h>
 #include <asm/time.h>
 #include <asm/unistd.h>
+#include <asm/asm-prototypes.h>
 
 /*
  * sys_ipc() is the de-multiplexer for the SysV IPC calls..
@@ -142,6 +143,11 @@ static inline unsigned long do_mmap2(unsigned long addr, size_t len,
 {
 	struct file * file = NULL;
 	unsigned long ret = -EINVAL;
+static inline long do_mmap2(unsigned long addr, size_t len,
+			unsigned long prot, unsigned long flags,
+			unsigned long fd, unsigned long off, int shift)
+{
+	long ret = -EINVAL;
 
 	if (!arch_validate_prot(prot))
 		goto out;
@@ -171,16 +177,16 @@ out:
 	return ret;
 }
 
-unsigned long sys_mmap2(unsigned long addr, size_t len,
-			unsigned long prot, unsigned long flags,
-			unsigned long fd, unsigned long pgoff)
+SYSCALL_DEFINE6(mmap2, unsigned long, addr, size_t, len,
+		unsigned long, prot, unsigned long, flags,
+		unsigned long, fd, unsigned long, pgoff)
 {
 	return do_mmap2(addr, len, prot, flags, fd, pgoff, PAGE_SHIFT-12);
 }
 
-unsigned long sys_mmap(unsigned long addr, size_t len,
-		       unsigned long prot, unsigned long flags,
-		       unsigned long fd, off_t offset)
+SYSCALL_DEFINE6(mmap, unsigned long, addr, size_t, len,
+		unsigned long, prot, unsigned long, flags,
+		unsigned long, fd, off_t, offset)
 {
 	return do_mmap2(addr, len, prot, flags, fd, offset, PAGE_SHIFT);
 }

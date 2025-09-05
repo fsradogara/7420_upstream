@@ -2,7 +2,7 @@
  *  arch/powerpc/kernel/mpic.c
  *
  *  Driver for interrupt controllers following the OpenPIC standard, the
- *  common implementation beeing IBM's MPIC. This driver also can deal
+ *  common implementation being IBM's MPIC. This driver also can deal
  *  with various broken implementations of this HW.
  *
  *  Copyright (C) 2004 Benjamin Herrenschmidt, IBM Corp.
@@ -1541,7 +1541,7 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 	/* Pick the physical address from the device tree if unspecified */
 	if (!phys_addr) {
 		/* Check if it is DCR-based */
-		if (of_get_property(node, "dcr-reg", NULL)) {
+		if (of_property_read_bool(node, "dcr-reg")) {
 			flags |= MPIC_USES_DCR;
 		} else {
 			struct resource r;
@@ -2116,15 +2116,15 @@ void __init mpic_set_serial_int(struct mpic *mpic, int enable)
 	/* Check if this MPIC is chained from a parent interrupt controller */
 	if (mpic->flags & MPIC_SECONDARY) {
 		int virq = irq_of_parse_and_map(mpic->node, 0);
-		if (virq != NO_IRQ) {
-			printk(KERN_INFO "%s: hooking up to IRQ %d\n",
-					mpic->node->full_name, virq);
+		if (virq) {
+			printk(KERN_INFO "%pOF: hooking up to IRQ %d\n",
+					mpic->node, virq);
 			irq_set_handler_data(virq, mpic);
 			irq_set_chained_handler(virq, &mpic_cascade);
 		}
 	}
 
-	/* FSL mpic error interrupt intialization */
+	/* FSL mpic error interrupt initialization */
 	if (mpic->flags & MPIC_FSL_HAS_EIMR)
 		mpic_err_int_init(mpic, MPIC_FSL_ERR_INT);
 }
@@ -2274,7 +2274,7 @@ static unsigned int _mpic_get_one_irq(struct mpic *mpic, int reg)
 	if (unlikely(src == mpic->spurious_vec)) {
 		if (mpic->flags & MPIC_SPV_EOI)
 			mpic_eoi(mpic);
-		return NO_IRQ;
+		return 0;
 	}
 	if (unlikely(mpic->protected && test_bit(src, mpic->protected))) {
 		if (printk_ratelimit())
@@ -2283,7 +2283,7 @@ static unsigned int _mpic_get_one_irq(struct mpic *mpic, int reg)
 		printk_ratelimited(KERN_WARNING "%s: Got protected source %d !\n",
 				   mpic->name, (int)src);
 		mpic_eoi(mpic);
-		return NO_IRQ;
+		return 0;
 	}
 
 	return irq_linear_revmap(mpic->irqhost, src);
@@ -2316,17 +2316,17 @@ unsigned int mpic_get_coreint_irq(void)
 	if (unlikely(src == mpic->spurious_vec)) {
 		if (mpic->flags & MPIC_SPV_EOI)
 			mpic_eoi(mpic);
-		return NO_IRQ;
+		return 0;
 	}
 	if (unlikely(mpic->protected && test_bit(src, mpic->protected))) {
 		printk_ratelimited(KERN_WARNING "%s: Got protected source %d !\n",
 				   mpic->name, (int)src);
-		return NO_IRQ;
+		return 0;
 	}
 
 	return irq_linear_revmap(mpic->irqhost, src);
 #else
-	return NO_IRQ;
+	return 0;
 #endif
 }
 
@@ -2378,6 +2378,7 @@ void mpic_request_ipis(void)
 
 void smp_mpic_message_pass(int target, int msg)
 {
+		if (!vipi) {
 			printk(KERN_ERR "Failed to map %s\n", smp_ipi_name[i]);
 			continue;
 		}
@@ -2588,8 +2589,15 @@ static int mpic_init_sys(void)
 }
 
 device_initcall(mpic_init_sys);
+	int rc;
+
 	register_syscore_ops(&mpic_syscore_ops);
-	subsys_system_register(&mpic_subsys, NULL);
+	rc = subsys_system_register(&mpic_subsys, NULL);
+	if (rc) {
+		unregister_syscore_ops(&mpic_syscore_ops);
+		pr_err("mpic: Failed to register subsystem!\n");
+		return rc;
+	}
 
 	return 0;
 }

@@ -31,6 +31,8 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/sched/stat.h>
+
 #include <asm/sections.h>
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
@@ -54,7 +56,7 @@ EXPORT_SYMBOL_GPL(prof_on);
 
 static cpumask_t prof_cpu_mask = CPU_MASK_ALL;
 static cpumask_var_t prof_cpu_mask;
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_PROC_FS)
 static DEFINE_PER_CPU(struct profile_hit *[2], cpu_profile_hits);
 static DEFINE_PER_CPU(int, cpu_profile_flip);
 static DEFINE_MUTEX(profile_flip_mutex);
@@ -74,6 +76,7 @@ int profile_setup(char *str)
 
 	if (!strncmp(str, sleepstr, strlen(sleepstr))) {
 #ifdef CONFIG_SCHEDSTATS
+		force_schedstat_enabled();
 		prof_on = SLEEP_PROFILING;
 		if (str[strlen(sleepstr)] == ',')
 			str += strlen(sleepstr) + 1;
@@ -255,6 +258,7 @@ EXPORT_SYMBOL_GPL(unregister_timer_hook);
 
 
 #ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(CONFIG_PROC_FS)
 /*
  * Each cpu has a pair of open-addressed hashtables for pending
  * profile hits. read_profile() IPI's all cpus to request them
@@ -387,8 +391,27 @@ out:
 static int __devinit profile_cpu_callback(struct notifier_block *info,
 static int profile_cpu_callback(struct notifier_block *info,
 					unsigned long action, void *__cpu)
+static int profile_dead_cpu(unsigned int cpu)
 {
-	int node, cpu = (unsigned long)__cpu;
+	struct page *page;
+	int i;
+
+	if (prof_cpu_mask != NULL)
+		cpumask_clear_cpu(cpu, prof_cpu_mask);
+
+	for (i = 0; i < 2; i++) {
+		if (per_cpu(cpu_profile_hits, cpu)[i]) {
+			page = virt_to_page(per_cpu(cpu_profile_hits, cpu)[i]);
+			per_cpu(cpu_profile_hits, cpu)[i] = NULL;
+			__free_page(page);
+		}
+	}
+	return 0;
+}
+
+static int profile_prepare_cpu(unsigned int cpu)
+{
+	int i, node = cpu_to_mem(cpu);
 	struct page *page;
 
 	switch (action) {
@@ -457,13 +480,34 @@ out_free:
 			__free_page(page);
 		}
 		break;
+	per_cpu(cpu_profile_flip, cpu) = 0;
+
+	for (i = 0; i < 2; i++) {
+		if (per_cpu(cpu_profile_hits, cpu)[i])
+			continue;
+
+		page = __alloc_pages_node(node, GFP_KERNEL | __GFP_ZERO, 0);
+		if (!page) {
+			profile_dead_cpu(cpu);
+			return -ENOMEM;
+		}
+		per_cpu(cpu_profile_hits, cpu)[i] = page_address(page);
+
 	}
-	return NOTIFY_OK;
+	return 0;
 }
+
+static int profile_online_cpu(unsigned int cpu)
+{
+	if (prof_cpu_mask != NULL)
+		cpumask_set_cpu(cpu, prof_cpu_mask);
+
+	return 0;
+}
+
 #else /* !CONFIG_SMP */
 #define profile_flip_buffers()		do { } while (0)
 #define profile_discard_flip_buffers()	do { } while (0)
-#define profile_cpu_callback		NULL
 
 void profile_hits(int type, void *__pc, unsigned int nr_hits)
 {
@@ -541,7 +585,7 @@ void create_prof_cpu_mask(struct proc_dir_entry *root_irq_dir)
 	entry->read_proc = prof_cpu_mask_read_proc;
 	entry->write_proc = prof_cpu_mask_write_proc;
 #include <linux/seq_file.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 static int prof_cpu_mask_proc_show(struct seq_file *m, void *v)
 {
@@ -739,29 +783,43 @@ static int __init create_proc_profile(void)
 }
 module_init(create_proc_profile);
 int __ref create_proc_profile(void) /* false positive from hotcpu_notifier */
+int __ref create_proc_profile(void)
 {
 	struct proc_dir_entry *entry;
+#ifdef CONFIG_SMP
+	enum cpuhp_state online_state;
+#endif
+
 	int err = 0;
 
 	if (!prof_on)
 		return 0;
+#ifdef CONFIG_SMP
+	err = cpuhp_setup_state(CPUHP_PROFILE_PREPARE, "PROFILE_PREPARE",
+				profile_prepare_cpu, profile_dead_cpu);
+	if (err)
+		return err;
 
-	cpu_notifier_register_begin();
-
-	if (create_hash_tables()) {
-		err = -ENOMEM;
-		goto out;
-	}
-
+	err = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "AP_PROFILE_ONLINE",
+				profile_online_cpu, NULL);
+	if (err < 0)
+		goto err_state_prep;
+	online_state = err;
+	err = 0;
+#endif
 	entry = proc_create("profile", S_IWUSR | S_IRUGO,
 			    NULL, &proc_profile_operations);
 	if (!entry)
-		goto out;
+		goto err_state_onl;
 	proc_set_size(entry, (1 + prof_len) * sizeof(atomic_t));
-	__hotcpu_notifier(profile_cpu_callback, 0);
 
-out:
-	cpu_notifier_register_done();
+	return err;
+err_state_onl:
+#ifdef CONFIG_SMP
+	cpuhp_remove_state(online_state);
+err_state_prep:
+	cpuhp_remove_state(CPUHP_PROFILE_PREPARE);
+#endif
 	return err;
 }
 subsys_initcall(create_proc_profile);

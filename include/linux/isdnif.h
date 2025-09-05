@@ -542,7 +542,7 @@ typedef struct {
  *
  */
 extern int register_isdn(isdn_if*);
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #endif /* __KERNEL__ */
 

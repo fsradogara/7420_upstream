@@ -155,6 +155,8 @@ static void ifb_ri_tasklet(unsigned long _txp)
 			dp->st_rx_frm_ing++;
 			skb_pull(skb, skb->dev->hard_header_len);
 			netif_rx(skb);
+		skb->tc_redirected = 0;
+		skb->tc_skip_classify = 1;
 
 		u64_stats_update_begin(&txp->tsync);
 		txp->tx_packets++;
@@ -174,13 +176,12 @@ static void ifb_ri_tasklet(unsigned long _txp)
 		rcu_read_unlock();
 		skb->skb_iif = txp->dev->ifindex;
 
-		if (from & AT_EGRESS) {
+		if (!skb->tc_from_ingress) {
 			dev_queue_xmit(skb);
-		} else if (from & AT_INGRESS) {
+		} else {
 			skb_pull(skb, skb->mac_len);
 			netif_receive_skb(skb);
-		} else
-			BUG();
+		}
 	}
 
 	if (__netif_tx_trylock(txq)) {
@@ -220,6 +221,8 @@ static void ifb_setup(struct net_device *dev)
 	dev->destructor = free_netdev;
 static struct rtnl_link_stats64 *ifb_stats64(struct net_device *dev,
 					     struct rtnl_link_stats64 *stats)
+static void ifb_stats64(struct net_device *dev,
+			struct rtnl_link_stats64 *stats)
 {
 	struct ifb_dev_private *dp = netdev_priv(dev);
 	struct ifb_q_private *txp = dp->tx_private;
@@ -246,8 +249,6 @@ static struct rtnl_link_stats64 *ifb_stats64(struct net_device *dev,
 	}
 	stats->rx_dropped = dev->stats.rx_dropped;
 	stats->tx_dropped = dev->stats.tx_dropped;
-
-	return stats;
 }
 
 static int ifb_dev_init(struct net_device *dev)
@@ -285,6 +286,7 @@ static const struct net_device_ops ifb_netdev_ops = {
 
 #define IFB_FEATURES (NETIF_F_HW_CSUM | NETIF_F_SG  | NETIF_F_FRAGLIST	| \
 		      NETIF_F_TSO_ECN | NETIF_F_TSO | NETIF_F_TSO6	| \
+		      NETIF_F_GSO_ENCAP_ALL 				| \
 		      NETIF_F_HIGHDMA | NETIF_F_HW_VLAN_CTAG_TX		| \
 		      NETIF_F_HW_VLAN_STAG_TX)
 
@@ -300,7 +302,6 @@ static void ifb_dev_free(struct net_device *dev)
 		__skb_queue_purge(&txp->tq);
 	}
 	kfree(dp->tx_private);
-	free_netdev(dev);
 }
 
 static void ifb_setup(struct net_device *dev)
@@ -347,6 +348,8 @@ static int ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 	return ret;
 
 	dev->features |= IFB_FEATURES;
+	dev->hw_features |= dev->features;
+	dev->hw_enc_features |= dev->features;
 	dev->vlan_features |= IFB_FEATURES & ~(NETIF_F_HW_VLAN_CTAG_TX |
 					       NETIF_F_HW_VLAN_STAG_TX);
 
@@ -355,13 +358,13 @@ static int ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev->priv_flags &= ~IFF_TX_SKB_SHARING;
 	netif_keep_dst(dev);
 	eth_hw_addr_random(dev);
-	dev->destructor = ifb_dev_free;
+	dev->needs_free_netdev = true;
+	dev->priv_destructor = ifb_dev_free;
 }
 
 static netdev_tx_t ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ifb_dev_private *dp = netdev_priv(dev);
-	u32 from = G_TC_FROM(skb->tc_verd);
 	struct ifb_q_private *txp = dp->tx_private + skb_get_queue_mapping(skb);
 
 	u64_stats_update_begin(&txp->rsync);
@@ -369,7 +372,7 @@ static netdev_tx_t ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 	txp->rx_bytes += skb->len;
 	u64_stats_update_end(&txp->rsync);
 
-	if (!(from & (AT_INGRESS|AT_EGRESS)) || !skb->skb_iif) {
+	if (!skb->tc_redirected || !skb->skb_iif) {
 		dev_kfree_skb(skb);
 		dev->stats.rx_dropped++;
 		return NETDEV_TX_OK;
@@ -412,7 +415,8 @@ static int ifb_open(struct net_device *dev)
 	return 0;
 }
 
-static int ifb_validate(struct nlattr *tb[], struct nlattr *data[])
+static int ifb_validate(struct nlattr *tb[], struct nlattr *data[],
+			struct netlink_ext_ack *extack)
 {
 	if (tb[IFLA_ADDRESS]) {
 		if (nla_len(tb[IFLA_ADDRESS]) != ETH_ALEN)

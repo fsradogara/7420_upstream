@@ -7,6 +7,8 @@
    Copyright (C) 2004-2008 Applied Micro Circuits Corporation.
    Written By: Adam Radford <linuxraid@lsi.com>
    Modifications By: Tom Couch <linuxraid@lsi.com>
+   Written By: Adam Radford <aradford@gmail.com>
+   Modifications By: Tom Couch
 
    Copyright (C) 2004-2009 Applied Micro Circuits Corporation.
    Copyright (C) 2010 LSI Corporation.
@@ -53,6 +55,7 @@
 
    For more information, goto:
    http://www.lsi.com
+   aradford@gmail.com
 
    Note: This version of the driver does not contain a bundled firmware
          image.
@@ -104,7 +107,7 @@
 #include <linux/slab.h>
 #include <asm/io.h>
 #include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_tcq.h>

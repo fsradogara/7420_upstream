@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * $Id: hw_settings.S,v 1.1 2001/12/17 13:59:27 bjornw Exp $
  * 

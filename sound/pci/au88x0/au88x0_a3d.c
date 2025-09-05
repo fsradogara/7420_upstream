@@ -866,6 +866,7 @@ snd_vortex_a3d_filter_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new vortex_a3d_kcontrol __devinitdata = {
 static struct snd_kcontrol_new vortex_a3d_kcontrol = {
+static const struct snd_kcontrol_new vortex_a3d_kcontrol = {
 	.iface = SNDRV_CTL_ELEM_IFACE_PCM,
 	.name = "Playback PCM advanced processing",
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,

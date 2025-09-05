@@ -85,11 +85,16 @@ union ieee754sp ieee754sp_fdp(union ieee754dp x)
 		return ieee754sp_xcpt(ieee754sp_zero(xs), "fdp", x);
 		return ieee754sp_nanxcpt(ieee754sp_nan_fdp(xs, xm));
 
+		x = ieee754dp_nanxcpt(x);
+		EXPLODEXDP;
+		/* Fall through.  */
 	case IEEE754_CLASS_QNAN:
 		y = ieee754sp_nan_fdp(xs, xm);
-		EXPLODEYSP;
-		if (!ieee754_class_nan(yc))
-			y = ieee754sp_indef();
+		if (!ieee754_csr.nan2008) {
+			EXPLODEYSP;
+			if (!ieee754_class_nan(yc))
+				y = ieee754sp_indef();
+		}
 		return y;
 
 	case IEEE754_CLASS_INF:

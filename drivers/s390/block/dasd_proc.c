@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * File...........: linux/drivers/s390/block/dasd_proc.c
  * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
@@ -23,7 +24,7 @@
 #include <linux/proc_fs.h>
 
 #include <asm/debug.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /* This is ugly... */
 #define PRINTK_HEADER "dasd_proc:"
@@ -125,6 +126,7 @@ dasd_devices_show(struct seq_file *m, void *v)
 			seq_printf(m,
 				   "at blocksize: %d, %ld blocks, %ld MB",
 				   "at blocksize: %d, %lld blocks, %lld MB",
+				   "at blocksize: %u, %lu blocks, %lu MB",
 				   block->bp_block, block->blocks,
 				   ((block->bp_block >> 9) *
 				    block->blocks) >> 11);
@@ -479,13 +481,12 @@ out_error:
 	return user_len;
 out_parse_error:
 	rc = -EINVAL;
-	pr_warning("%s is not a supported value for /proc/dasd/statistics\n",
-		str);
+	pr_warn("%s is not a supported value for /proc/dasd/statistics\n", str);
 out_error:
 	vfree(buffer);
 	return rc;
 #else
-	pr_warning("/proc/dasd/statistics: is not activated in this kernel\n");
+	pr_warn("/proc/dasd/statistics: is not activated in this kernel\n");
 	return user_len;
 #endif				/* CONFIG_DASD_PROFILE */
 }

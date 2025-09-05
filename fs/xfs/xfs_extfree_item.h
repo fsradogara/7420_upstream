@@ -209,4 +209,7 @@ void			xfs_efi_item_free(xfs_efi_log_item_t *);
 #endif	/* __KERNEL__ */
 void			xfs_efi_release(struct xfs_efi_log_item *);
 
+int			xfs_efi_recover(struct xfs_mount *mp,
+					struct xfs_efi_log_item *efip);
+
 #endif	/* __XFS_EXTFREE_ITEM_H__ */

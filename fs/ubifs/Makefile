@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_UBIFS_FS) += ubifs.o
 
 ubifs-y += shrinker.o journal.o file.o dir.o super.o sb.o io.o
@@ -8,3 +9,5 @@ ubifs-y += recovery.o ioctl.o lpt_commit.o tnc_misc.o
 ubifs-$(CONFIG_UBIFS_FS_DEBUG) += debug.o
 ubifs-$(CONFIG_UBIFS_FS_XATTR) += xattr.o
 ubifs-y += recovery.o ioctl.o lpt_commit.o tnc_misc.o xattr.o debug.o
+ubifs-y += misc.o
+ubifs-$(CONFIG_UBIFS_FS_ENCRYPTION) += crypto.o

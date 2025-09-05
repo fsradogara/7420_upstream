@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/proc/kmsg.c
  *
@@ -15,7 +16,7 @@
 #include <linux/fs.h>
 #include <linux/syslog.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 
 #include "internal.h"

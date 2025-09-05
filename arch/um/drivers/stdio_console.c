@@ -259,6 +259,8 @@ static int console_chan_setup(char *str)
 	if(ret < 0)
 		printk(KERN_ERR "Failed to set up console with "
 		       "configuration string \"%s\" : %s\n", str, error);
+	if (!strncmp(str, "sole=", 5))	/* console= option specifies tty */
+		return 0;
 
 	line_setup(vt_conf, MAX_TTYS, &def_conf, str, "console");
 	return 1;

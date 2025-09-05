@@ -137,14 +137,6 @@ ccw_device_set_timeout(struct ccw_device *cdev, int expires)
 	add_timer(&cdev->private->timer);
 }
 
-/*
- * Cancel running i/o. This is called repeatedly since halt/clear are
- * asynchronous operations. We do one try with cio_cancel, two tries
- * with cio_halt, 255 tries with cio_clear. If everythings fails panic.
- * Returns 0 if device now idle, -ENODEV for device not operational and
- * -EBUSY if an interrupt is expected (either from halt/clear or from a
- * status pending).
- */
 int
 ccw_device_cancel_halt_clear(struct ccw_device *cdev)
 {
@@ -218,6 +210,14 @@ ccw_device_handle_oper(struct ccw_device *cdev)
 	CIO_MSG_EVENT(0, "0.%x.%04x: could not stop I/O\n",
 		      cdev->private->dev_id.ssid, cdev->private->dev_id.devno);
 	return -EIO;
+	ret = cio_cancel_halt_clear(sch, &cdev->private->iretry);
+
+	if (ret == -EIO)
+		CIO_MSG_EVENT(0, "0.%x.%04x: could not stop I/O\n",
+			      cdev->private->dev_id.ssid,
+			      cdev->private->dev_id.devno);
+
+	return ret;
 }
 
 void ccw_device_update_sense_data(struct ccw_device *cdev)
@@ -781,6 +781,17 @@ static void create_fake_irb(struct irb *irb, int type)
 	}
 }
 
+static void ccw_device_handle_broken_paths(struct ccw_device *cdev)
+{
+	struct subchannel *sch = to_subchannel(cdev->dev.parent);
+	u8 broken_paths = (sch->schib.pmcw.pam & sch->opm) ^ sch->vpm;
+
+	if (broken_paths && (cdev->private->path_broken_mask != broken_paths))
+		ccw_device_schedule_recovery();
+
+	cdev->private->path_broken_mask = broken_paths;
+}
+
 void ccw_device_verify_done(struct ccw_device *cdev, int err)
 {
 	struct subchannel *sch;
@@ -829,6 +840,7 @@ callback:
 		break;
 	case -ETIME:
 		ccw_device_report_path_events(cdev);
+		ccw_device_handle_broken_paths(cdev);
 		break;
 	case -ETIME:
 	case -EUSERS:

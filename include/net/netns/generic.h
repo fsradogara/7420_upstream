@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * generic net pointers
  */
@@ -30,14 +31,19 @@
  */
 
 struct net_generic {
-	unsigned int len;
-	struct rcu_head rcu;
+	union {
+		struct {
+			unsigned int len;
+			struct rcu_head rcu;
+		} s;
 
-	void *ptr[0];
+		void *ptr[0];
+	};
 };
 
 static inline void *net_generic(struct net *net, int id)
 static inline void *net_generic(const struct net *net, int id)
+static inline void *net_generic(const struct net *net, unsigned int id)
 {
 	struct net_generic *ng;
 	void *ptr;
@@ -46,6 +52,7 @@ static inline void *net_generic(const struct net *net, int id)
 	ng = rcu_dereference(net->gen);
 	BUG_ON(id == 0 || id > ng->len);
 	ptr = ng->ptr[id - 1];
+	ptr = ng->ptr[id];
 	rcu_read_unlock();
 
 	return ptr;

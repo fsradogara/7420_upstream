@@ -63,7 +63,6 @@ static struct usb_driver usb_serial_driver = {
 #include <linux/usb/serial.h>
 #include <linux/kfifo.h>
 #include <linux/idr.h>
-#include "pl2303.h"
 
 #define DRIVER_AUTHOR "Greg Kroah-Hartman <gregkh@linuxfoundation.org>"
 #define DRIVER_DESC "USB Serial Driver core"
@@ -186,7 +185,8 @@ static int allocate_minors(struct usb_serial *serial, int num_ports)
 	mutex_lock(&table_lock);
 	for (i = 0; i < num_ports; ++i) {
 		port = serial->port[i];
-		minor = idr_alloc(&serial_minors, port, 0, 0, GFP_KERNEL);
+		minor = idr_alloc(&serial_minors, port, 0,
+					USB_SERIAL_TTY_MINORS, GFP_KERNEL);
 		if (minor < 0)
 			goto error;
 		port->minor = minor;
@@ -453,7 +453,7 @@ static int serial_open(struct tty_struct *tty, struct file *filp)
  *
  * Shut down a USB serial port. Serialized against activate by the
  * tport mutex and kept to matching open/close pairs
- * of calls by the ASYNCB_INITIALIZED flag.
+ * of calls by the initialized flag.
  *
  * Not called if tty is console.
  */
@@ -1151,6 +1151,157 @@ static const struct tty_port_operations serial_port_ops = {
 	.shutdown		= serial_port_shutdown,
 };
 
+static void find_endpoints(struct usb_serial *serial,
+					struct usb_serial_endpoints *epds)
+{
+	struct device *dev = &serial->interface->dev;
+	struct usb_host_interface *iface_desc;
+	struct usb_endpoint_descriptor *epd;
+	unsigned int i;
+
+	BUILD_BUG_ON(ARRAY_SIZE(epds->bulk_in) < USB_MAXENDPOINTS / 2);
+	BUILD_BUG_ON(ARRAY_SIZE(epds->bulk_out) < USB_MAXENDPOINTS / 2);
+	BUILD_BUG_ON(ARRAY_SIZE(epds->interrupt_in) < USB_MAXENDPOINTS / 2);
+	BUILD_BUG_ON(ARRAY_SIZE(epds->interrupt_out) < USB_MAXENDPOINTS / 2);
+
+	iface_desc = serial->interface->cur_altsetting;
+	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
+		epd = &iface_desc->endpoint[i].desc;
+
+		if (usb_endpoint_is_bulk_in(epd)) {
+			dev_dbg(dev, "found bulk in on endpoint %u\n", i);
+			epds->bulk_in[epds->num_bulk_in++] = epd;
+		} else if (usb_endpoint_is_bulk_out(epd)) {
+			dev_dbg(dev, "found bulk out on endpoint %u\n", i);
+			epds->bulk_out[epds->num_bulk_out++] = epd;
+		} else if (usb_endpoint_is_int_in(epd)) {
+			dev_dbg(dev, "found interrupt in on endpoint %u\n", i);
+			epds->interrupt_in[epds->num_interrupt_in++] = epd;
+		} else if (usb_endpoint_is_int_out(epd)) {
+			dev_dbg(dev, "found interrupt out on endpoint %u\n", i);
+			epds->interrupt_out[epds->num_interrupt_out++] = epd;
+		}
+	}
+}
+
+static int setup_port_bulk_in(struct usb_serial_port *port,
+					struct usb_endpoint_descriptor *epd)
+{
+	struct usb_serial_driver *type = port->serial->type;
+	struct usb_device *udev = port->serial->dev;
+	int buffer_size;
+	int i;
+
+	buffer_size = max_t(int, type->bulk_in_size, usb_endpoint_maxp(epd));
+	port->bulk_in_size = buffer_size;
+	port->bulk_in_endpointAddress = epd->bEndpointAddress;
+
+	for (i = 0; i < ARRAY_SIZE(port->read_urbs); ++i) {
+		set_bit(i, &port->read_urbs_free);
+		port->read_urbs[i] = usb_alloc_urb(0, GFP_KERNEL);
+		if (!port->read_urbs[i])
+			return -ENOMEM;
+		port->bulk_in_buffers[i] = kmalloc(buffer_size, GFP_KERNEL);
+		if (!port->bulk_in_buffers[i])
+			return -ENOMEM;
+		usb_fill_bulk_urb(port->read_urbs[i], udev,
+				usb_rcvbulkpipe(udev, epd->bEndpointAddress),
+				port->bulk_in_buffers[i], buffer_size,
+				type->read_bulk_callback, port);
+	}
+
+	port->read_urb = port->read_urbs[0];
+	port->bulk_in_buffer = port->bulk_in_buffers[0];
+
+	return 0;
+}
+
+static int setup_port_bulk_out(struct usb_serial_port *port,
+					struct usb_endpoint_descriptor *epd)
+{
+	struct usb_serial_driver *type = port->serial->type;
+	struct usb_device *udev = port->serial->dev;
+	int buffer_size;
+	int i;
+
+	if (kfifo_alloc(&port->write_fifo, PAGE_SIZE, GFP_KERNEL))
+		return -ENOMEM;
+	if (type->bulk_out_size)
+		buffer_size = type->bulk_out_size;
+	else
+		buffer_size = usb_endpoint_maxp(epd);
+	port->bulk_out_size = buffer_size;
+	port->bulk_out_endpointAddress = epd->bEndpointAddress;
+
+	for (i = 0; i < ARRAY_SIZE(port->write_urbs); ++i) {
+		set_bit(i, &port->write_urbs_free);
+		port->write_urbs[i] = usb_alloc_urb(0, GFP_KERNEL);
+		if (!port->write_urbs[i])
+			return -ENOMEM;
+		port->bulk_out_buffers[i] = kmalloc(buffer_size, GFP_KERNEL);
+		if (!port->bulk_out_buffers[i])
+			return -ENOMEM;
+		usb_fill_bulk_urb(port->write_urbs[i], udev,
+				usb_sndbulkpipe(udev, epd->bEndpointAddress),
+				port->bulk_out_buffers[i], buffer_size,
+				type->write_bulk_callback, port);
+	}
+
+	port->write_urb = port->write_urbs[0];
+	port->bulk_out_buffer = port->bulk_out_buffers[0];
+
+	return 0;
+}
+
+static int setup_port_interrupt_in(struct usb_serial_port *port,
+					struct usb_endpoint_descriptor *epd)
+{
+	struct usb_serial_driver *type = port->serial->type;
+	struct usb_device *udev = port->serial->dev;
+	int buffer_size;
+
+	port->interrupt_in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!port->interrupt_in_urb)
+		return -ENOMEM;
+	buffer_size = usb_endpoint_maxp(epd);
+	port->interrupt_in_endpointAddress = epd->bEndpointAddress;
+	port->interrupt_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
+	if (!port->interrupt_in_buffer)
+		return -ENOMEM;
+	usb_fill_int_urb(port->interrupt_in_urb, udev,
+			usb_rcvintpipe(udev, epd->bEndpointAddress),
+			port->interrupt_in_buffer, buffer_size,
+			type->read_int_callback, port,
+			epd->bInterval);
+
+	return 0;
+}
+
+static int setup_port_interrupt_out(struct usb_serial_port *port,
+					struct usb_endpoint_descriptor *epd)
+{
+	struct usb_serial_driver *type = port->serial->type;
+	struct usb_device *udev = port->serial->dev;
+	int buffer_size;
+
+	port->interrupt_out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!port->interrupt_out_urb)
+		return -ENOMEM;
+	buffer_size = usb_endpoint_maxp(epd);
+	port->interrupt_out_size = buffer_size;
+	port->interrupt_out_endpointAddress = epd->bEndpointAddress;
+	port->interrupt_out_buffer = kmalloc(buffer_size, GFP_KERNEL);
+	if (!port->interrupt_out_buffer)
+		return -ENOMEM;
+	usb_fill_int_urb(port->interrupt_out_urb, udev,
+			usb_sndintpipe(udev, epd->bEndpointAddress),
+			port->interrupt_out_buffer, buffer_size,
+			type->write_int_callback, port,
+			epd->bInterval);
+
+	return 0;
+}
+
 static int usb_serial_probe(struct usb_interface *interface,
 			       const struct usb_device_id *id)
 {
@@ -1158,12 +1309,7 @@ static int usb_serial_probe(struct usb_interface *interface,
 	struct usb_device *dev = interface_to_usbdev(interface);
 	struct usb_serial *serial = NULL;
 	struct usb_serial_port *port;
-	struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor *endpoint;
-	struct usb_endpoint_descriptor *interrupt_in_endpoint[MAX_NUM_PORTS];
-	struct usb_endpoint_descriptor *interrupt_out_endpoint[MAX_NUM_PORTS];
-	struct usb_endpoint_descriptor *bulk_in_endpoint[MAX_NUM_PORTS];
-	struct usb_endpoint_descriptor *bulk_out_endpoint[MAX_NUM_PORTS];
+	struct usb_serial_endpoints *epds;
 	struct usb_serial_driver *type = NULL;
 	int retval;
 	unsigned int minor;
@@ -1171,13 +1317,8 @@ static int usb_serial_probe(struct usb_interface *interface,
 	int i;
 	int buffer_size;
 	int i;
-	int j;
-	int num_interrupt_in = 0;
-	int num_interrupt_out = 0;
-	int num_bulk_in = 0;
-	int num_bulk_out = 0;
 	int num_ports = 0;
-	int max_endpoints;
+	unsigned char max_endpoints;
 
 	lock_kernel(); /* guard against unloading a serial driver module */
 	type = search_serial_device(interface);
@@ -1208,8 +1349,8 @@ static int usb_serial_probe(struct usb_interface *interface,
 
 	serial = create_serial(dev, interface, type);
 	if (!serial) {
-		module_put(type->driver.owner);
-		return -ENOMEM;
+		retval = -ENOMEM;
+		goto err_put_module;
 	}
 
 	/* if this device type has a probe function, call it */
@@ -1237,9 +1378,7 @@ static int usb_serial_probe(struct usb_interface *interface,
 
 		if (retval) {
 			dev_dbg(ddev, "sub driver rejected device\n");
-			usb_serial_put(serial);
-			module_put(type->driver.owner);
-			return retval;
+			goto err_put_serial;
 		}
 	}
 
@@ -1343,9 +1482,22 @@ static int usb_serial_probe(struct usb_interface *interface,
 			module_put(type->driver.owner);
 			return -ENODEV;
 		}
+	epds = kzalloc(sizeof(*epds), GFP_KERNEL);
+	if (!epds) {
+		retval = -ENOMEM;
+		goto err_put_serial;
 	}
-	/* END HORRIBLE HACK FOR PL2303 */
-#endif
+
+	find_endpoints(serial, epds);
+
+	if (epds->num_bulk_in < type->num_bulk_in ||
+			epds->num_bulk_out < type->num_bulk_out ||
+			epds->num_interrupt_in < type->num_interrupt_in ||
+			epds->num_interrupt_out < type->num_interrupt_out) {
+		dev_err(ddev, "required endpoints missing\n");
+		retval = -ENODEV;
+		goto err_free_epds;
+	}
 
 #ifdef CONFIG_USB_SERIAL_GENERIC
 	if (type == &usb_serial_generic_device) {
@@ -1383,18 +1535,26 @@ static int usb_serial_probe(struct usb_interface *interface,
 			num_ports = type->calc_num_ports(serial);
 		if (!num_ports)
 			num_ports = type->num_ports;
+	if (type->calc_num_ports) {
+		retval = type->calc_num_ports(serial, epds);
+		if (retval < 0)
+			goto err_free_epds;
+		num_ports = retval;
 	}
+
+	if (!num_ports)
+		num_ports = type->num_ports;
 
 	if (num_ports > MAX_NUM_PORTS) {
 		dev_warn(ddev, "too many ports requested: %d\n", num_ports);
 		num_ports = MAX_NUM_PORTS;
 	}
 
-	serial->num_ports = num_ports;
-	serial->num_bulk_in = num_bulk_in;
-	serial->num_bulk_out = num_bulk_out;
-	serial->num_interrupt_in = num_interrupt_in;
-	serial->num_interrupt_out = num_interrupt_out;
+	serial->num_ports = (unsigned char)num_ports;
+	serial->num_bulk_in = epds->num_bulk_in;
+	serial->num_bulk_out = epds->num_bulk_out;
+	serial->num_interrupt_in = epds->num_interrupt_in;
+	serial->num_interrupt_out = epds->num_interrupt_out;
 
 	/* found all that we need */
 	dev_info(&interface->dev, "%s converter detected\n",
@@ -1404,10 +1564,10 @@ static int usb_serial_probe(struct usb_interface *interface,
 	/* create our ports, we need as many as the max endpoints */
 	/* we don't use num_ports here because some devices have more
 	   endpoint pairs than ports */
-	max_endpoints = max(num_bulk_in, num_bulk_out);
-	max_endpoints = max(max_endpoints, num_interrupt_in);
-	max_endpoints = max(max_endpoints, num_interrupt_out);
-	max_endpoints = max(max_endpoints, (int)serial->num_ports);
+	max_endpoints = max(epds->num_bulk_in, epds->num_bulk_out);
+	max_endpoints = max(max_endpoints, epds->num_interrupt_in);
+	max_endpoints = max(max_endpoints, epds->num_interrupt_out);
+	max_endpoints = max(max_endpoints, serial->num_ports);
 	serial->num_port_pointers = max_endpoints;
 	unlock_kernel();
 
@@ -1424,6 +1584,10 @@ static int usb_serial_probe(struct usb_interface *interface,
 		mutex_init(&port->mutex);
 		INIT_WORK(&port->work, usb_serial_port_work);
 		serial->port[i] = port;
+		if (!port) {
+			retval = -ENOMEM;
+			goto err_free_epds;
+		}
 		tty_port_init(&port->port);
 		port->port.ops = &serial_port_ops;
 		port->serial = serial;
@@ -1574,6 +1738,27 @@ static int usb_serial_probe(struct usb_interface *interface,
 		}
 	} else if (num_interrupt_in) {
 		dbg("the device claims to support interrupt in transfers, but read_int_callback is not defined");
+	for (i = 0; i < epds->num_bulk_in; ++i) {
+		retval = setup_port_bulk_in(serial->port[i], epds->bulk_in[i]);
+		if (retval)
+			goto err_free_epds;
+	}
+
+	for (i = 0; i < epds->num_bulk_out; ++i) {
+		retval = setup_port_bulk_out(serial->port[i],
+				epds->bulk_out[i]);
+		if (retval)
+			goto err_free_epds;
+	}
+
+	if (serial->type->read_int_callback) {
+		for (i = 0; i < epds->num_interrupt_in; ++i) {
+			retval = setup_port_interrupt_in(serial->port[i],
+					epds->interrupt_in[i]);
+			if (retval)
+				goto err_free_epds;
+		}
+	} else if (epds->num_interrupt_in) {
 		dev_dbg(ddev, "The device claims to support interrupt in transfers, but read_int_callback is not defined\n");
 	}
 
@@ -1637,6 +1822,13 @@ static int usb_serial_probe(struct usb_interface *interface,
 		goto probe_error;
 	}
 	serial->minor = minor;
+		for (i = 0; i < epds->num_interrupt_out; ++i) {
+			retval = setup_port_interrupt_out(serial->port[i],
+					epds->interrupt_out[i]);
+			if (retval)
+				goto err_free_epds;
+		}
+	} else if (epds->num_interrupt_out) {
 		dev_dbg(ddev, "The device claims to support interrupt out transfers, but write_int_callback is not defined\n");
 	}
 
@@ -1646,7 +1838,7 @@ static int usb_serial_probe(struct usb_interface *interface,
 	if (type->attach) {
 		retval = type->attach(serial);
 		if (retval < 0)
-			goto probe_error;
+			goto err_free_epds;
 		serial->attached = 1;
 		if (retval > 0) {
 			/* quietly accept this device, but don't bind to a
@@ -1658,15 +1850,10 @@ static int usb_serial_probe(struct usb_interface *interface,
 		serial->attached = 1;
 	}
 
-	/* Avoid race with tty_open and serial_install by setting the
-	 * disconnected flag and not clearing it until all ports have been
-	 * registered.
-	 */
-	serial->disconnected = 1;
-
-	if (allocate_minors(serial, num_ports)) {
+	retval = allocate_minors(serial, num_ports);
+	if (retval) {
 		dev_err(ddev, "No more free serial minor numbers\n");
-		goto probe_error;
+		goto err_free_epds;
 	}
 
 	/* register all of the individual ports with the driver core */
@@ -1740,17 +1927,21 @@ void usb_serial_disconnect(struct usb_interface *interface)
 			dev_err(ddev, "Error registering port device, continuing\n");
 	}
 
-	serial->disconnected = 0;
-
-	usb_serial_console_init(serial->port[0]->minor);
+	if (num_ports > 0)
+		usb_serial_console_init(serial->port[0]->minor);
 exit:
+	kfree(epds);
 	module_put(type->driver.owner);
 	return 0;
 
-probe_error:
+err_free_epds:
+	kfree(epds);
+err_put_serial:
 	usb_serial_put(serial);
+err_put_module:
 	module_put(type->driver.owner);
-	return -EIO;
+
+	return retval;
 }
 
 static void usb_serial_disconnect(struct usb_interface *interface)
@@ -2230,7 +2421,7 @@ int usb_serial_register_drivers(struct usb_serial_driver *const serial_drivers[]
 
 	rc = usb_register(udriver);
 	if (rc)
-		return rc;
+		goto failed_usb_register;
 
 	for (sd = serial_drivers; *sd; ++sd) {
 		(*sd)->usb_driver = udriver;
@@ -2248,6 +2439,8 @@ int usb_serial_register_drivers(struct usb_serial_driver *const serial_drivers[]
 	while (sd-- > serial_drivers)
 		usb_serial_deregister(*sd);
 	usb_deregister(udriver);
+failed_usb_register:
+	kfree(udriver);
 	return rc;
 }
 EXPORT_SYMBOL_GPL(usb_serial_register_drivers);

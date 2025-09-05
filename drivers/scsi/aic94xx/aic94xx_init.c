@@ -93,6 +93,7 @@ static struct scsi_host_template aic94xx_sht = {
 };
 
 static int __devinit asd_map_memio(struct asd_ha_struct *asd_ha)
+	.eh_target_reset_handler	= sas_eh_target_reset_handler,
 	.target_destroy		= sas_target_destroy,
 	.ioctl			= sas_ioctl,
 	.track_queue_depth	= 1,
@@ -1014,11 +1015,11 @@ static int asd_scan_finished(struct Scsi_Host *shost, unsigned long time)
 	return 1;
 }
 
-static ssize_t asd_version_show(struct device_driver *driver, char *buf)
+static ssize_t version_show(struct device_driver *driver, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%s\n", ASD_DRIVER_VERSION);
 }
-static DRIVER_ATTR(version, S_IRUGO, asd_version_show, NULL);
+static DRIVER_ATTR_RO(version);
 
 static int asd_create_driver_attrs(struct device_driver *driver)
 {

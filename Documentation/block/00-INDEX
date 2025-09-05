@@ -8,8 +8,12 @@ biodoc.txt
 	- Notes on the Generic Block Layer Rewrite in Linux 2.5
 capability.txt
 	- Generic Block Device Capability (/sys/block/<disk>/capability)
+bfq-iosched.txt
+	- BFQ IO scheduler and its tunables
 biodoc.txt
 	- Notes on the Generic Block Layer Rewrite in Linux 2.5
+biovecs.txt
+	- Immutable biovecs and biovec iterators
 capability.txt
 	- Generic Block Device Capability (/sys/block/<device>/capability)
 cfq-iosched.txt
@@ -28,6 +32,8 @@ stat.txt
 	- Block layer statistics in /sys/block/<dev>/stat
 switching-sched.txt
 	- Switching I/O schedulers at runtime
+pr.txt
+	- Block layer support for Persistent Reservations
 null_blk.txt
 	- Null block for block-layer benchmarking.
 queue-sysfs.txt

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the Linux proc filesystem routines.
 #
@@ -12,6 +13,7 @@ proc-y       += inode.o root.o base.o generic.o array.o \
 
 obj-y   += proc.o
 
+CFLAGS_task_mmu.o	+= $(call cc-option,-Wno-override-init,)
 proc-y			:= nommu.o task_nommu.o
 proc-$(CONFIG_MMU)	:= task_mmu.o
 

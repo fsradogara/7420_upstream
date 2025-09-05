@@ -477,7 +477,7 @@ static snd_pcm_uframes_t snd_sb16_capture_pointer(struct snd_pcm_substream *subs
 
  */
 
-static struct snd_pcm_hardware snd_sb16_playback =
+static const struct snd_pcm_hardware snd_sb16_playback =
 {
 	.info =			(SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_MMAP_VALID),
@@ -495,7 +495,7 @@ static struct snd_pcm_hardware snd_sb16_playback =
 	.fifo_size =		0,
 };
 
-static struct snd_pcm_hardware snd_sb16_capture =
+static const struct snd_pcm_hardware snd_sb16_capture =
 {
 	.info =			(SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_MMAP_VALID),
@@ -753,7 +753,7 @@ static int snd_sb16_dma_control_put(struct snd_kcontrol *kcontrol, struct snd_ct
 	return change;
 }
 
-static struct snd_kcontrol_new snd_sb16_dma_control = {
+static const struct snd_kcontrol_new snd_sb16_dma_control = {
 	.iface = SNDRV_CTL_ELEM_IFACE_CARD,
 	.name = "16-bit DMA Allocation",
 	.info = snd_sb16_dma_control_info,
@@ -854,7 +854,7 @@ int snd_sb16dsp_configure(struct snd_sb * chip)
 	return 0;
 }
 
-static struct snd_pcm_ops snd_sb16_playback_ops = {
+static const struct snd_pcm_ops snd_sb16_playback_ops = {
 	.open =		snd_sb16_playback_open,
 	.close =	snd_sb16_playback_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -865,7 +865,7 @@ static struct snd_pcm_ops snd_sb16_playback_ops = {
 	.pointer =	snd_sb16_playback_pointer,
 };
 
-static struct snd_pcm_ops snd_sb16_capture_ops = {
+static const struct snd_pcm_ops snd_sb16_capture_ops = {
 	.open =		snd_sb16_capture_open,
 	.close =	snd_sb16_capture_close,
 	.ioctl =	snd_pcm_lib_ioctl,

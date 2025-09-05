@@ -95,11 +95,6 @@ enum srp_request_type {
 	SRP_TAG_TSK_MGMT	= 1U << 31,
 
 	SRP_MAX_PAGES_PER_MR	= 512,
-
-	LOCAL_INV_WR_ID_MASK	= 1,
-	FAST_REG_WR_ID_MASK	= 2,
-
-	SRP_LAST_WR_ID		= 0xfffffffcU,
 };
 
 enum srp_target_state {
@@ -177,6 +172,7 @@ struct srp_request {
 	struct srp_direct_buf  *indirect_desc;
 	dma_addr_t		indirect_dma_addr;
 	short			nmdesc;
+	struct ib_cqe		reg_cqe;
 };
 
 /**
@@ -206,7 +202,7 @@ struct srp_rdma_ch {
 	struct completion	done;
 	int			status;
 
-	struct ib_sa_path_rec	path;
+	struct sa_path_rec	path;
 	struct ib_sa_query     *path_query;
 	int			path_query_id;
 
@@ -217,6 +213,7 @@ struct srp_rdma_ch {
 	int			max_ti_iu_len;
 	int			comp_vector;
 
+	u64			tsk_mgmt_tag;
 	struct completion	tsk_mgmt_done;
 	u8			tsk_mgmt_status;
 	bool			connected;
@@ -232,7 +229,7 @@ struct srp_target_port {
 	spinlock_t		lock;
 
 	/* read only in the hot path */
-	struct ib_mr		*global_mr;
+	struct ib_pd		*pd;
 	struct srp_rdma_ch	*ch;
 	u32			ch_count;
 	u32			lkey;
@@ -293,6 +290,8 @@ struct srp_iu {
 	char			target_name[32];
 	unsigned int		scsi_id;
 	unsigned int		sg_tablesize;
+	int			mr_pool_size;
+	int			mr_per_cmd;
 	int			queue_size;
 	int			req_ring_size;
 	int			comp_vector;
@@ -318,6 +317,7 @@ struct srp_iu {
 	void		       *buf;
 	size_t			size;
 	enum dma_data_direction	direction;
+	struct ib_cqe		cqe;
 };
 
 /**

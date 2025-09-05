@@ -723,7 +723,9 @@ ENTRY(_DebugInterruptVector)
 	jx	a0
 
 
-	xsr	a0, SREG_EXCSAVE + XCHAL_DEBUGLEVEL
+	xsr	a3, SREG_EXCSAVE + XCHAL_DEBUGLEVEL
+	s32i	a0, a3, DT_DEBUG_SAVE
+	l32i	a0, a3, DT_DEBUG_EXCEPTION
 	jx	a0
 
 ENDPROC(_DebugInterruptVector)

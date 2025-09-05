@@ -202,6 +202,18 @@ static void klist_class_dev_put(struct klist_node *n)
 	put_device(dev);
 }
 
+static int class_add_groups(struct class *cls,
+			    const struct attribute_group **groups)
+{
+	return sysfs_create_groups(&cls->p->subsys.kobj, groups);
+}
+
+static void class_remove_groups(struct class *cls,
+				const struct attribute_group **groups)
+{
+	return sysfs_remove_groups(&cls->p->subsys.kobj, groups);
+}
+
 int __class_register(struct class *cls, struct lock_class_key *key)
 {
 	struct subsys_private *cp;
@@ -259,7 +271,7 @@ int __class_register(struct class *cls, struct lock_class_key *key)
 		kfree(cp);
 		return error;
 	}
-	error = add_class_attrs(class_get(cls));
+	error = class_add_groups(class_get(cls), cls->class_groups);
 	class_put(cls);
 	return error;
 }
@@ -270,6 +282,7 @@ void class_unregister(struct class *cls)
 	pr_debug("device class '%s': unregistering\n", cls->name);
 	remove_class_attrs(cls);
 	kset_unregister(&cls->p->class_subsys);
+	class_remove_groups(cls, cls->class_groups);
 	kset_unregister(&cls->p->subsys);
 }
 

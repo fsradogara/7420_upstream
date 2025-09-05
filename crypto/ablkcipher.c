@@ -23,14 +23,13 @@
 #include <linux/cpumask.h>
 #include <linux/err.h>
 #include <linux/kernel.h>
-#include <linux/rtnetlink.h>
-#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/seq_file.h>
 
 #include "internal.h"
 
 #include <linux/cryptouser.h>
+#include <linux/compiler.h>
 #include <net/netlink.h>
 
 #include <crypto/scatterwalk.h>
@@ -358,16 +357,6 @@ static unsigned int crypto_ablkcipher_ctxsize(struct crypto_alg *alg, u32 type,
 	return alg->cra_ctxsize;
 }
 
-int skcipher_null_givencrypt(struct skcipher_givcrypt_request *req)
-{
-	return crypto_ablkcipher_encrypt(&req->creq);
-}
-
-int skcipher_null_givdecrypt(struct skcipher_givcrypt_request *req)
-{
-	return crypto_ablkcipher_decrypt(&req->creq);
-}
-
 static int crypto_init_ablkcipher_ops(struct crypto_tfm *tfm, u32 type,
 				      u32 mask)
 {
@@ -380,10 +369,6 @@ static int crypto_init_ablkcipher_ops(struct crypto_tfm *tfm, u32 type,
 	crt->setkey = setkey;
 	crt->encrypt = alg->encrypt;
 	crt->decrypt = alg->decrypt;
-	if (!alg->ivsize) {
-		crt->givencrypt = skcipher_null_givencrypt;
-		crt->givdecrypt = skcipher_null_givdecrypt;
-	}
 	crt->base = __crypto_ablkcipher_cast(tfm);
 	crt->ivsize = alg->ivsize;
 
@@ -420,7 +405,7 @@ static int crypto_ablkcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 #endif
 
 static void crypto_ablkcipher_show(struct seq_file *m, struct crypto_alg *alg)
-	__attribute__ ((unused));
+	__maybe_unused;
 static void crypto_ablkcipher_show(struct seq_file *m, struct crypto_alg *alg)
 {
 	struct ablkcipher_alg *ablkcipher = &alg->cra_ablkcipher;
@@ -444,11 +429,6 @@ const struct crypto_type crypto_ablkcipher_type = {
 	.report = crypto_ablkcipher_report,
 };
 EXPORT_SYMBOL_GPL(crypto_ablkcipher_type);
-
-static int no_givdecrypt(struct skcipher_givcrypt_request *req)
-{
-	return -ENOSYS;
-}
 
 static int crypto_init_givcipher_ops(struct crypto_tfm *tfm, u32 type,
 				      u32 mask)
@@ -502,7 +482,7 @@ static int crypto_givcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 #endif
 
 static void crypto_givcipher_show(struct seq_file *m, struct crypto_alg *alg)
-	__attribute__ ((unused));
+	__maybe_unused;
 static void crypto_givcipher_show(struct seq_file *m, struct crypto_alg *alg)
 {
 	struct ablkcipher_alg *ablkcipher = &alg->cra_ablkcipher;

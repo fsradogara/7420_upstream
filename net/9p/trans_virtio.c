@@ -228,7 +228,7 @@ static struct list_head virtio_chan_list;
 /* How many bytes left in this page. */
 static unsigned int rest_of_page(void *data)
 {
-	return PAGE_SIZE - ((unsigned long)data % PAGE_SIZE);
+	return PAGE_SIZE - offset_in_page(data);
 }
 
 /**
@@ -286,7 +286,6 @@ static void p9_virtio_close(struct p9_client *client)
 static void req_done(struct virtqueue *vq)
 {
 	struct virtio_chan *chan = vq->vdev->priv;
-	struct p9_fcall *rc;
 	unsigned int len;
 	unsigned long flags;
 	struct p9_req_t *req;
@@ -306,8 +305,8 @@ static void req_done(struct virtqueue *vq)
 
 	while (1) {
 		spin_lock_irqsave(&chan->lock, flags);
-		rc = virtqueue_get_buf(chan->vq, &len);
-		if (rc == NULL) {
+		req = virtqueue_get_buf(chan->vq, &len);
+		if (req == NULL) {
 			spin_unlock_irqrestore(&chan->lock, flags);
 			break;
 		}
@@ -315,9 +314,6 @@ static void req_done(struct virtqueue *vq)
 		spin_unlock_irqrestore(&chan->lock, flags);
 		/* Wakeup if anyone waiting for VirtIO ring space. */
 		wake_up(chan->vc_wq);
-		p9_debug(P9_DEBUG_TRANS, ": rc %p\n", rc);
-		p9_debug(P9_DEBUG_TRANS, ": lookup tag %d\n", rc->tag);
-		req = p9_tag_lookup(chan->client, rc->tag);
 		p9_client_cb(chan->client, req, REQ_STATUS_RCVD);
 	}
 }
@@ -528,7 +524,7 @@ req_retry:
 	if (in)
 		sgs[out_sgs + in_sgs++] = chan->sg + out;
 
-	err = virtqueue_add_sgs(chan->vq, sgs, out_sgs, in_sgs, req->tc,
+	err = virtqueue_add_sgs(chan->vq, sgs, out_sgs, in_sgs, req,
 				GFP_ATOMIC);
 	if (err < 0) {
 		if (err == -ENOSPC) {
@@ -613,7 +609,7 @@ static int p9_get_mapped_pages(struct virtio_chan *chan,
 			return -ENOMEM;
 
 		*need_drop = 0;
-		p -= (*offs = (unsigned long)p % PAGE_SIZE);
+		p -= (*offs = offset_in_page(p));
 		for (index = 0; index < nr_pages; index++) {
 			if (is_vmalloc_addr(p))
 				(*pages)[index] = vmalloc_to_page(p);
@@ -713,7 +709,7 @@ req_retry_pinned:
 	}
 
 	BUG_ON(out_sgs + in_sgs > ARRAY_SIZE(sgs));
-	err = virtqueue_add_sgs(chan->vq, sgs, out_sgs, in_sgs, req->tc,
+	err = virtqueue_add_sgs(chan->vq, sgs, out_sgs, in_sgs, req,
 				GFP_ATOMIC);
 	if (err < 0) {
 		if (err == -ENOSPC) {
@@ -755,8 +751,8 @@ err_out:
 		/* wakeup anybody waiting for slots to pin pages */
 		wake_up(&vp_wq);
 	}
-	kfree(in_pages);
-	kfree(out_pages);
+	kvfree(in_pages);
+	kvfree(out_pages);
 	return err;
 }
 
@@ -985,7 +981,7 @@ p9_virtio_create(struct p9_client *client, const char *devname, char *args)
 
 	return trans;
 	if (!found) {
-		pr_err("no channels available\n");
+		pr_err("no channels available for device %s\n", devname);
 		return ret;
 	}
 

@@ -294,6 +294,7 @@ extern u8 acpiphp_get_adapter_status (struct acpiphp_slot *slot);
 /* variables */
 extern int acpiphp_debug;
 int acpiphp_register_attention(struct acpiphp_attention_info*info);
+int acpiphp_register_attention(struct acpiphp_attention_info *info);
 int acpiphp_unregister_attention(struct acpiphp_attention_info *info);
 int acpiphp_register_hotplug_slot(struct acpiphp_slot *slot, unsigned int sun);
 void acpiphp_unregister_hotplug_slot(struct acpiphp_slot *slot);

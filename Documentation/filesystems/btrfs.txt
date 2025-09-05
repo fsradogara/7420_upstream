@@ -1,20 +1,10 @@
-
 BTRFS
 =====
 
-Btrfs is a copy on write filesystem for Linux aimed at
-implementing advanced features while focusing on fault tolerance,
-repair and easy administration. Initially developed by Oracle, Btrfs
-is licensed under the GPL and open for contribution from anyone.
-
-Linux has a wealth of filesystems to choose from, but we are facing a
-number of challenges with scaling to the large storage subsystems that
-are becoming common in today's data centers. Filesystems need to scale
-in their ability to address and manage large storage, and also in
-their ability to detect, repair and tolerate errors in the data stored
-on disk.  Btrfs is under heavy development, and is not suitable for
-any uses other than benchmarking and review. The Btrfs disk format is
-not yet finalized.
+Btrfs is a copy on write filesystem for Linux aimed at implementing advanced
+features while focusing on fault tolerance, repair and easy administration.
+Jointly developed by several companies, licensed under the GPL and open for
+contribution from anyone.
 
 The main Btrfs features include:
 
@@ -28,11 +18,11 @@ The main Btrfs features include:
     * Checksums on data and metadata (multiple algorithms available)
     * Compression
     * Integrated multiple device support, with several raid algorithms
-    * Online filesystem check (not yet implemented)
-    * Very fast offline filesystem check
-    * Efficient incremental backup and FS mirroring (not yet implemented)
+    * Offline filesystem check
+    * Efficient incremental backup and FS mirroring
     * Online filesystem defragmentation
 
+For more information please refer to the wiki
 
 Mount Options
 
@@ -265,3 +255,8 @@ Other tools for specific tasks:
 * btrfs-convert: in-place conversion from ext2/3/4 filesystems
 
 * btrfs-image: dump filesystem metadata for debugging
+  https://btrfs.wiki.kernel.org
+
+that maintains information about administration tasks, frequently asked
+questions, use cases, mount options, comprehensible changelogs, features,
+manual pages, source code repositories, contacts etc.

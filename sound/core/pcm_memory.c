@@ -143,7 +143,6 @@ int snd_pcm_lib_preallocate_free_for_all(struct snd_pcm *pcm)
 			snd_pcm_lib_preallocate_free(substream);
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_pcm_lib_preallocate_free_for_all);
 
 #ifdef CONFIG_SND_VERBOSE_PROCFS
@@ -293,7 +292,6 @@ int snd_pcm_lib_preallocate_pages(struct snd_pcm_substream *substream,
 	substream->dma_buffer.dev.dev = data;
 	return snd_pcm_lib_preallocate_pages1(substream, size, max);
 }
-
 EXPORT_SYMBOL(snd_pcm_lib_preallocate_pages);
 
 /**
@@ -327,7 +325,6 @@ int snd_pcm_lib_preallocate_pages_for_all(struct snd_pcm *pcm,
 				return err;
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_pcm_lib_preallocate_pages_for_all);
 
 #ifdef CONFIG_SND_DMA_SGBUF
@@ -351,7 +348,6 @@ struct page *snd_pcm_sgbuf_ops_page(struct snd_pcm_substream *substream, unsigne
 		return NULL;
 	return sgbuf->page_table[idx];
 }
-
 EXPORT_SYMBOL(snd_pcm_sgbuf_ops_page);
 #endif /* CONFIG_SND_DMA_SGBUF */
 
@@ -412,7 +408,6 @@ int snd_pcm_lib_malloc_pages(struct snd_pcm_substream *substream, size_t size)
 	runtime->dma_bytes = size;
 	return 1;			/* area was changed */
 }
-
 EXPORT_SYMBOL(snd_pcm_lib_malloc_pages);
 
 /**
@@ -444,7 +439,6 @@ int snd_pcm_lib_free_pages(struct snd_pcm_substream *substream)
 	snd_pcm_set_runtime_buffer(substream, NULL);
 	return 0;
 }
-
 EXPORT_SYMBOL(snd_pcm_lib_free_pages);
 
 int _snd_pcm_lib_alloc_vmalloc_buffer(struct snd_pcm_substream *substream,
