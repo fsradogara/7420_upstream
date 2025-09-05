@@ -67,6 +67,7 @@
 /* Standard copy_to_user with segment limit checking */
 ENTRY(copy_to_user)
 	CFI_STARTPROC
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 #include <asm/asm.h>
 #include <asm/smap.h>

@@ -4,6 +4,7 @@
 #include <asm/dwarf2.h>
 #include <asm/cpufeature.h>
 #include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 
 /*

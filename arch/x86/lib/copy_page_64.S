@@ -118,6 +118,7 @@ ENDPROC(copy_page)
 	.byte 2b - 1b
 	.previous
 #include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 
 /*

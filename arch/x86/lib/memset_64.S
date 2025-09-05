@@ -38,6 +38,7 @@ ENTRY(__memset)
 	movq %rdi,%r10
 	movq %rdx,%r11
 #include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 
 .weak memset

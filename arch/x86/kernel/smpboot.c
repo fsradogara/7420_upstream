@@ -115,6 +115,7 @@ struct task_struct *idle_thread_array[NR_CPUS] __cpuinitdata ;
 #include <asm/i8259.h>
 #include <asm/realmode.h>
 #include <asm/misc.h>
+#include <asm/spec-ctrl.h>
 
 /* Number of siblings per CPU package */
 int smp_num_siblings = 1;
@@ -546,6 +547,8 @@ static void __cpuinit smp_checks(void)
 		else
 			tainted &= ~TAINT_UNSAFE_SMP;
 	}
+	speculative_store_bypass_ht_init();
+
 	/*
 	 * Lock vector_lock and initialize the vectors on this cpu
 	 * before setting the cpu online. We must set it online with
@@ -2057,6 +2060,8 @@ out:
 	set_mtrr_aps_delayed_init();
 
 	smp_quirk_init_udelay();
+
+	speculative_store_bypass_ht_init();
 }
 
 void arch_enable_nonboot_cpus_begin(void)

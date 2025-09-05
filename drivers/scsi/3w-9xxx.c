@@ -921,6 +921,11 @@ static int twa_chrdev_open(struct inode *inode, struct file *file)
 	int retval = TW_IOCTL_ERROR_OS_ENODEV;
 
 	cycle_kernel_lock();
+	if (!capable(CAP_SYS_ADMIN)) {
+		retval = -EACCES;
+		goto out;
+	}
+
 	minor_number = iminor(inode);
 	if (minor_number >= twa_device_extension_count)
 		goto out;

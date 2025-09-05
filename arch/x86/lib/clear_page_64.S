@@ -9,6 +9,7 @@
 clear_page_c:
 	CFI_STARTPROC
 #include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 
 /*

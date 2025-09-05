@@ -1090,6 +1090,7 @@ find_check_entry(struct ip6t_entry *e, struct net *net, const char *name,
 		return -ENOMEM;
 
 	j = 0;
+	memset(&mtpar, 0, sizeof(mtpar));
 	mtpar.net	= net;
 	mtpar.table     = name;
 	mtpar.entryinfo = &e->ipv6;
