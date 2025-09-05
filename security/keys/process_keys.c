@@ -32,6 +32,7 @@ static DEFINE_MUTEX(key_user_keyring_mutex);
 #include <linux/security.h>
 #include <linux/user_namespace.h>
 #include <linux/uaccess.h>
+#include <keys/request_key_auth-type.h>
 #include "internal.h"
 
 /* Session keyring create vs join semaphore */

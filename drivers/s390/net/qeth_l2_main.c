@@ -1715,6 +1715,9 @@ static struct ethtool_ops qeth_l2_ethtool_ops = {
 	.get_stats_count = qeth_core_get_stats_count,
 	return;
 	unregister_netdev(card->dev);
+	cancel_work_sync(&card->close_dev_work);
+	if (qeth_netdev_is_registered(card->dev))
+		unregister_netdev(card->dev);
 }
 
 static const struct ethtool_ops qeth_l2_ethtool_ops = {
@@ -1772,7 +1775,7 @@ static int qeth_l2_setup_netdev(struct qeth_card *card)
 {
 	int rc;
 
-	if (card->dev->netdev_ops)
+	if (qeth_netdev_is_registered(card->dev))
 		return 0;
 
 	card->dev->ml_priv = card;

@@ -45,6 +45,7 @@ int debug_locks_off(void)
 		if (!debug_locks_silent) {
 			oops_in_progress = 1;
 	if (__debug_locks_off()) {
+	if (debug_locks && __debug_locks_off()) {
 		if (!debug_locks_silent) {
 			console_verbose();
 			return 1;

@@ -7,6 +7,7 @@ ocfs2_dlm-objs := dlmdomain.o dlmdebug.o dlmthread.o dlmrecovery.o \
 
 ocfs2_dlmfs-objs := userdlm.o dlmfs.o dlmfsver.o
 ccflags-y := -Ifs/ocfs2
+ccflags-y := -I$(src)/..
 
 obj-$(CONFIG_OCFS2_FS_O2CB) += ocfs2_dlm.o
 

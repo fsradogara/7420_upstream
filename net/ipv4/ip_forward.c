@@ -79,6 +79,7 @@ static int ip_forward_finish(struct net *net, struct sock *sk, struct sk_buff *s
 
 	return dst_output(skb);
 	skb_sender_cpu_clear(skb);
+	skb->tstamp = 0;
 	return dst_output(net, sk, skb);
 }
 

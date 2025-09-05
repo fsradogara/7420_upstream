@@ -42,7 +42,7 @@
 #include <linux/export.h>
 
 static ax25_route *ax25_route_list;
-static DEFINE_RWLOCK(ax25_route_lock);
+DEFINE_RWLOCK(ax25_route_lock);
 
 void ax25_rt_device_down(struct net_device *dev)
 {
@@ -337,6 +337,7 @@ const struct seq_operations ax25_rt_seqops = {
  *	Find AX.25 route
  *
  *	Only routes with a reference count of zero can be destroyed.
+ *	Must be called with ax25_route_lock read locked.
  */
 ax25_route *ax25_get_route(ax25_address *addr, struct net_device *dev)
 {
@@ -344,7 +345,6 @@ ax25_route *ax25_get_route(ax25_address *addr, struct net_device *dev)
 	ax25_route *ax25_def_rt = NULL;
 	ax25_route *ax25_rt;
 
-	read_lock(&ax25_route_lock);
 	/*
 	 *	Bind to the physical interface we heard them on, or the default
 	 *	route if none is found;
@@ -366,11 +366,6 @@ ax25_route *ax25_get_route(ax25_address *addr, struct net_device *dev)
 	ax25_rt = ax25_def_rt;
 	if (ax25_spe_rt != NULL)
 		ax25_rt = ax25_spe_rt;
-
-	if (ax25_rt != NULL)
-		ax25_hold_route(ax25_rt);
-
-	read_unlock(&ax25_route_lock);
 
 	return ax25_rt;
 }
@@ -403,9 +398,12 @@ int ax25_rt_autobind(ax25_cb *ax25, ax25_address *addr)
 	int err;
 	int err = 0;
 
-	if ((ax25_rt = ax25_get_route(addr, NULL)) == NULL)
+	ax25_route_lock_use();
+	ax25_rt = ax25_get_route(addr, NULL);
+	if (!ax25_rt) {
+		ax25_route_lock_unuse();
 		return -EHOSTUNREACH;
-
+	}
 	if ((ax25->ax25_dev = ax25_dev_ax25dev(ax25_rt->dev)) == NULL) {
 		err = -EHOSTUNREACH;
 		goto put;
@@ -444,6 +442,7 @@ put:
 	ax25_put_route(ax25_rt);
 
 	return 0;
+	ax25_route_lock_unuse();
 	return err;
 }
 

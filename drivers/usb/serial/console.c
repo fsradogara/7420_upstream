@@ -116,7 +116,6 @@ static int usb_console_setup(struct console *co, char *options)
 		cflag |= PARENB;
 		break;
 	}
-	co->cflag = cflag;
 
 	/*
 	 * no need to check the index here: if the index is wrong, console
@@ -236,6 +235,7 @@ goto out;
 			serial->type->set_termios(tty, port, &dummy);
 
 			tty_port_tty_set(&port->port, NULL);
+			tty_save_termios(tty);
 			tty_kref_put(tty);
 		}
 		tty_port_set_initialized(&port->port, 1);

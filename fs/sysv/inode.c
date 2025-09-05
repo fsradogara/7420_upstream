@@ -348,7 +348,7 @@ static void sysv_delete_inode(struct inode *inode)
                 }
         }
 	brelse(bh);
-	return 0;
+	return err;
 }
 
 int sysv_write_inode(struct inode *inode, struct writeback_control *wbc)

@@ -1141,8 +1141,14 @@ static ssize_t store_uevent(struct device *dev, struct device_attribute *attr,
 static ssize_t uevent_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
-	if (kobject_synth_uevent(&dev->kobj, buf, count))
+	int rc;
+
+	rc = kobject_synth_uevent(&dev->kobj, buf, count);
+
+	if (rc) {
 		dev_err(dev, "uevent: failed to send synthetic uevent\n");
+		return rc;
+	}
 
 	if (kobject_action_type(buf, count, &action) == 0) {
 		kobject_uevent(&dev->kobj, action);

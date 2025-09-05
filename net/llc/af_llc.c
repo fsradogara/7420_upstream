@@ -914,9 +914,8 @@ static int llc_ui_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 		/* Partial read */
 		if (used + offset < skb->len)
 		if (!(flags & MSG_PEEK)) {
-			spin_lock_irqsave(&sk->sk_receive_queue.lock, cpu_flags);
-			sk_eat_skb(sk, skb);
-			spin_unlock_irqrestore(&sk->sk_receive_queue.lock, cpu_flags);
+			skb_unlink(skb, &sk->sk_receive_queue);
+			kfree_skb(skb);
 			*seq = 0;
 		}
 
@@ -937,9 +936,8 @@ copy_uaddr:
 		llc_cmsg_rcv(msg, skb);
 
 	if (!(flags & MSG_PEEK)) {
-		spin_lock_irqsave(&sk->sk_receive_queue.lock, cpu_flags);
-		sk_eat_skb(sk, skb);
-		spin_unlock_irqrestore(&sk->sk_receive_queue.lock, cpu_flags);
+		skb_unlink(skb, &sk->sk_receive_queue);
+		kfree_skb(skb);
 		*seq = 0;
 	}
 

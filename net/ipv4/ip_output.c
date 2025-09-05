@@ -732,6 +732,7 @@ static void ip_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	to->protocol = from->protocol;
 	dst_release(to->dst);
 	to->dst = dst_clone(from->dst);
+	to->skb_iif = from->skb_iif;
 	skb_dst_drop(to);
 	skb_dst_copy(to, from);
 	to->dev = from->dev;

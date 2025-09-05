@@ -866,7 +866,7 @@ ip4ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		rt = ip_route_output_ports(dev_net(skb->dev), &fl4, NULL,
 					   eiph->daddr, eiph->saddr, 0, 0,
 					   IPPROTO_IPIP, RT_TOS(eiph->tos), 0);
-		if (IS_ERR(rt) || rt->dst.dev->type != ARPHRD_TUNNEL) {
+		if (IS_ERR(rt) || rt->dst.dev->type != ARPHRD_TUNNEL6) {
 			if (!IS_ERR(rt))
 				ip_rt_put(rt);
 			goto out;
@@ -877,6 +877,7 @@ ip4ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 				   skb2->dev) ||
 		    skb2->dst->dev->type != ARPHRD_TUNNEL)
 		    skb_dst(skb2)->dev->type != ARPHRD_TUNNEL)
+		    skb_dst(skb2)->dev->type != ARPHRD_TUNNEL6)
 			goto out;
 	}
 
@@ -1214,6 +1215,7 @@ static int ipxip6_rcv(struct sk_buff *skb, u8 ipproto,
 			goto drop;
 		if (!xfrm6_policy_check(NULL, XFRM_POLICY_IN, skb))
 			goto drop;
+		ipv6h = ipv6_hdr(skb);
 		if (!ip6_tnl_rcv_ctl(t, &ipv6h->daddr, &ipv6h->saddr))
 			goto drop;
 		if (iptunnel_pull_header(skb, 0, tpi->proto, false))
@@ -1734,10 +1736,6 @@ ip4ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	u8 tproto;
 	int err;
 
-	/* ensure we can access the full inner ip header */
-	if (!pskb_may_pull(skb, sizeof(struct iphdr)))
-		return -1;
-
 	iph = ip_hdr(skb);
 	memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
 
@@ -1833,9 +1831,6 @@ ip6ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	__u32 mtu;
 	u8 tproto;
 	int err;
-
-	if (unlikely(!pskb_may_pull(skb, sizeof(*ipv6h))))
-		return -1;
 
 	ipv6h = ipv6_hdr(skb);
 	tproto = READ_ONCE(t->parms.proto);
@@ -1952,6 +1947,9 @@ ip6_tnl_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		ret = ip4ip6_tnl_xmit(skb, dev);
 		break;
 	case __constant_htons(ETH_P_IPV6):
+	if (!pskb_inet_may_pull(skb))
+		goto tx_err;
+
 	switch (skb->protocol) {
 	case htons(ETH_P_IP):
 		ret = ip4ip6_tnl_xmit(skb, dev);

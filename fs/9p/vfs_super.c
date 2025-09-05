@@ -263,7 +263,7 @@ close_session:
 			goto release_sb;
 		}
 		d_inode(root)->i_ino = v9fs_qid2ino(&st->qid);
-		v9fs_stat2inode_dotl(st, d_inode(root));
+		v9fs_stat2inode_dotl(st, d_inode(root), 0);
 		kfree(st);
 	} else {
 		struct p9_wstat *st = NULL;
@@ -274,7 +274,7 @@ close_session:
 		}
 
 		d_inode(root)->i_ino = v9fs_qid2ino(&st->qid);
-		v9fs_stat2inode(st, d_inode(root), sb);
+		v9fs_stat2inode(st, d_inode(root), sb, 0);
 
 		p9stat_free(st);
 		kfree(st);

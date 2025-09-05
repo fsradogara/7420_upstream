@@ -246,6 +246,7 @@ void sctp_outq_init(struct sctp_association *asoc, struct sctp_outq *q)
 	q->malloced = 0;
 	q->out_qlen = 0;
 	sctp_sched_set_sched(asoc, SCTP_SS_FCFS);
+	sctp_sched_set_sched(asoc, SCTP_SS_DEFAULT);
 }
 
 /* Free the outqueue structure and any related pending chunks.

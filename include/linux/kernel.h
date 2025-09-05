@@ -96,8 +96,8 @@ extern const char linux_proc_banner[];
 #define roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
 #define u64_to_user_ptr(x) (		\
 {					\
-	typecheck(u64, x);		\
-	(void __user *)(uintptr_t)x;	\
+	typecheck(u64, (x));		\
+	(void __user *)(uintptr_t)(x);	\
 }					\
 )
 

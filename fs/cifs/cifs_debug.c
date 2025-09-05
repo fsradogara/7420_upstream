@@ -565,6 +565,9 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 			atomic_set(&tcon->num_locks, 0);
 		}
 		read_unlock(&GlobalSMBSeslock);
+		atomic_set(&tcpSesReconnectCount, 0);
+		atomic_set(&tconInfoReconnectCount, 0);
+
 		spin_lock(&GlobalMid_Lock);
 		GlobalMaxActiveXid = 0;
 		GlobalCurrentXid = 0;

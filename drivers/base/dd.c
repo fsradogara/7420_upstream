@@ -1036,11 +1036,11 @@ static void __device_release_driver(struct device *dev, struct device *parent)
 
 		while (device_links_busy(dev)) {
 			device_unlock(dev);
-			if (parent)
+			if (parent && dev->bus->need_parent_lock)
 				device_unlock(parent);
 
 			device_links_unbind_consumers(dev);
-			if (parent)
+			if (parent && dev->bus->need_parent_lock)
 				device_lock(parent);
 
 			device_lock(dev);
@@ -1071,9 +1071,9 @@ static void __device_release_driver(struct device *dev, struct device *parent)
 			drv->remove(dev);
 
 		device_links_driver_cleanup(dev);
-		dma_deconfigure(dev);
 
 		devres_release_all(dev);
+		dma_deconfigure(dev);
 		dev->driver = NULL;
 		klist_remove(&dev->knode_driver);
 		dev_set_drvdata(dev, NULL);
@@ -1146,6 +1146,9 @@ void driver_detach(struct device_driver *drv)
 {
 	struct device_private *dev_prv;
 	struct device *dev;
+
+	if (driver_allows_async_probing(drv))
+		async_synchronize_full();
 
 	for (;;) {
 		spin_lock(&drv->p->klist_devices.k_lock);

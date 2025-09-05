@@ -149,9 +149,9 @@ static int update_ind_extent_range(handle_t *handle, struct inode *inode,
 
 	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 
-	bh = sb_bread(inode->i_sb, pblock);
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++, blk_count++) {
@@ -200,9 +200,9 @@ static int update_dind_extent_range(handle_t *handle, struct inode *inode,
 	}
 	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 
-	bh = sb_bread(inode->i_sb, pblock);
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
@@ -248,9 +248,9 @@ static int update_tind_extent_range(handle_t *handle, struct inode *inode,
 	}
 	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 
-	bh = sb_bread(inode->i_sb, pblock);
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
@@ -309,9 +309,9 @@ static int free_dind_blocks(handle_t *handle,
 	struct buffer_head *bh;
 	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 
-	bh = sb_bread(inode->i_sb, le32_to_cpu(i_data));
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, le32_to_cpu(i_data), 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	tmp_idata = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
@@ -342,9 +342,9 @@ static int free_tind_blocks(handle_t *handle,
 	struct buffer_head *bh;
 	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 
-	bh = sb_bread(inode->i_sb, le32_to_cpu(i_data));
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, le32_to_cpu(i_data), 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	tmp_idata = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
@@ -482,9 +482,9 @@ static int free_ext_idx(handle_t *handle, struct inode *inode,
 
 	block = idx_pblock(ix);
 	block = ext4_idx_pblock(ix);
-	bh = sb_bread(inode->i_sb, block);
-	if (!bh)
-		return -EIO;
+	bh = ext4_sb_bread(inode->i_sb, block, 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
 
 	eh = (struct ext4_extent_header *)bh->b_data;
 	if (eh->eh_depth != 0) {

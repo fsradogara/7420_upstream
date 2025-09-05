@@ -864,6 +864,7 @@ __poll_t vcc_poll(struct file *file, struct socket *sock, poll_table *wait)
 	poll_wait(file, sk->sk_sleep, wait);
 	sock_poll_wait(file, sk_sleep(sk), wait);
 	sock_poll_wait(file, wait);
+	sock_poll_wait(file, sock, wait);
 	mask = 0;
 
 	vcc = ATM_SD(sock);

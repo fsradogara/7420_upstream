@@ -1152,6 +1152,8 @@ static int __init smp_scan_config(unsigned long base, unsigned long length)
 				sizeof(*mpf) - 1, mpf);
 			pr_info("found SMP MP-table at [mem %#010lx-%#010lx] mapped at [%p]\n",
 				base, base + sizeof(*mpf) - 1, mpf);
+			pr_info("found SMP MP-table at [mem %#010lx-%#010lx]\n",
+				base, base + sizeof(*mpf) - 1);
 
 			memblock_reserve(base, sizeof(*mpf));
 			if (mpf->physptr)

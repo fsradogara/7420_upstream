@@ -1868,6 +1868,7 @@ __poll_t iucv_sock_poll(struct file *file, struct socket *sock,
 	poll_wait(file, sk->sk_sleep, wait);
 	sock_poll_wait(file, sk_sleep(sk), wait);
 	sock_poll_wait(file, wait);
+	sock_poll_wait(file, sock, wait);
 
 	if (sk->sk_state == IUCV_LISTEN)
 		return iucv_accept_poll(sk);

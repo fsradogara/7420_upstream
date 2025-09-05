@@ -2412,6 +2412,7 @@ call_transmit(struct rpc_task *task)
 static void
 call_transmit_status(struct rpc_task *task)
 {
+	struct rpc_xprt *xprt = task->tk_rqstp->rq_xprt;
 	task->tk_action = call_status;
 	/*
 	 * Special case: if we've been waiting on the socket's write_space()
@@ -2426,9 +2427,10 @@ call_transmit_status(struct rpc_task *task)
 
 	/*
 	 * Common case: success.  Force the compiler to put this
-	 * test first.
+	 * test first.  Or, if any error and xprt_close_wait,
+	 * release the xprt lock so the socket can close.
 	 */
-	if (task->tk_status == 0) {
+	if (task->tk_status == 0 || xprt_close_wait(xprt)) {
 		xprt_end_transmit(task);
 		rpc_task_force_reencode(task);
 		return;

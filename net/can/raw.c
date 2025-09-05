@@ -812,6 +812,15 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	}
 	skb->dev = dev;
 	skb->sk  = sk;
+	err = -EINVAL;
+	if (ro->fd_frames && dev->mtu == CANFD_MTU) {
+		if (unlikely(size != CANFD_MTU && size != CAN_MTU))
+			goto put_dev;
+	} else {
+		if (unlikely(size != CAN_MTU))
+			goto put_dev;
+	}
+
 	skb = sock_alloc_send_skb(sk, size + sizeof(struct can_skb_priv),
 				  msg->msg_flags & MSG_DONTWAIT, &err);
 	if (!skb)

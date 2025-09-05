@@ -75,12 +75,6 @@ static const unsigned int gre_timeouts[GRE_CT_MAX] = {
 };
 
 static unsigned int proto_gre_net_id __read_mostly;
-struct netns_proto_gre {
-	struct nf_proto_net	nf;
-	rwlock_t		keymap_lock;
-	struct list_head	keymap_list;
-	unsigned int		gre_timeouts[GRE_CT_MAX];
-};
 
 static inline struct netns_proto_gre *gre_pernet(struct net *net)
 {
@@ -512,6 +506,8 @@ static void nf_ct_proto_gre_fini(void)
 	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_gre4);
 	nf_ct_gre_keymap_flush();
 	int ret;
+
+	BUILD_BUG_ON(offsetof(struct netns_proto_gre, nf) != 0);
 
 	ret = register_pernet_subsys(&proto_gre_net_ops);
 	if (ret < 0)

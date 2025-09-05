@@ -2006,6 +2006,7 @@ static int fuse_dir_fsync(struct file *file, struct dentry *de, int datasync)
 
 static bool update_mtime(unsigned ivalid)
 	fuse_release_common(file, FUSE_RELEASEDIR);
+	fuse_release_common(file, true);
 
 	return 0;
 }

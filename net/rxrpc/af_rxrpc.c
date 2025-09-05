@@ -807,6 +807,7 @@ static __poll_t rxrpc_poll(struct file *file, struct socket *sock,
 	poll_wait(file, sk->sk_sleep, wait);
 	sock_poll_wait(file, sk_sleep(sk), wait);
 	sock_poll_wait(file, wait);
+	sock_poll_wait(file, sock, wait);
 	mask = 0;
 
 	/* the socket is readable if there are any messages waiting on the Rx

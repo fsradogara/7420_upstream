@@ -133,7 +133,6 @@ enum sctp_verb {
 #define SCTP_CMD_NUM_VERBS	(SCTP_CMD_MAX + 1)
 
 	SCTP_CMD_SEND_MSG,	 /* Send the whole use message */
-	SCTP_CMD_SEND_NEXT_ASCONF, /* Send the next ASCONF after ACK */
 	SCTP_CMD_PURGE_ASCONF_QUEUE, /* Purge all asconf queues.*/
 	SCTP_CMD_SET_ASOC,	 /* Restore association context */
 	SCTP_CMD_LAST

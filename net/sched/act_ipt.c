@@ -311,6 +311,7 @@ static int tcf_ipt_cleanup(struct tc_action *a, int bind)
 static int tcf_ipt(struct sk_buff *skb, struct tc_action *a,
 	if (ret == ACT_P_CREATED)
 		tcf_idr_release(*a, bind);
+	tcf_idr_release(*a, bind);
 	return err;
 }
 

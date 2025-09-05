@@ -435,6 +435,7 @@ struct i2c_client {
 	struct list_head detected;
 	struct completion released;
 	struct device dev;		/* the device structure		*/
+	int init_irq;			/* irq set at initialization	*/
 	int irq;			/* irq issued by device		*/
 	struct list_head detected;
 #if IS_ENABLED(CONFIG_I2C_SLAVE)

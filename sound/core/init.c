@@ -531,6 +531,7 @@ int snd_card_disconnect(struct snd_card *card)
 	
 	/* phase 2: replace file->f_op with special dummy operations */
 	
+	/* replace file->f_op with special dummy operations */
 	spin_lock(&card->files_lock);
 	mfile = card->files;
 	while (mfile) {
@@ -552,7 +553,7 @@ int snd_card_disconnect(struct snd_card *card)
 	}
 	spin_unlock(&card->files_lock);	
 
-	/* phase 3: notify all connected devices about disconnection */
+	/* notify all connected devices about disconnection */
 	/* at this point, they cannot respond to any calls except release() */
 
 #if defined(CONFIG_SND_MIXER_OSS) || defined(CONFIG_SND_MIXER_OSS_MODULE)
@@ -580,6 +581,13 @@ int snd_card_disconnect(struct snd_card *card)
 		device_del(&card->card_dev);
 		card->registered = false;
 	}
+
+	/* disable fops (user space) operations for ALSA API */
+	mutex_lock(&snd_card_mutex);
+	snd_cards[card->number] = NULL;
+	clear_bit(card->number, snd_cards_lock);
+	mutex_unlock(&snd_card_mutex);
+
 #ifdef CONFIG_PM
 	wake_up(&card->power_sleep);
 #endif

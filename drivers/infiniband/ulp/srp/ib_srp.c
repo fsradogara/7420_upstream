@@ -3978,7 +3978,6 @@ static int srp_reset_device(struct scsi_cmnd *scmnd)
 
 	spin_unlock_irq(target->scsi_host->host_lock);
 	struct srp_rdma_ch *ch;
-	int i, j;
 	u8 status;
 
 	shost_printk(KERN_ERR, target->scsi_host, "SRP reset_device called\n");
@@ -3989,15 +3988,6 @@ static int srp_reset_device(struct scsi_cmnd *scmnd)
 		return FAILED;
 	if (status)
 		return FAILED;
-
-	for (i = 0; i < target->ch_count; i++) {
-		ch = &target->ch[i];
-		for (j = 0; j < target->req_ring_size; ++j) {
-			struct srp_request *req = &ch->req_ring[j];
-
-			srp_finish_req(ch, req, scmnd->device, DID_RESET << 16);
-		}
-	}
 
 	return SUCCESS;
 }

@@ -941,6 +941,8 @@ void __init initialize_ivt(const void *iva)
 	/* Compute Checksum for HPMC handler */
 
 	length = os_hpmc_end - os_hpmc;
+	/* Setup IVA and compute checksum for HPMC handler */
+	ivap[6] = (u32)__pa(os_hpmc);
 	length = os_hpmc_size;
 	ivap[7] = length;
 

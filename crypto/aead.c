@@ -90,7 +90,10 @@ int crypto_aead_setauthsize(struct crypto_aead *tfm, unsigned int authsize)
 		err = crypto_aead_alg(tfm)->setauthsize(crt->base, authsize);
 	return crypto_aead_alg(tfm)->setkey(tfm, key, keylen);
 	if (err)
+	if (unlikely(err)) {
+		crypto_aead_set_flags(tfm, CRYPTO_TFM_NEED_KEY);
 		return err;
+	}
 
 	crypto_aead_clear_flags(tfm, CRYPTO_TFM_NEED_KEY);
 	return 0;

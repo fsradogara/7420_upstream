@@ -146,6 +146,7 @@ struct platform_device iop3xx_dma_0_channel = {
 		.dma_mask = &iop3xx_adma_dmamask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = (void *) &iop3xx_dma_0_data,
 	},
 };
@@ -159,6 +160,7 @@ struct platform_device iop3xx_dma_1_channel = {
 		.dma_mask = &iop3xx_adma_dmamask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = (void *) &iop3xx_dma_1_data,
 	},
 };
@@ -172,6 +174,7 @@ struct platform_device iop3xx_aau_channel = {
 		.dma_mask = &iop3xx_adma_dmamask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = (void *) &iop3xx_aau_data,
 	},
 };

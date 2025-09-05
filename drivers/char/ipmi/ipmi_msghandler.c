@@ -31,6 +31,7 @@
 #include <linux/moduleparam.h>
 #include <linux/workqueue.h>
 #include <linux/uuid.h>
+#include <linux/nospec.h>
 
 #define PFX "IPMI message handler: "
 
@@ -63,7 +64,8 @@ static void ipmi_debug_msg(const char *title, unsigned char *data,
 { }
 #endif
 
-static int initialized;
+static bool initialized;
+static bool drvregistered;
 
 enum ipmi_panic_event_op {
 	IPMI_SEND_PANIC_EVENT_NONE,
@@ -218,6 +220,9 @@ struct ipmi_user {
 	/* Does this interface receive IPMI events? */
 	int gets_events;
 	bool gets_events;
+
+	/* Free must run in process context for RCU cleanup. */
+	struct work_struct remove_work;
 };
 
 static struct ipmi_user *acquire_ipmi_user(struct ipmi_user *user, int *index)
@@ -652,7 +657,7 @@ static DEFINE_MUTEX(ipmidriver_mutex);
 
 static LIST_HEAD(ipmi_interfaces);
 static DEFINE_MUTEX(ipmi_interfaces_mutex);
-DEFINE_STATIC_SRCU(ipmi_interfaces_srcu);
+struct srcu_struct ipmi_interfaces_srcu;
 
 /*
  * List of watchers that want to know when smi's are added and deleted.
@@ -762,7 +767,15 @@ struct watcher_entry {
 int ipmi_smi_watcher_register(struct ipmi_smi_watcher *watcher)
 {
 	struct ipmi_smi *intf;
-	int index;
+	int index, rv;
+
+	/*
+	 * Make sure the driver is actually initialized, this handles
+	 * problems with initialization order.
+	 */
+	rv = ipmi_init_msghandler();
+	if (rv)
+		return rv;
 
 	mutex_lock(&smi_watchers_mutex);
 
@@ -933,7 +946,7 @@ static int deliver_response(struct ipmi_smi *intf, struct ipmi_recv_msg *msg)
 
 		if (user) {
 			user->handler->ipmi_recv_hndl(msg, user->handler_data);
-			release_ipmi_user(msg->user, index);
+			release_ipmi_user(user, index);
 		} else {
 			/* User went away, give up. */
 			ipmi_free_recv_msg(msg);
@@ -1118,6 +1131,15 @@ static int intf_err_seq(struct ipmi_smi *intf,
 }
 
 
+static void free_user_work(struct work_struct *work)
+{
+	struct ipmi_user *user = container_of(work, struct ipmi_user,
+					      remove_work);
+
+	cleanup_srcu_struct(&user->release_barrier);
+	kfree(user);
+}
+
 int ipmi_create_user(unsigned int          if_num,
 		     const struct ipmi_user_hndl *handler,
 		     void                  *handler_data,
@@ -1125,7 +1147,7 @@ int ipmi_create_user(unsigned int          if_num,
 {
 	unsigned long flags;
 	struct ipmi_user *new_user;
-	int           rv = 0, index;
+	int           rv, index;
 	struct ipmi_smi *intf;
 
 	/*
@@ -1143,18 +1165,9 @@ int ipmi_create_user(unsigned int          if_num,
 	 * Make sure the driver is actually initialized, this handles
 	 * problems with initialization order.
 	 */
-	if (!initialized) {
-		rv = ipmi_init_msghandler();
-		if (rv)
-			return rv;
-
-		/*
-		 * The init code doesn't return an error if it was turned
-		 * off, but it won't initialize.  Check that.
-		 */
-		if (!initialized)
-			return -ENODEV;
-	}
+	rv = ipmi_init_msghandler();
+	if (rv)
+		return rv;
 
 	new_user = kmalloc(sizeof(*new_user), GFP_KERNEL);
 	if (!new_user)
@@ -1170,6 +1183,8 @@ int ipmi_create_user(unsigned int          if_num,
 	goto out_kfree;
 
  found:
+	INIT_WORK(&new_user->remove_work, free_user_work);
+
 	rv = init_srcu_struct(&new_user->release_barrier);
 	if (rv)
 		goto out_kfree;
@@ -1257,7 +1272,9 @@ EXPORT_SYMBOL(ipmi_get_smi_info);
 static void free_user(struct kref *ref)
 {
 	struct ipmi_user *user = container_of(ref, struct ipmi_user, refcount);
-	kfree(user);
+
+	/* SRCU cleanup must happen in task context. */
+	schedule_work(&user->remove_work);
 }
 
 static void _ipmi_destroy_user(struct ipmi_user *user)
@@ -1335,7 +1352,6 @@ int ipmi_destroy_user(struct ipmi_user *user)
 {
 	_ipmi_destroy_user(user);
 
-	cleanup_srcu_struct(&user->release_barrier);
 	kref_put(&user->refcount, free_user);
 
 	return 0;
@@ -1374,10 +1390,12 @@ int ipmi_set_my_address(struct ipmi_user *user,
 	if (!user)
 		return -ENODEV;
 
-	if (channel >= IPMI_MAX_CHANNELS)
+	if (channel >= IPMI_MAX_CHANNELS) {
 		rv = -EINVAL;
-	else
+	} else {
+		channel = array_index_nospec(channel, IPMI_MAX_CHANNELS);
 		user->intf->addrinfo[channel].address = address;
+	}
 	release_ipmi_user(user, index);
 
 	return rv;
@@ -1394,10 +1412,12 @@ int ipmi_get_my_address(struct ipmi_user *user,
 	if (!user)
 		return -ENODEV;
 
-	if (channel >= IPMI_MAX_CHANNELS)
+	if (channel >= IPMI_MAX_CHANNELS) {
 		rv = -EINVAL;
-	else
+	} else {
+		channel = array_index_nospec(channel, IPMI_MAX_CHANNELS);
 		*address = user->intf->addrinfo[channel].address;
+	}
 	release_ipmi_user(user, index);
 
 	return rv;
@@ -1414,10 +1434,12 @@ int ipmi_set_my_LUN(struct ipmi_user *user,
 	if (!user)
 		return -ENODEV;
 
-	if (channel >= IPMI_MAX_CHANNELS)
+	if (channel >= IPMI_MAX_CHANNELS) {
 		rv = -EINVAL;
-	else
+	} else {
+		channel = array_index_nospec(channel, IPMI_MAX_CHANNELS);
 		user->intf->addrinfo[channel].lun = LUN & 0x3;
+	}
 	release_ipmi_user(user, index);
 
 	return 0;
@@ -1434,10 +1456,12 @@ int ipmi_get_my_LUN(struct ipmi_user *user,
 	if (!user)
 		return -ENODEV;
 
-	if (channel >= IPMI_MAX_CHANNELS)
+	if (channel >= IPMI_MAX_CHANNELS) {
 		rv = -EINVAL;
-	else
+	} else {
+		channel = array_index_nospec(channel, IPMI_MAX_CHANNELS);
 		*address = user->intf->addrinfo[channel].lun;
+	}
 	release_ipmi_user(user, index);
 
 	return rv;
@@ -2596,6 +2620,7 @@ static int check_addr(struct ipmi_smi  *intf,
 {
 	if (addr->channel >= IPMI_MAX_CHANNELS)
 		return -EINVAL;
+	addr->channel = array_index_nospec(addr->channel, IPMI_MAX_CHANNELS);
 	*lun = intf->addrinfo[addr->channel].lun;
 	*saddr = intf->addrinfo[addr->channel].address;
 	return 0;
@@ -4384,17 +4409,9 @@ int ipmi_register_smi(const struct ipmi_smi_handlers *handlers,
 	 * Make sure the driver is actually initialized, this handles
 	 * problems with initialization order.
 	 */
-	if (!initialized) {
-		rv = ipmi_init_msghandler();
-		if (rv)
-			return rv;
-		/*
-		 * The init code doesn't return an error if it was turned
-		 * off, but it won't initialize.  Check that.
-		 */
-		if (!initialized)
-			return -ENODEV;
-	}
+	rv = ipmi_init_msghandler();
+	if (rv)
+		return rv;
 
 	intf = kzalloc(sizeof(*intf), GFP_KERNEL);
 	if (!intf)
@@ -6523,6 +6540,22 @@ static int panic_event(struct notifier_block *this,
 	return NOTIFY_DONE;
 }
 
+/* Must be called with ipmi_interfaces_mutex held. */
+static int ipmi_register_driver(void)
+{
+	int rv;
+
+	if (drvregistered)
+		return 0;
+
+	rv = driver_register(&ipmidriver.driver);
+	if (rv)
+		pr_err("Could not register IPMI driver\n");
+	else
+		drvregistered = true;
+	return rv;
+}
+
 static struct notifier_block panic_block = {
 	.notifier_call	= panic_event,
 	.next		= NULL,
@@ -6533,8 +6566,12 @@ static int ipmi_init_msghandler(void)
 {
 	int rv;
 
+	mutex_lock(&ipmi_interfaces_mutex);
+	rv = ipmi_register_driver();
+	if (rv)
+		goto out;
 	if (initialized)
-		return 0;
+		goto out;
 
 	rv = driver_register(&ipmidriver);
 	rv = driver_register(&ipmidriver.driver);
@@ -6544,6 +6581,7 @@ static int ipmi_init_msghandler(void)
 	}
 
 	pr_info("ipmi message handler version " IPMI_DRIVER_VERSION "\n");
+	init_srcu_struct(&ipmi_interfaces_srcu);
 
 #ifdef CONFIG_PROC_FS
 	proc_ipmi_root = proc_mkdir("ipmi", NULL);
@@ -6565,16 +6603,25 @@ static int ipmi_init_msghandler(void)
 
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_block);
 
-	initialized = 1;
+	initialized = true;
 
-	return 0;
+out:
+	mutex_unlock(&ipmi_interfaces_mutex);
+	return rv;
 }
 
 static __init int ipmi_init_msghandler_mod(void)
 static int __init ipmi_init_msghandler_mod(void)
 {
-	ipmi_init_msghandler();
-	return 0;
+	int rv;
+
+	pr_info("version " IPMI_DRIVER_VERSION "\n");
+
+	mutex_lock(&ipmi_interfaces_mutex);
+	rv = ipmi_register_driver();
+	mutex_unlock(&ipmi_interfaces_mutex);
+
+	return rv;
 }
 
 static __exit void cleanup_ipmi(void)
@@ -6582,23 +6629,24 @@ static void __exit cleanup_ipmi(void)
 {
 	int count;
 
-	if (!initialized)
-		return;
+	if (initialized) {
+		atomic_notifier_chain_unregister(&panic_notifier_list,
+						 &panic_block);
 
-	atomic_notifier_chain_unregister(&panic_notifier_list, &panic_block);
+		/*
+		 * This can't be called if any interfaces exist, so no worry
+		 * about shutting down the interfaces.
+		 */
 
-	/*
-	 * This can't be called if any interfaces exist, so no worry
-	 * about shutting down the interfaces.
-	 */
+		/*
+		 * Tell the timer to stop, then wait for it to stop.  This
+		 * avoids problems with race conditions removing the timer
+		 * here.
+		 */
+		atomic_inc(&stop_operation);
+		del_timer_sync(&ipmi_timer);
 
-	/*
-	 * Tell the timer to stop, then wait for it to stop.  This
-	 * avoids problems with race conditions removing the timer
-	 * here.
-	 */
-	atomic_inc(&stop_operation);
-	del_timer_sync(&ipmi_timer);
+		initialized = false;
 
 #ifdef CONFIG_PROC_FS
 	remove_proc_entry(proc_ipmi_root->name, NULL);
@@ -6619,6 +6667,17 @@ static void __exit cleanup_ipmi(void)
 	count = atomic_read(&recv_msg_inuse_count);
 	if (count != 0)
 		pr_warn(PFX "recv message count %d at exit\n", count);
+		/* Check for buffer leaks. */
+		count = atomic_read(&smi_msg_inuse_count);
+		if (count != 0)
+			pr_warn(PFX "SMI message count %d at exit\n", count);
+		count = atomic_read(&recv_msg_inuse_count);
+		if (count != 0)
+			pr_warn(PFX "recv message count %d at exit\n", count);
+		cleanup_srcu_struct(&ipmi_interfaces_srcu);
+	}
+	if (drvregistered)
+		driver_unregister(&ipmidriver.driver);
 }
 module_exit(cleanup_ipmi);
 
