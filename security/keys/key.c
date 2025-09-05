@@ -1297,7 +1297,7 @@ int key_update(key_ref_t key_ref, const void *payload, size_t plen)
 	ret = key_permission(key_ref, KEY_WRITE);
 	ret = key_permission(key_ref, KEY_NEED_WRITE);
 	if (ret < 0)
-		goto error;
+		return ret;
 
 	/* attempt to update it if supported */
 	ret = -EOPNOTSUPP;
@@ -1326,7 +1326,7 @@ EXPORT_SYMBOL(key_update);
 void key_revoke(struct key *key)
 {
 	if (!key->type->update)
-		goto error;
+		return -EOPNOTSUPP;
 
 	memset(&prep, 0, sizeof(prep));
 	prep.data = payload;

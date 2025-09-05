@@ -4477,7 +4477,14 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 					dev->name);
 				if (idev->if_flags & IF_READY)
 					/* device is already configured. */
+					/* device is already configured -
+					 * but resend MLD reports, we might
+					 * have roamed and need to update
+					 * multicast snooping switches
+					 */
+					ipv6_mc_up(idev);
 					break;
+				}
 				idev->if_flags |= IF_READY;
 			}
 
@@ -4628,6 +4635,7 @@ static int addrconf_ifdown(struct net_device *dev, int how)
 	if ((dev->flags & IFF_LOOPBACK) && how == 1)
 		how = 0;
 
+	.priority = ADDRCONF_NOTIFY_PRIORITY,
 };
 
 static void addrconf_type_change(struct net_device *dev, unsigned long event)
@@ -8309,6 +8317,8 @@ int __init addrconf_init(void)
 		err = PTR_ERR(idev);
 		goto errlo;
 	}
+
+	ip6_route_init_special_entries();
 
 	for (i = 0; i < IN6_ADDR_HSIZE; i++)
 		INIT_HLIST_HEAD(&inet6_addr_lst[i]);

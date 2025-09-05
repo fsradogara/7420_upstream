@@ -1864,7 +1864,8 @@ void evergreen_hpd_init(struct radeon_device *rdev)
 			break;
 		}
 		radeon_hpd_set_polarity(rdev, radeon_connector->hpd.hpd);
-		enabled |= 1 << radeon_connector->hpd.hpd;
+		if (radeon_connector->hpd.hpd != RADEON_HPD_NONE)
+			enabled |= 1 << radeon_connector->hpd.hpd;
 	}
 	radeon_irq_kms_enable_hpd(rdev, enabled);
 }
@@ -1907,7 +1908,8 @@ void evergreen_hpd_fini(struct radeon_device *rdev)
 		default:
 			break;
 		}
-		disabled |= 1 << radeon_connector->hpd.hpd;
+		if (radeon_connector->hpd.hpd != RADEON_HPD_NONE)
+			disabled |= 1 << radeon_connector->hpd.hpd;
 	}
 	radeon_irq_kms_disable_hpd(rdev, disabled);
 }
@@ -4924,7 +4926,7 @@ static void evergreen_irq_ack(struct radeon_device *rdev)
 		WREG32(DC_HPD5_INT_CONTROL, tmp);
 	}
 	if (rdev->irq.stat_regs.evergreen.disp_int_cont5 & DC_HPD6_INTERRUPT) {
-		tmp = RREG32(DC_HPD5_INT_CONTROL);
+		tmp = RREG32(DC_HPD6_INT_CONTROL);
 		tmp |= DC_HPDx_INT_ACK;
 		WREG32(DC_HPD6_INT_CONTROL, tmp);
 	}
@@ -4955,7 +4957,7 @@ static void evergreen_irq_ack(struct radeon_device *rdev)
 		WREG32(DC_HPD5_INT_CONTROL, tmp);
 	}
 	if (rdev->irq.stat_regs.evergreen.disp_int_cont5 & DC_HPD6_RX_INTERRUPT) {
-		tmp = RREG32(DC_HPD5_INT_CONTROL);
+		tmp = RREG32(DC_HPD6_INT_CONTROL);
 		tmp |= DC_HPDx_RX_INT_ACK;
 		WREG32(DC_HPD6_INT_CONTROL, tmp);
 	}

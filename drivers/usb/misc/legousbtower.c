@@ -351,10 +351,16 @@ static int tower_open (struct inode *inode, struct file *file)
 	int subminor;
 	int retval = 0;
 	struct usb_interface *interface;
-	struct tower_reset_reply reset_reply;
+	struct tower_reset_reply *reset_reply;
 	int result;
 
 	dbg(2, "%s: enter", __func__);
+	reset_reply = kmalloc(sizeof(*reset_reply), GFP_KERNEL);
+
+	if (!reset_reply) {
+		retval = -ENOMEM;
+		goto exit;
+	}
 
 	nonseekable_open(inode, file);
 	subminor = iminor(inode);
@@ -402,8 +408,8 @@ static int tower_open (struct inode *inode, struct file *file)
 				  USB_TYPE_VENDOR | USB_DIR_IN | USB_RECIP_DEVICE,
 				  0,
 				  0,
-				  &reset_reply,
-				  sizeof(reset_reply),
+				  reset_reply,
+				  sizeof(*reset_reply),
 				  1000);
 	if (result < 0) {
 		err("LEGO USB Tower reset control request failed");
@@ -449,6 +455,7 @@ unlock_exit:
 exit:
 	dbg(2, "%s: leave, return value %d ", __func__, retval);
 
+	kfree(reset_reply);
 	return retval;
 }
 
@@ -911,7 +918,7 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	struct lego_usb_tower *dev = NULL;
 	struct usb_host_interface *iface_desc;
 	struct usb_endpoint_descriptor* endpoint;
-	struct tower_get_version_reply get_version_reply;
+	struct tower_get_version_reply *get_version_reply = NULL;
 	int i;
 	int retval = -ENOMEM;
 	int result;
@@ -1042,6 +1049,12 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 	dev_info(&interface->dev, "LEGO USB Tower #%d now attached to major "
 		 "%d minor %d\n", (dev->minor - LEGO_USB_TOWER_MINOR_BASE),
 		 USB_MAJOR, dev->minor);
+	get_version_reply = kmalloc(sizeof(*get_version_reply), GFP_KERNEL);
+
+	if (!get_version_reply) {
+		retval = -ENOMEM;
+		goto error;
+	}
 
 	/* get the firmware version and log it */
 	result = usb_control_msg (udev,
@@ -1050,8 +1063,8 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 				  USB_TYPE_VENDOR | USB_DIR_IN | USB_RECIP_DEVICE,
 				  0,
 				  0,
-				  &get_version_reply,
-				  sizeof(get_version_reply),
+				  get_version_reply,
+				  sizeof(*get_version_reply),
 				  1000);
 	if (result < 0) {
 		err("LEGO USB Tower get version control request failed");
@@ -1071,10 +1084,11 @@ exit:
 		retval = result;
 		goto error;
 	}
-	dev_info(&interface->dev, "LEGO USB Tower firmware version is %d.%d "
-		 "build %d\n", get_version_reply.major,
-		 get_version_reply.minor,
-		 le16_to_cpu(get_version_reply.build_no));
+	dev_info(&interface->dev,
+		 "LEGO USB Tower firmware version is %d.%d build %d\n",
+		 get_version_reply->major,
+		 get_version_reply->minor,
+		 le16_to_cpu(get_version_reply->build_no));
 
 	/* we can register the device now, as it is ready */
 	usb_set_intfdata (interface, dev);
@@ -1095,9 +1109,11 @@ exit:
 		 USB_MAJOR, dev->minor);
 
 exit:
+	kfree(get_version_reply);
 	return retval;
 
 error:
+	kfree(get_version_reply);
 	tower_delete(dev);
 	return retval;
 }

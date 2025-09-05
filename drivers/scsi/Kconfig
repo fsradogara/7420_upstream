@@ -1935,7 +1935,7 @@ config MAC_SCSI
 	bool "Macintosh NCR5380 SCSI"
 config MAC_SCSI
 	tristate "Macintosh NCR5380 SCSI"
-	depends on MAC && SCSI=y
+	depends on MAC && SCSI
 	select SCSI_SPI_ATTRS
 	help
 	  This is the NCR 5380 SCSI controller included on most of the 68030

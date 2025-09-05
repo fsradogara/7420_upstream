@@ -1338,6 +1338,7 @@ static void macvlan_transfer_operstate(struct net_device *dev)
 			netif_carrier_off(dev);
 	}
 	struct macvlan_port *port = macvlan_port_get_rtnl(dev);
+	struct sk_buff *skb;
 
 	dev->priv_flags &= ~IFF_MACVLAN_PORT;
 	netdev_rx_handler_unregister(dev);
@@ -1346,7 +1347,15 @@ static void macvlan_transfer_operstate(struct net_device *dev)
 	 * but we need to cancel it and purge left skbs if any.
 	 */
 	cancel_work_sync(&port->bc_work);
-	__skb_queue_purge(&port->bc_queue);
+
+	while ((skb = __skb_dequeue(&port->bc_queue))) {
+		const struct macvlan_dev *src = MACVLAN_SKB_CB(skb)->src;
+
+		if (src)
+			dev_put(src->dev);
+
+		kfree_skb(skb);
+	}
 
 	kfree_rcu(port, rcu);
 }

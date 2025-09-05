@@ -174,7 +174,6 @@ sysfs_failed:
 
 sysfs_failed:
 	result = -ENOMEM;
-	ipoib_delete_debug_files(priv->dev);
 	unregister_netdevice(priv->dev);
 
 register_failed:

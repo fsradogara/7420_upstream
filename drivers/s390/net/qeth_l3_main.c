@@ -4447,8 +4447,11 @@ static void qeth_l3_qdio_input_handler(struct ccw_device *ccwdev,
 static int qeth_l3_probe_device(struct ccwgroup_device *gdev)
 {
 	struct qeth_card *card = dev_get_drvdata(&gdev->dev);
+	int rc;
 
-	qeth_l3_create_device_attributes(&gdev->dev);
+	rc = qeth_l3_create_device_attributes(&gdev->dev);
+	if (rc)
+		return rc;
 	card->options.layer2 = 0;
 	card->discipline.input_handler = (qdio_handler_t *)
 		qeth_l3_qdio_input_handler;
@@ -4866,6 +4869,7 @@ static int qeth_l3_control_event(struct qeth_card *card,
 }
 
 struct qeth_discipline qeth_l3_discipline = {
+	.devtype = &qeth_generic_devtype,
 	.start_poll = qeth_qdio_start_poll,
 	.input_handler = (qdio_handler_t *) qeth_qdio_input_handler,
 	.output_handler = (qdio_handler_t *) qeth_qdio_output_handler,

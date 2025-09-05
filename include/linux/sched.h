@@ -2045,6 +2045,10 @@ struct task_struct {
 #ifdef CONFIG_COMPAT_BRK
 	unsigned brk_randomized:1;
 #endif
+#ifdef CONFIG_CGROUPS
+	/* disallow userland-initiated cgroup migration */
+	unsigned no_cgroup_migration:1;
+#endif
 
 	unsigned long atomic_flags; /* Flags needing atomic access. */
 
@@ -2292,6 +2296,9 @@ struct task_struct {
 	unsigned int lockdep_recursion;
 	struct held_lock held_locks[MAX_LOCK_DEPTH];
 	gfp_t lockdep_reclaim_gfp;
+#endif
+#ifdef CONFIG_UBSAN
+	unsigned int in_ubsan;
 #endif
 
 /* journalling filesystem info */

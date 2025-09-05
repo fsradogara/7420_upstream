@@ -35,6 +35,8 @@ extern void __tsb_context_switch(unsigned long pgd_pa,
 				 struct tsb_config *tsb_base,
 				 struct tsb_config *tsb_huge,
 				 unsigned long tsb_descr_pa);
+DECLARE_PER_CPU(struct mm_struct *, per_cpu_secondary_mm);
+void get_new_mmu_context(struct mm_struct *mm);
 int init_new_context(struct task_struct *tsk, struct mm_struct *mm);
 void destroy_context(struct mm_struct *mm);
 
@@ -92,8 +94,9 @@ void __flush_tlb_mm(unsigned long, unsigned long);
 static inline void switch_mm(struct mm_struct *old_mm, struct mm_struct *mm, struct task_struct *tsk)
 {
 	unsigned long ctx_valid, flags;
-	int cpu;
+	int cpu = smp_processor_id();
 
+	per_cpu(per_cpu_secondary_mm, cpu) = mm;
 	if (unlikely(mm == &init_mm))
 		return;
 
@@ -173,6 +176,7 @@ static inline void activate_mm(struct mm_struct *active_mm, struct mm_struct *mm
 	spin_unlock_irqrestore(&mm->context.lock, flags);
 }
 
+#define activate_mm(active_mm, mm) switch_mm(active_mm, mm, NULL)
 #endif /* !(__ASSEMBLY__) */
 
 #endif /* !(__SPARC64_MMU_CONTEXT_H) */

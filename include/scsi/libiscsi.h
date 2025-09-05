@@ -233,6 +233,7 @@ struct iscsi_conn {
 	struct iscsi_task	*task;		/* xmit task in progress */
 
 	/* xmit */
+	spinlock_t		taskqueuelock;  /* protects the next three lists */
 	struct list_head	mgmtqueue;	/* mgmt (control) xmit queue */
 	struct list_head	mgmt_run_list;	/* list of control tasks */
 	struct list_head	xmitqueue;	/* data-path cmd queue */

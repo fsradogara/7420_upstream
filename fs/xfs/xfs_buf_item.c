@@ -1523,7 +1523,7 @@ xfs_buf_item_log_segment(
 	 */
 	if (bit) {
 		end_bit = MIN(bit + bits_to_set, (uint)NBWORD);
-		mask = ((1 << (end_bit - bit)) - 1) << bit;
+		mask = ((1U << (end_bit - bit)) - 1) << bit;
 		*wordp |= mask;
 		wordp++;
 		bits_set = end_bit - bit;
@@ -1546,7 +1546,7 @@ xfs_buf_item_log_segment(
 	 */
 	end_bit = bits_to_set - bits_set;
 	if (end_bit) {
-		mask = (1 << end_bit) - 1;
+		mask = (1U << end_bit) - 1;
 		*wordp |= mask;
 	}
 
