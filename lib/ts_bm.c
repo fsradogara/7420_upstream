@@ -8,7 +8,6 @@
  *
  * Authors:	Pablo Neira Ayuso <pablo@eurodev.net>
  *
- * ==========================================================================
  * 
  *   Implements Boyer-Moore string matching algorithm:
  *

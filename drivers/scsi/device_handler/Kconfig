@@ -4,6 +4,7 @@
 
 menuconfig SCSI_DH
 	tristate "SCSI Device Handlers"
+	bool "SCSI Device Handlers"
 	depends on SCSI
 	default n
 	help
@@ -34,6 +35,8 @@ config SCSI_DH_EMC
 config SCSI_DH_ALUA
 	tristate "SPC-3 ALUA Device Handler (EXPERIMENTAL)"
 	depends on SCSI_DH && EXPERIMENTAL
+	tristate "SPC-3 ALUA Device Handler"
+	depends on SCSI_DH
 	help
 	  SCSI Device handler for generic SPC-3 Asymmetric Logical Unit
 	  Access (ALUA).

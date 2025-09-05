@@ -13,6 +13,7 @@
  *   o Error correcting in remote HZ, therefore remote HZ will be keeped
  *     on checking and updating.
  *   o Handling calculation of One-Way-Delay (OWD) within rtt_sample, sicne
+ *   o Handling calculation of One-Way-Delay (OWD) within rtt_sample, since
  *     OWD have a similar meaning as RTT. Also correct the buggy formular.
  *   o Handle reaction for Early Congestion Indication (ECI) within
  *     pkts_acked, as mentioned within pseudo code.
@@ -116,11 +117,13 @@ static void tcp_lp_init(struct sock *sk)
  * From TCP-LP's paper, this will be handled in additive increasement.
  */
 static void tcp_lp_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
+static void tcp_lp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct lp *lp = inet_csk_ca(sk);
 
 	if (!(lp->flag & LP_WITHIN_INF))
 		tcp_reno_cong_avoid(sk, ack, in_flight);
+		tcp_reno_cong_avoid(sk, ack, acked);
 }
 
 /**
@@ -145,6 +148,8 @@ static u32 tcp_lp_remote_hz_estimator(struct sock *sk)
 	/* we can't calc remote HZ with no different!! */
 	if (tp->rx_opt.rcv_tsval == lp->remote_ref_time
 	    || tp->rx_opt.rcv_tsecr == lp->local_ref_time)
+	if (tp->rx_opt.rcv_tsval == lp->remote_ref_time ||
+	    tp->rx_opt.rcv_tsecr == lp->local_ref_time)
 		goto out;
 
 	m = HZ * (tp->rx_opt.rcv_tsval -
@@ -319,6 +324,10 @@ static struct tcp_congestion_ops tcp_lp = {
 	.ssthresh = tcp_reno_ssthresh,
 	.cong_avoid = tcp_lp_cong_avoid,
 	.min_cwnd = tcp_reno_min_cwnd,
+static struct tcp_congestion_ops tcp_lp __read_mostly = {
+	.init = tcp_lp_init,
+	.ssthresh = tcp_reno_ssthresh,
+	.cong_avoid = tcp_lp_cong_avoid,
 	.pkts_acked = tcp_lp_pkts_acked,
 
 	.owner = THIS_MODULE,

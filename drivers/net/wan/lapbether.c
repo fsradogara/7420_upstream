@@ -20,10 +20,13 @@
  *	2000-11-14	Henner Eisen	dev_hold/put, NETDEV_GOING_DOWN support
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/net.h>
@@ -46,6 +49,7 @@
 #include <net/x25device.h>
 
 static char bcast_addr[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+static const u8 bcast_addr[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 /* If this number is made larger, check that the temporary string buffer
  * in lapbeth_new_device is large enough to store the probe device name.*/
@@ -111,6 +115,9 @@ static int lapbeth_rcv(struct sk_buff *skb, struct net_device *dev, struct packe
 
 	len = skb->data[0] + skb->data[1] * 256;
 	lapbeth->stats.rx_bytes += len;
+	len = skb->data[0] + skb->data[1] * 256;
+	dev->stats.rx_packets++;
+	dev->stats.rx_bytes += len;
 
 	skb_pull(skb, 2);	/* Remove the length bytes */
 	skb_trim(skb, len);	/* Set the length of the data */
@@ -144,6 +151,9 @@ static int lapbeth_data_indication(struct net_device *dev, struct sk_buff *skb)
 
 	skb->protocol = x25_type_trans(skb, dev);
 	skb->dev->last_rx = jiffies;
+	*ptr = X25_IFACE_DATA;
+
+	skb->protocol = x25_type_trans(skb, dev);
 	return netif_rx(skb);
 }
 
@@ -153,6 +163,10 @@ static int lapbeth_data_indication(struct net_device *dev, struct sk_buff *skb)
 static int lapbeth_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	int err = -ENODEV;
+static netdev_tx_t lapbeth_xmit(struct sk_buff *skb,
+				      struct net_device *dev)
+{
+	int err;
 
 	/*
 	 * Just to be *really* sure not to send anything if the interface
@@ -178,6 +192,22 @@ static int lapbeth_xmit(struct sk_buff *skb, struct net_device *dev)
 		/* Fall thru */
 	default:
 		goto drop_ok;
+	if (!netif_running(dev))
+		goto drop;
+
+	switch (skb->data[0]) {
+	case X25_IFACE_DATA:
+		break;
+	case X25_IFACE_CONNECT:
+		if ((err = lapb_connect_request(dev)) != LAPB_OK)
+			pr_err("lapb_connect_request error: %d\n", err);
+		goto drop;
+	case X25_IFACE_DISCONNECT:
+		if ((err = lapb_disconnect_request(dev)) != LAPB_OK)
+			pr_err("lapb_disconnect_request err: %d\n", err);
+		/* Fall thru */
+	default:
+		goto drop;
 	}
 
 	skb_pull(skb, 1);
@@ -192,6 +222,11 @@ out:
 	return err;
 drop_ok:
 	err = 0;
+		pr_err("lapb_data_request error - %d\n", err);
+		goto drop;
+	}
+out:
+	return NETDEV_TX_OK;
 drop:
 	kfree_skb(skb);
 	goto out;
@@ -213,6 +248,8 @@ static void lapbeth_data_transmit(struct net_device *ndev, struct sk_buff *skb)
 
 	lapbeth->stats.tx_packets++;
 	lapbeth->stats.tx_bytes += size;
+	ndev->stats.tx_packets++;
+	ndev->stats.tx_bytes += size;
 
 	skb->dev = dev = lapbeth->ethdev;
 
@@ -228,6 +265,7 @@ static void lapbeth_connected(struct net_device *dev, int reason)
 
 	if (!skb) {
 		printk(KERN_ERR "lapbeth: out of memory\n");
+		pr_err("out of memory\n");
 		return;
 	}
 
@@ -236,6 +274,9 @@ static void lapbeth_connected(struct net_device *dev, int reason)
 
 	skb->protocol = x25_type_trans(skb, dev);
 	skb->dev->last_rx = jiffies;
+	*ptr = X25_IFACE_CONNECT;
+
+	skb->protocol = x25_type_trans(skb, dev);
 	netif_rx(skb);
 }
 
@@ -246,6 +287,7 @@ static void lapbeth_disconnected(struct net_device *dev, int reason)
 
 	if (!skb) {
 		printk(KERN_ERR "lapbeth: out of memory\n");
+		pr_err("out of memory\n");
 		return;
 	}
 
@@ -254,6 +296,9 @@ static void lapbeth_disconnected(struct net_device *dev, int reason)
 
 	skb->protocol = x25_type_trans(skb, dev);
 	skb->dev->last_rx = jiffies;
+	*ptr = X25_IFACE_DISCONNECT;
+
+	skb->protocol = x25_type_trans(skb, dev);
 	netif_rx(skb);
 }
 
@@ -278,6 +323,7 @@ static int lapbeth_set_mac_address(struct net_device *dev, void *addr)
 
 
 static struct lapb_register_struct lapbeth_callbacks = {
+static const struct lapb_register_struct lapbeth_callbacks = {
 	.connect_confirmation    = lapbeth_connected,
 	.connect_indication      = lapbeth_connected,
 	.disconnect_confirmation = lapbeth_disconnected,
@@ -296,6 +342,7 @@ static int lapbeth_open(struct net_device *dev)
 
 	if ((err = lapb_register(dev, &lapbeth_callbacks)) != LAPB_OK) {
 		printk(KERN_ERR "lapbeth: lapb_register error - %d\n", err);
+		pr_err("lapb_register error: %d\n", err);
 		return -ENODEV;
 	}
 
@@ -311,6 +358,7 @@ static int lapbeth_close(struct net_device *dev)
 
 	if ((err = lapb_unregister(dev)) != LAPB_OK)
 		printk(KERN_ERR "lapbeth: lapb_unregister error - %d\n", err);
+		pr_err("lapb_unregister error: %d\n", err);
 
 	return 0;
 }
@@ -325,6 +373,17 @@ static void lapbeth_setup(struct net_device *dev)
 	dev->destructor	     = free_netdev;
 	dev->set_mac_address = lapbeth_set_mac_address;
 	dev->get_stats	     = lapbeth_get_stats;
+static const struct net_device_ops lapbeth_netdev_ops = {
+	.ndo_open	     = lapbeth_open,
+	.ndo_stop	     = lapbeth_close,
+	.ndo_start_xmit	     = lapbeth_xmit,
+	.ndo_set_mac_address = lapbeth_set_mac_address,
+};
+
+static void lapbeth_setup(struct net_device *dev)
+{
+	dev->netdev_ops	     = &lapbeth_netdev_ops;
+	dev->destructor	     = free_netdev;
 	dev->type            = ARPHRD_X25;
 	dev->hard_header_len = 3;
 	dev->mtu             = 1000;
@@ -344,6 +403,8 @@ static int lapbeth_new_device(struct net_device *dev)
 
 	ndev = alloc_netdev(sizeof(*lapbeth), "lapb%d", 
 			   lapbeth_setup);
+	ndev = alloc_netdev(sizeof(*lapbeth), "lapb%d", NET_NAME_UNKNOWN,
+			    lapbeth_setup);
 	if (!ndev)
 		goto out;
 
@@ -392,6 +453,7 @@ static int lapbeth_device_event(struct notifier_block *this,
 {
 	struct lapbethdev *lapbeth;
 	struct net_device *dev = ptr;
+	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 
 	if (dev_net(dev) != &init_net)
 		return NOTIFY_DONE;
@@ -426,6 +488,8 @@ static int lapbeth_device_event(struct notifier_block *this,
 
 static struct packet_type lapbeth_packet_type = {
 	.type = __constant_htons(ETH_P_DEC),
+static struct packet_type lapbeth_packet_type __read_mostly = {
+	.type = cpu_to_be16(ETH_P_DEC),
 	.func = lapbeth_rcv,
 };
 
@@ -434,6 +498,8 @@ static struct notifier_block lapbeth_dev_notifier = {
 };
 
 static char banner[] __initdata = KERN_INFO "LAPB Ethernet driver version 0.02\n";
+static const char banner[] __initconst =
+	KERN_INFO "LAPB Ethernet driver version 0.02\n";
 
 static int __init lapbeth_init_driver(void)
 {

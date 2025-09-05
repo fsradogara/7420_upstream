@@ -16,6 +16,8 @@
 #include <linux/idr.h>
 #include <linux/fs.h>
 #include <linux/delay.h>
+#include <linux/slab.h>
+#include <linux/module.h>
 
 #define DRIVER_NAME "memstick"
 
@@ -152,6 +154,8 @@ static ssize_t name##_show(struct device *dev, struct device_attribute *attr, \
 						 dev);                        \
 	return sprintf(buf, format, card->id.name);                           \
 }
+}                                                                             \
+static DEVICE_ATTR_RO(name);
 
 MEMSTICK_ATTR(type, "%02X");
 MEMSTICK_ATTR(category, "%02X");
@@ -169,6 +173,17 @@ static struct device_attribute memstick_dev_attrs[] = {
 static struct bus_type memstick_bus_type = {
 	.name           = "memstick",
 	.dev_attrs      = memstick_dev_attrs,
+static struct attribute *memstick_dev_attrs[] = {
+	&dev_attr_type.attr,
+	&dev_attr_category.attr,
+	&dev_attr_class.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(memstick_dev);
+
+static struct bus_type memstick_bus_type = {
+	.name           = "memstick",
+	.dev_groups	= memstick_dev_groups,
 	.match          = memstick_bus_match,
 	.uevent         = memstick_uevent,
 	.probe          = memstick_device_probe,
@@ -252,6 +267,7 @@ void memstick_new_req(struct memstick_host *host)
 	if (host->card) {
 		host->retries = cmd_retries;
 		INIT_COMPLETION(host->card->mrq_complete);
+		reinit_completion(&host->card->mrq_complete);
 		host->request(host);
 	}
 }
@@ -342,6 +358,9 @@ static int h_memstick_read_dev_id(struct memstick_dev *card,
 		}
 		complete(&card->mrq_complete);
 		dev_dbg(&card->dev, "if_mode = %02x\n", id_reg.if_mode);
+			dev_dbg(&card->dev, "if_mode = %02x\n", id_reg.if_mode);
+		}
+		complete(&card->mrq_complete);
 		return -EAGAIN;
 	}
 }
@@ -387,6 +406,7 @@ static struct memstick_dev *memstick_alloc_card(struct memstick_host *host)
 		card->host = host;
 		snprintf(card->dev.bus_id, sizeof(card->dev.bus_id),
 			 "%s", host->dev.bus_id);
+		dev_set_name(&card->dev, "%s", dev_name(&host->dev));
 		card->dev.parent = &host->dev;
 		card->dev.bus = &memstick_bus_type;
 		card->dev.release = memstick_free_card;
@@ -465,6 +485,7 @@ static void memstick_check(struct work_struct *work)
 		if (!host->card) {
 			host->card = card;
 			if (device_register(&card->dev)) {
+				put_device(&card->dev);
 				kfree(host->card);
 				host->card = NULL;
 			}
@@ -520,6 +541,19 @@ int memstick_add_host(struct memstick_host *host)
 		return rc;
 
 	snprintf(host->dev.bus_id, BUS_ID_SIZE, "memstick%u", host->id);
+	idr_preload(GFP_KERNEL);
+	spin_lock(&memstick_host_lock);
+
+	rc = idr_alloc(&memstick_host_idr, host, 0, 0, GFP_NOWAIT);
+	if (rc >= 0)
+		host->id = rc;
+
+	spin_unlock(&memstick_host_lock);
+	idr_preload_end();
+	if (rc < 0)
+		return rc;
+
+	dev_set_name(&host->dev, "memstick%u", host->id);
 
 	rc = device_add(&host->dev);
 	if (rc) {
@@ -617,6 +651,7 @@ static int __init memstick_init(void)
 	int rc;
 
 	workqueue = create_freezeable_workqueue("kmemstick");
+	workqueue = create_freezable_workqueue("kmemstick");
 	if (!workqueue)
 		return -ENOMEM;
 

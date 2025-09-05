@@ -6,6 +6,7 @@
 #include <asm/ppc_asm.h>
 #include <asm/asm-offsets.h>
 
+#include <asm/mmu.h>
 
 /*
  * Structure for storing CPU registers on the save area.
@@ -144,6 +145,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 	/* Disable MSR:DR to make sure we don't take a TLB or
 	 * hash miss during the copy, as our hash table will
 	 * for a while be unuseable. For .text, we assume we are
+	 * for a while be unusable. For .text, we assume we are
 	 * covered by a BAT. This works only for non-G5 at this
 	 * point. G5 will need a better approach, possibly using
 	 * a small temporary hash table filled with large mappings,
@@ -280,6 +282,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 #endif
 
 BEGIN_FTR_SECTION
+BEGIN_MMU_FTR_SECTION
 	li	r4,0
 	mtspr	SPRN_DBAT4U,r4
 	mtspr	SPRN_DBAT4L,r4
@@ -298,12 +301,14 @@ BEGIN_FTR_SECTION
 	mtspr	SPRN_IBAT7U,r4
 	mtspr	SPRN_IBAT7L,r4
 END_FTR_SECTION_IFSET(CPU_FTR_HAS_HIGH_BATS)
+END_MMU_FTR_SECTION_IFSET(MMU_FTR_USE_HIGH_BATS)
 
 	/* Flush all TLBs */
 	lis	r4,0x1000
 1:	addic.	r4,r4,-0x1000
 	tlbie	r4
 	blt	1b
+	bgt	1b
 	sync
 
 	/* restore the MSR and turn on the MMU */

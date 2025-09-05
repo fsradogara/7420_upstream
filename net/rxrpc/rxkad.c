@@ -18,6 +18,10 @@
 #include <linux/ctype.h>
 #include <net/sock.h>
 #include <net/af_rxrpc.h>
+#include <linux/slab.h>
+#include <net/sock.h>
+#include <net/af_rxrpc.h>
+#include <keys/rxrpc-type.h>
 #define rxrpc_debug rxkad_debug
 #include "ar-internal.h"
 
@@ -30,6 +34,7 @@
 #define SNAME_SZ			40	/* size of service name */
 
 unsigned rxrpc_debug;
+unsigned int rxrpc_debug;
 module_param_named(debug, rxrpc_debug, uint, S_IWUSR | S_IRUGO);
 MODULE_PARM_DESC(debug, "rxkad debugging mask");
 
@@ -43,6 +48,7 @@ struct rxkad_level2_hdr {
 };
 
 MODULE_DESCRIPTION("RxRPC network protocol type-2 security (Kerberos)");
+MODULE_DESCRIPTION("RxRPC network protocol type-2 security (Kerberos 4)");
 MODULE_AUTHOR("Red Hat, Inc.");
 MODULE_LICENSE("GPL");
 
@@ -61,12 +67,16 @@ static int rxkad_init_connection_security(struct rxrpc_connection *conn)
 {
 	struct rxrpc_key_payload *payload;
 	struct crypto_blkcipher *ci;
+	struct crypto_blkcipher *ci;
+	struct rxrpc_key_token *token;
 	int ret;
 
 	_enter("{%d},{%x}", conn->debug_id, key_serial(conn->key));
 
 	payload = conn->key->payload.data;
 	conn->security_ix = payload->k.security_index;
+	token = conn->key->payload.data[0];
+	conn->security_ix = token->security_index;
 
 	ci = crypto_alloc_blkcipher("pcbc(fcrypt)", 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(ci)) {
@@ -77,6 +87,8 @@ static int rxkad_init_connection_security(struct rxrpc_connection *conn)
 
 	if (crypto_blkcipher_setkey(ci, payload->k.session_key,
 				    sizeof(payload->k.session_key)) < 0)
+	if (crypto_blkcipher_setkey(ci, token->kad->session_key,
+				    sizeof(token->kad->session_key)) < 0)
 		BUG();
 
 	switch (conn->security_level) {
@@ -111,6 +123,7 @@ error:
 static void rxkad_prime_packet_security(struct rxrpc_connection *conn)
 {
 	struct rxrpc_key_payload *payload;
+	struct rxrpc_key_token *token;
 	struct blkcipher_desc desc;
 	struct scatterlist sg[2];
 	struct rxrpc_crypt iv;
@@ -125,6 +138,8 @@ static void rxkad_prime_packet_security(struct rxrpc_connection *conn)
 
 	payload = conn->key->payload.data;
 	memcpy(&iv, payload->k.session_key, sizeof(iv));
+	token = conn->key->payload.data[0];
+	memcpy(&iv, token->kad->session_key, sizeof(iv));
 
 	desc.tfm = conn->cipher;
 	desc.info = iv.x;
@@ -198,6 +213,7 @@ static int rxkad_secure_packet_encrypt(const struct rxrpc_call *call,
 					void *sechdr)
 {
 	const struct rxrpc_key_payload *payload;
+	const struct rxrpc_key_token *token;
 	struct rxkad_level2_hdr rxkhdr
 		__attribute__((aligned(8))); /* must be all on one page */
 	struct rxrpc_skb_priv *sp;
@@ -206,6 +222,7 @@ static int rxkad_secure_packet_encrypt(const struct rxrpc_call *call,
 	struct scatterlist sg[16];
 	struct sk_buff *trailer;
 	unsigned len;
+	unsigned int len;
 	u16 check;
 	int nsg;
 
@@ -221,6 +238,8 @@ static int rxkad_secure_packet_encrypt(const struct rxrpc_call *call,
 	/* encrypt from the session key */
 	payload = call->conn->key->payload.data;
 	memcpy(&iv, payload->k.session_key, sizeof(iv));
+	token = call->conn->key->payload.data[0];
+	memcpy(&iv, token->kad->session_key, sizeof(iv));
 	desc.tfm = call->conn->cipher;
 	desc.info = iv.x;
 	desc.flags = 0;
@@ -401,6 +420,7 @@ static int rxkad_verify_packet_encrypt(const struct rxrpc_call *call,
 				       u32 *_abort_code)
 {
 	const struct rxrpc_key_payload *payload;
+	const struct rxrpc_key_token *token;
 	struct rxkad_level2_hdr sechdr;
 	struct rxrpc_skb_priv *sp;
 	struct blkcipher_desc desc;
@@ -433,6 +453,8 @@ static int rxkad_verify_packet_encrypt(const struct rxrpc_call *call,
 	/* decrypt from the session key */
 	payload = call->conn->key->payload.data;
 	memcpy(&iv, payload->k.session_key, sizeof(iv));
+	token = call->conn->key->payload.data[0];
+	memcpy(&iv, token->kad->session_key, sizeof(iv));
 	desc.tfm = call->conn->cipher;
 	desc.info = iv.x;
 	desc.flags = 0;
@@ -507,6 +529,7 @@ static int rxkad_verify_packet(const struct rxrpc_call *call,
 		return 0;
 
 	if (sp->hdr.securityIndex != 2) {
+	if (sp->hdr.securityIndex != RXRPC_SECURITY_RXKAD) {
 		*_abort_code = RXKADINCONSISTENCY;
 		_leave(" = -EPROTO [not rxkad]");
 		return -EPROTO;
@@ -738,6 +761,7 @@ static int rxkad_respond_to_challenge(struct rxrpc_connection *conn,
 				      u32 *_abort_code)
 {
 	const struct rxrpc_key_payload *payload;
+	const struct rxrpc_key_token *token;
 	struct rxkad_challenge challenge;
 	struct rxkad_response resp
 		__attribute__((aligned(8))); /* must be aligned for crypto */
@@ -779,6 +803,7 @@ static int rxkad_respond_to_challenge(struct rxrpc_connection *conn,
 		goto protocol_error;
 
 	payload = conn->key->payload.data;
+	token = conn->key->payload.data[0];
 
 	/* build the response packet */
 	memset(&resp, 0, sizeof(resp));
@@ -804,6 +829,13 @@ static int rxkad_respond_to_challenge(struct rxrpc_connection *conn,
 	rxkad_calc_response_checksum(&resp);
 	rxkad_encrypt_response(conn, &resp, &payload->k);
 	return rxkad_send_response(conn, &sp->hdr, &resp, &payload->k);
+	resp.kvno = htonl(token->kad->kvno);
+	resp.ticket_len = htonl(token->kad->ticket_len);
+
+	/* calculate the response checksum and then do the encryption */
+	rxkad_calc_response_checksum(&resp);
+	rxkad_encrypt_response(conn, &resp, token->kad);
+	return rxkad_send_response(conn, &sp->hdr, &resp, token->kad);
 
 protocol_error:
 	*_abort_code = abort_code;
@@ -825,6 +857,7 @@ static int rxkad_decrypt_ticket(struct rxrpc_connection *conn,
 	struct scatterlist sg[1];
 	struct in_addr addr;
 	unsigned life;
+	unsigned int life;
 	time_t issue, now;
 	bool little_endian;
 	int ret;
@@ -852,6 +885,12 @@ static int rxkad_decrypt_ticket(struct rxrpc_connection *conn,
 	memcpy(&iv, &conn->server_key->type_data, sizeof(iv));
 
 	desc.tfm = conn->server_key->payload.data;
+	ASSERT(conn->server_key->payload.data[0] != NULL);
+	ASSERTCMP((unsigned long) ticket & 7UL, ==, 0);
+
+	memcpy(&iv, &conn->server_key->payload.data[2], sizeof(iv));
+
+	desc.tfm = conn->server_key->payload.data[0];
 	desc.info = iv.x;
 	desc.flags = 0;
 
@@ -898,6 +937,7 @@ static int rxkad_decrypt_ticket(struct rxrpc_connection *conn,
 	memcpy(&addr, p, sizeof(addr));
 	p += 4;
 	_debug("KIV ADDR : "NIPQUAD_FMT, NIPQUAD(addr));
+	_debug("KIV ADDR : %pI4", &addr);
 
 	/* get the session key from the ticket */
 	memcpy(&key, p, sizeof(key));
@@ -1123,6 +1163,7 @@ static struct rxrpc_security rxkad = {
 	.owner				= THIS_MODULE,
 	.name				= "rxkad",
 	.security_index			= RXKAD_VERSION,
+	.security_index			= RXRPC_SECURITY_RXKAD,
 	.init_connection_security	= rxkad_init_connection_security,
 	.prime_packet_security		= rxkad_prime_packet_security,
 	.secure_packet			= rxkad_secure_packet,

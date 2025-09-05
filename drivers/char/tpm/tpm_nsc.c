@@ -20,6 +20,7 @@
  */
 
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 #include "tpm.h"
 
 /* National definitions */
@@ -113,6 +114,7 @@ static int nsc_wait_for_ready(struct tpm_chip *chip)
 	while (time_before(jiffies, stop));
 
 	dev_info(chip->dev, "wait for ready failed\n");
+	dev_info(chip->pdev, "wait for ready failed\n");
 	return -EBUSY;
 }
 
@@ -129,11 +131,13 @@ static int tpm_nsc_recv(struct tpm_chip *chip, u8 * buf, size_t count)
 
 	if (wait_for_stat(chip, NSC_STATUS_F0, NSC_STATUS_F0, &data) < 0) {
 		dev_err(chip->dev, "F0 timeout\n");
+		dev_err(chip->pdev, "F0 timeout\n");
 		return -EIO;
 	}
 	if ((data =
 	     inb(chip->vendor.base + NSC_DATA)) != NSC_COMMAND_NORMAL) {
 		dev_err(chip->dev, "not in normal mode (0x%x)\n",
+		dev_err(chip->pdev, "not in normal mode (0x%x)\n",
 			data);
 		return -EIO;
 	}
@@ -143,6 +147,7 @@ static int tpm_nsc_recv(struct tpm_chip *chip, u8 * buf, size_t count)
 		if (wait_for_stat
 		    (chip, NSC_STATUS_OBF, NSC_STATUS_OBF, &data) < 0) {
 			dev_err(chip->dev,
+			dev_err(chip->pdev,
 				"OBF timeout (while reading data)\n");
 			return -EIO;
 		}
@@ -158,6 +163,11 @@ static int tpm_nsc_recv(struct tpm_chip *chip, u8 * buf, size_t count)
 	}
 	if ((data = inb(chip->vendor.base + NSC_DATA)) != NSC_COMMAND_EOC) {
 		dev_err(chip->dev,
+		dev_err(chip->pdev, "F0 not set\n");
+		return -EIO;
+	}
+	if ((data = inb(chip->vendor.base + NSC_DATA)) != NSC_COMMAND_EOC) {
+		dev_err(chip->pdev,
 			"expected end of command(0x%x)\n", data);
 		return -EIO;
 	}
@@ -189,18 +199,21 @@ static int tpm_nsc_send(struct tpm_chip *chip, u8 * buf, size_t count)
 
 	if (wait_for_stat(chip, NSC_STATUS_IBF, 0, &data) < 0) {
 		dev_err(chip->dev, "IBF timeout\n");
+		dev_err(chip->pdev, "IBF timeout\n");
 		return -EIO;
 	}
 
 	outb(NSC_COMMAND_NORMAL, chip->vendor.base + NSC_COMMAND);
 	if (wait_for_stat(chip, NSC_STATUS_IBR, NSC_STATUS_IBR, &data) < 0) {
 		dev_err(chip->dev, "IBR timeout\n");
+		dev_err(chip->pdev, "IBR timeout\n");
 		return -EIO;
 	}
 
 	for (i = 0; i < count; i++) {
 		if (wait_for_stat(chip, NSC_STATUS_IBF, 0, &data) < 0) {
 			dev_err(chip->dev,
+			dev_err(chip->pdev,
 				"IBF timeout (while writing data)\n");
 			return -EIO;
 		}
@@ -209,6 +222,7 @@ static int tpm_nsc_send(struct tpm_chip *chip, u8 * buf, size_t count)
 
 	if (wait_for_stat(chip, NSC_STATUS_IBF, 0, &data) < 0) {
 		dev_err(chip->dev, "IBF timeout\n");
+		dev_err(chip->pdev, "IBF timeout\n");
 		return -EIO;
 	}
 	outb(NSC_COMMAND_EOC, chip->vendor.base + NSC_COMMAND);
@@ -251,6 +265,12 @@ static struct attribute * nsc_attrs[] = {
 static struct attribute_group nsc_attr_grp = { .attrs = nsc_attrs };
 
 static const struct tpm_vendor_specific tpm_nsc = {
+static bool tpm_nsc_req_canceled(struct tpm_chip *chip, u8 status)
+{
+	return (status == NSC_STATUS_RDY);
+}
+
+static const struct tpm_class_ops tpm_nsc = {
 	.recv = tpm_nsc_recv,
 	.send = tpm_nsc_send,
 	.cancel = tpm_nsc_cancel,
@@ -260,6 +280,7 @@ static const struct tpm_vendor_specific tpm_nsc = {
 	.req_canceled = NSC_STATUS_RDY,
 	.attr_group = &nsc_attr_grp,
 	.miscdev = { .fops = &nsc_ops, },
+	.req_canceled = tpm_nsc_req_canceled,
 };
 
 static struct platform_device *pdev = NULL;
@@ -279,6 +300,18 @@ static struct device_driver nsc_drv = {
 	.owner = THIS_MODULE,
 	.suspend = tpm_pm_suspend,
 	.resume = tpm_pm_resume,
+
+	tpm_chip_unregister(chip);
+	release_region(chip->vendor.base, 2);
+}
+
+static SIMPLE_DEV_PM_OPS(tpm_nsc_pm, tpm_pm_suspend, tpm_pm_resume);
+
+static struct platform_driver nsc_drv = {
+	.driver          = {
+		.name    = "tpm_nsc",
+		.pm      = &tpm_nsc_pm,
+	},
 };
 
 static int __init init_nsc(void)
@@ -298,6 +331,7 @@ static int __init init_nsc(void)
 	}
 
 	err = driver_register(&nsc_drv);
+	err = platform_driver_register(&nsc_drv);
 	if (err)
 		return err;
 
@@ -309,6 +343,7 @@ static int __init init_nsc(void)
 	tpm_write_index(nscAddrBase, NSC_LDC_INDEX, 0x01);
 
 	pdev = kzalloc(sizeof(struct platform_device), GFP_KERNEL);
+	pdev = platform_device_alloc("tpm_nscl0", -1);
 	if (!pdev) {
 		rc = -ENOMEM;
 		goto err_unreg_drv;
@@ -329,9 +364,27 @@ static int __init init_nsc(void)
 	}
 
 	if (!(chip = tpm_register_hardware(&pdev->dev, &tpm_nsc))) {
+	pdev->num_resources = 0;
+	pdev->dev.driver = &nsc_drv.driver;
+	pdev->dev.release = tpm_nsc_remove;
+
+	if ((rc = platform_device_add(pdev)) < 0)
+		goto err_put_dev;
+
+	if (request_region(base, 2, "tpm_nsc0") == NULL ) {
+		rc = -EBUSY;
+		goto err_del_dev;
+	}
+
+	chip = tpmm_chip_alloc(&pdev->dev, &tpm_nsc);
+	if (IS_ERR(chip)) {
 		rc = -ENODEV;
 		goto err_rel_reg;
 	}
+
+	rc = tpm_chip_register(chip);
+	if (rc)
+		goto err_rel_reg;
 
 	dev_dbg(&pdev->dev, "NSC TPM detected\n");
 	dev_dbg(&pdev->dev,
@@ -378,6 +431,12 @@ err_free_dev:
 	kfree(pdev);
 err_unreg_drv:
 	driver_unregister(&nsc_drv);
+err_del_dev:
+	platform_device_del(pdev);
+err_put_dev:
+	platform_device_put(pdev);
+err_unreg_drv:
+	platform_driver_unregister(&nsc_drv);
 	return rc;
 }
 
@@ -391,6 +450,9 @@ static void __exit cleanup_nsc(void)
 	}
 
 	driver_unregister(&nsc_drv);
+	}
+
+	platform_driver_unregister(&nsc_drv);
 }
 
 module_init(init_nsc);

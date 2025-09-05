@@ -12,6 +12,7 @@
 
 static struct device isa_bus = {
 	.bus_id		= "isa"
+	.init_name	= "isa"
 };
 
 struct isa_dev {
@@ -138,11 +139,14 @@ int isa_register_driver(struct isa_driver *isa_driver, unsigned int ndev)
 		snprintf(isa_dev->dev.bus_id, BUS_ID_SIZE, "%s.%u",
 				isa_driver->driver.name, id);
 
+		dev_set_name(&isa_dev->dev, "%s.%u",
+			     isa_driver->driver.name, id);
 		isa_dev->dev.platform_data	= isa_driver;
 		isa_dev->dev.release		= isa_dev_release;
 		isa_dev->id			= id;
 
 		isa_dev->dev.coherent_dma_mask = DMA_24BIT_MASK;
+		isa_dev->dev.coherent_dma_mask = DMA_BIT_MASK(24);
 		isa_dev->dev.dma_mask = &isa_dev->dev.coherent_dma_mask;
 
 		error = device_register(&isa_dev->dev);

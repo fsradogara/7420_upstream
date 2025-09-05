@@ -31,6 +31,7 @@
 #include <linux/slab.h>
 #include <linux/highmem.h>
 #include <linux/utsname.h>
+#include <linux/highmem.h>
 #include <linux/init.h>
 #include <linux/sysctl.h>
 #include <linux/random.h>
@@ -123,6 +124,12 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 	in_use = !list_empty(&lock->ast_list);
 	spin_unlock(&dlm->spinlock);
 	if (in_use) {
+	spin_lock(&dlm->ast_lock);
+	/* We want to be sure that we're not freeing a lock
+	 * that still has AST's pending... */
+	in_use = !list_empty(&lock->ast_list);
+	spin_unlock(&dlm->ast_lock);
+	if (in_use && !(flags & LKM_CANCEL)) {
 	       mlog(ML_ERROR, "lockres %.*s: Someone is calling dlmunlock "
 		    "while waiting for an ast!", res->lockname.len,
 		    res->lockname.name);
@@ -132,6 +139,7 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 	spin_lock(&res->spinlock);
 	if (res->state & DLM_LOCK_RES_IN_PROGRESS) {
 		if (master_node) {
+		if (master_node && !(flags & LKM_CANCEL)) {
 			mlog(ML_ERROR, "lockres in progress!\n");
 			spin_unlock(&res->spinlock);
 			return DLM_FORWARD;
@@ -194,6 +202,11 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 		} else if (status == DLM_RECOVERING || 
 			   status == DLM_MIGRATING || 
 			   status == DLM_FORWARD) {
+		} else if (status == DLM_RECOVERING ||
+			   status == DLM_MIGRATING ||
+			   status == DLM_FORWARD ||
+			   status == DLM_NOLOCKMGR
+			   ) {
 			/* must clear the actions because this unlock
 			 * is about to be retried.  cannot free or do
 			 * any list manipulation. */
@@ -203,6 +216,8 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 			     status==DLM_RECOVERING?"recovering":
 			     (status==DLM_MIGRATING?"migrating":
 			      "forward"));
+				(status == DLM_FORWARD ? "forward" :
+						"nolockmanager")));
 			actions = 0;
 		}
 		if (flags & LKM_CANCEL)
@@ -320,6 +335,7 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 	size_t veclen = 1;
 
 	mlog_entry("%.*s\n", res->lockname.len, res->lockname.name);
+	mlog(0, "%.*s\n", res->lockname.len, res->lockname.name);
 
 	if (owner == dlm->node_num) {
 		/* ended up trying to contact ourself.  this means
@@ -357,6 +373,8 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 		ret = status;
 	} else {
 		mlog_errno(tmpret);
+		mlog(ML_ERROR, "Error %d when sending message %u (key 0x%x) to "
+		     "node %u\n", tmpret, DLM_UNLOCK_LOCK_MSG, dlm->key, owner);
 		if (dlm_is_host_down(tmpret)) {
 			/* NOTE: this seems strange, but it is what we want.
 			 * when the master goes down during a cancel or
@@ -366,6 +384,10 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 			 * just needs to finish out the operation and call
 			 * the unlockast. */
 			ret = DLM_NORMAL;
+			if (dlm_is_node_dead(dlm, owner))
+				ret = DLM_NORMAL;
+			else
+				ret = DLM_NOLOCKMGR;
 		} else {
 			/* something bad.  this will BUG in ocfs2 */
 			ret = dlm_err_to_dlm_status(tmpret);
@@ -461,6 +483,7 @@ int dlm_unlock_lock_handler(struct o2net_msg *msg, u32 len, void *data,
 	for (i=0; i<3; i++) {
 		list_for_each(iter, queue) {
 			lock = list_entry(iter, struct dlm_lock, list);
+		list_for_each_entry(lock, queue, list) {
 			if (lock->ml.cookie == unlock->cookie &&
 		    	    lock->ml.node == unlock->node_idx) {
 				dlm_lock_get(lock);
@@ -644,6 +667,9 @@ retry:
 	if (status == DLM_RECOVERING ||
 	    status == DLM_MIGRATING ||
 	    status == DLM_FORWARD) {
+	    status == DLM_FORWARD ||
+	    status == DLM_NOLOCKMGR) {
+
 		/* We want to go away for a tiny bit to allow recovery
 		 * / migration to complete on this resource. I don't
 		 * know of any wait queue we could sleep on as this
@@ -656,6 +682,7 @@ retry:
 
 		mlog(0, "retrying unlock due to pending recovery/"
 		     "migration/in-progress\n");
+		     "migration/in-progress/reconnect\n");
 		goto retry;
 	}
 
@@ -663,6 +690,7 @@ retry:
 		mlog(0, "calling unlockast(%p, %d)\n", data, status);
 		if (is_master) {
 			/* it is possible that there is one last bast 
+			/* it is possible that there is one last bast
 			 * pending.  make sure it is flushed, then
 			 * call the unlockast.
 			 * not an issue if this is a mastered remotely,
@@ -670,6 +698,7 @@ retry:
 			 * lockres queues and cannot be found. */
 			dlm_kick_thread(dlm, NULL);
 			wait_event(dlm->ast_wq, 
+			wait_event(dlm->ast_wq,
 				   dlm_lock_basts_flushed(dlm, lock));
 		}
 		(*unlockast)(data, status);

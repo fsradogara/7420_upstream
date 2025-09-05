@@ -27,6 +27,7 @@
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/namei.h>
+#include <linux/slab.h>
 
 #include <linux/configfs.h>
 #include "configfs_internal.h"
@@ -123,6 +124,23 @@ static int get_target(const char *symname, struct nameidata *nd,
 			}
 		} else
 			ret = -EPERM;
+static int get_target(const char *symname, struct path *path,
+		      struct config_item **target, struct super_block *sb)
+{
+	int ret;
+
+	ret = kern_path(symname, LOOKUP_FOLLOW|LOOKUP_DIRECTORY, path);
+	if (!ret) {
+		if (path->dentry->d_sb == sb) {
+			*target = configfs_get_config_item(path->dentry);
+			if (!*target) {
+				ret = -ENOENT;
+				path_put(path);
+			}
+		} else {
+			ret = -EPERM;
+			path_put(path);
+		}
 	}
 
 	return ret;
@@ -142,6 +160,12 @@ int configfs_symlink(struct inode *dir, struct dentry *dentry, const char *symna
 	if (dentry->d_parent == configfs_sb->s_root)
 		goto out;
 
+	struct path path;
+	struct configfs_dirent *sd;
+	struct config_item *parent_item;
+	struct config_item *target_item = NULL;
+	struct config_item_type *type;
+
 	sd = dentry->d_parent->d_fsdata;
 	/*
 	 * Fake invisibility if dir belongs to a group/default groups hierarchy
@@ -160,6 +184,7 @@ int configfs_symlink(struct inode *dir, struct dentry *dentry, const char *symna
 		goto out_put;
 
 	ret = get_target(symname, &nd, &target_item);
+	ret = get_target(symname, &path, &target_item, dentry->d_sb);
 	if (ret)
 		goto out_put;
 
@@ -175,6 +200,7 @@ int configfs_symlink(struct inode *dir, struct dentry *dentry, const char *symna
 
 	config_item_put(target_item);
 	path_put(&nd.path);
+	path_put(&path);
 
 out_put:
 	config_item_put(parent_item);
@@ -306,12 +332,28 @@ static void configfs_put_link(struct dentry *dentry, struct nameidata *nd,
 		unsigned long page = (unsigned long)cookie;
 		free_page(page);
 	}
+static const char *configfs_follow_link(struct dentry *dentry, void **cookie)
+{
+	unsigned long page = get_zeroed_page(GFP_KERNEL);
+	int error;
+
+	if (!page)
+		return ERR_PTR(-ENOMEM);
+
+	error = configfs_getlink(dentry, (char *)page);
+	if (!error) {
+		return *cookie = (void *)page;
+	}
+
+	free_page(page);
+	return ERR_PTR(error);
 }
 
 const struct inode_operations configfs_symlink_inode_operations = {
 	.follow_link = configfs_follow_link,
 	.readlink = generic_readlink,
 	.put_link = configfs_put_link,
+	.put_link = free_page_put_link,
 	.setattr = configfs_setattr,
 };
 

@@ -19,6 +19,7 @@ struct DWstruct {
 
 typedef union
 {
+typedef union {
 	struct DWstruct s;
 	long long ll;
 } DWunion;

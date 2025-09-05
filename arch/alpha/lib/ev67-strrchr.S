@@ -83,6 +83,7 @@ $eos:
 	negq	t1, t4		# E : isolate first null byte match
 	and	t1, t4, t4	# E :
 	subq	t4, 1, t5	# E : build a mask of the bytes upto...
+	subq	t4, 1, t5	# E : build a mask of the bytes up to...
 	or	t4, t5, t4	# E : ... and including the null
 
 	and	t3, t4, t3	# E : mask out char matches after null

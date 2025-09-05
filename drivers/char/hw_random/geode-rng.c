@@ -12,6 +12,7 @@
  *
  * Hardware driver for the AMD 768 Random Number Generator (RNG)
  * (c) Copyright 2001 Red Hat Inc <alan@redhat.com>
+ * (c) Copyright 2001 Red Hat Inc
  *
  * derived from
  *
@@ -48,6 +49,7 @@
 static const struct pci_device_id pci_tbl[] = {
 	{ PCI_VENDOR_ID_AMD, PCI_DEVICE_ID_AMD_LX_AES,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0, },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_LX_AES), 0, },
 	{ 0, },	/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, pci_tbl);
@@ -114,6 +116,10 @@ found:
 	err = hwrng_register(&geode_rng);
 	if (err) {
 		printk(KERN_ERR PFX "RNG registering failed (%d)\n",
+	pr_info("AMD Geode RNG detected\n");
+	err = hwrng_register(&geode_rng);
+	if (err) {
+		pr_err(PFX "RNG registering failed (%d)\n",
 		       err);
 		goto err_unmap;
 	}

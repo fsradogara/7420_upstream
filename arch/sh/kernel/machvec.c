@@ -14,6 +14,8 @@
 #include <linux/string.h>
 #include <asm/machvec.h>
 #include <asm/sections.h>
+#include <asm/addrspace.h>
+#include <asm/setup.h>
 #include <asm/io.h>
 #include <asm/irq.h>
 
@@ -134,4 +136,7 @@ void __init sh_mv_setup(void)
 
 	if (!sh_mv.mv_nr_irqs)
 		sh_mv.mv_nr_irqs = NR_IRQS;
+	mv_set(irq_demux);
+	mv_set(mode_pins);
+	mv_set(mem_init);
 }

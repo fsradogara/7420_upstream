@@ -24,6 +24,8 @@
 #include "seq_oss_midi.h"
 #include "../seq_lock.h"
 #include <linux/init.h>
+#include <linux/module.h>
+#include <linux/slab.h>
 
 /*
  * constants
@@ -98,6 +100,9 @@ snd_seq_oss_synth_init(void)
 int
 snd_seq_oss_synth_register(struct snd_seq_device *dev)
 {
+snd_seq_oss_synth_probe(struct device *_dev)
+{
+	struct snd_seq_device *dev = to_seq_dev(_dev);
 	int i;
 	struct seq_oss_synth *rec;
 	struct snd_seq_oss_reg *reg = SNDRV_SEQ_DEVICE_ARGPTR(dev);
@@ -107,6 +112,9 @@ snd_seq_oss_synth_register(struct snd_seq_device *dev)
 		snd_printk(KERN_ERR "can't malloc synth info\n");
 		return -ENOMEM;
 	}
+	rec = kzalloc(sizeof(*rec), GFP_KERNEL);
+	if (!rec)
+		return -ENOMEM;
 	rec->seq_device = -1;
 	rec->synth_type = reg->type;
 	rec->synth_subtype = reg->subtype;
@@ -129,6 +137,7 @@ snd_seq_oss_synth_register(struct snd_seq_device *dev)
 		if (max_synth_devs >= SNDRV_SEQ_OSS_MAX_SYNTH_DEVS) {
 			spin_unlock_irqrestore(&register_lock, flags);
 			snd_printk(KERN_ERR "no more synth slot\n");
+			pr_err("ALSA: seq_oss: no more synth slot\n");
 			kfree(rec);
 			return -ENOMEM;
 		}
@@ -150,6 +159,9 @@ snd_seq_oss_synth_register(struct snd_seq_device *dev)
 int
 snd_seq_oss_synth_unregister(struct snd_seq_device *dev)
 {
+snd_seq_oss_synth_remove(struct device *_dev)
+{
+	struct snd_seq_device *dev = to_seq_dev(_dev);
 	int index;
 	struct seq_oss_synth *rec = dev->driver_data;
 	unsigned long flags;
@@ -162,6 +174,7 @@ snd_seq_oss_synth_unregister(struct snd_seq_device *dev)
 	if (index >= max_synth_devs) {
 		spin_unlock_irqrestore(&register_lock, flags);
 		snd_printk(KERN_ERR "can't unregister synth\n");
+		pr_err("ALSA: seq_oss: can't unregister synth\n");
 		return -EINVAL;
 	}
 	synth_devs[index] = NULL;
@@ -309,6 +322,8 @@ snd_seq_oss_synth_cleanup(struct seq_oss_devinfo *dp)
 	struct seq_oss_synthinfo *info;
 
 	snd_assert(dp->max_synthdev <= SNDRV_SEQ_OSS_MAX_SYNTH_DEVS, return);
+	if (snd_BUG_ON(dp->max_synthdev >= SNDRV_SEQ_OSS_MAX_SYNTH_DEVS))
+		return;
 	for (i = 0; i < dp->max_synthdev; i++) {
 		info = &dp->synths[i];
 		if (! info->opened)
@@ -403,6 +418,8 @@ snd_seq_oss_synth_reset(struct seq_oss_devinfo *dp, int dev)
 	struct seq_oss_synthinfo *info;
 
 	snd_assert(dev >= 0 && dev < dp->max_synthdev, return);
+	if (snd_BUG_ON(dev < 0 || dev >= dp->max_synthdev))
+		return;
 	info = &dp->synths[dev];
 	if (! info->opened)
 		return;
@@ -630,6 +647,7 @@ snd_seq_oss_synth_make_info(struct seq_oss_devinfo *dp, int dev, struct synth_in
 
 
 #ifdef CONFIG_PROC_FS
+#ifdef CONFIG_SND_PROC_FS
 /*
  * proc interface
  */
@@ -658,3 +676,4 @@ snd_seq_oss_synth_info_read(struct snd_info_buffer *buf)
 	}
 }
 #endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_SND_PROC_FS */

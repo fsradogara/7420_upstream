@@ -25,6 +25,8 @@
 #include <linux/firmware.h>
 #include <sound/core.h>
 #include <asm/io.h>
+#include <linux/io.h>
+#include <sound/core.h>
 #include "vxpocket.h"
 
 
@@ -409,6 +411,8 @@ static void vxp_dma_read(struct vx_core *chip, struct snd_pcm_runtime *runtime,
 	unsigned short *addr = (unsigned short *)(runtime->dma_area + offset);
 
 	snd_assert(count % 2 == 0, return);
+	if (snd_BUG_ON(count % 2))
+		return;
 	vx_setup_pseudo_dma(chip, 0);
 	if (offset + count > pipe->buffer_bytes) {
 		int length = pipe->buffer_bytes - offset;
@@ -473,6 +477,7 @@ void vx_set_mic_boost(struct vx_core *chip, int boost)
 		return;
 
 	spin_lock_irqsave(&chip->lock, flags);
+	mutex_lock(&chip->lock);
 	if (pchip->regCDSP & P24_CDSP_MICS_SEL_MASK) {
 		if (boost) {
 			/* boost: 38 dB */
@@ -486,6 +491,7 @@ void vx_set_mic_boost(struct vx_core *chip, int boost)
 		vx_outb(chip, CDSP, pchip->regCDSP);
 	}
 	spin_unlock_irqrestore(&chip->lock, flags);
+	mutex_unlock(&chip->lock);
 }
 
 /*
@@ -516,11 +522,13 @@ void vx_set_mic_level(struct vx_core *chip, int level)
 		return;
 
 	spin_lock_irqsave(&chip->lock, flags);
+	mutex_lock(&chip->lock);
 	if (pchip->regCDSP & VXP_CDSP_MIC_SEL_MASK) {
 		level = vx_compute_mic_level(level);
 		vx_outb(chip, MICRO, level);
 	}
 	spin_unlock_irqrestore(&chip->lock, flags);
+	mutex_unlock(&chip->lock);
 }
 
 

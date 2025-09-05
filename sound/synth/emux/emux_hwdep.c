@@ -43,6 +43,9 @@ snd_emux_hwdep_release(struct snd_hwdep *hw, struct file *file)
 	return 0;
 }
 
+#include <linux/uaccess.h>
+#include "emux_voice.h"
+
 
 #define TMP_CLIENT_ID	0x1001
 
@@ -149,6 +152,10 @@ snd_emux_init_hwdep(struct snd_emux *emu)
 	hw->ops.open = snd_emux_hwdep_open;
 	hw->ops.release = snd_emux_hwdep_release;
 	hw->ops.ioctl = snd_emux_hwdep_ioctl;
+	hw->ops.ioctl = snd_emux_hwdep_ioctl;
+	/* The ioctl parameter types are compatible between 32- and
+	 * 64-bit architectures, so use the same function. */
+	hw->ops.ioctl_compat = snd_emux_hwdep_ioctl;
 	hw->exclusive = 1;
 	hw->private_data = emu;
 	if ((err = snd_card_register(emu->card)) < 0)

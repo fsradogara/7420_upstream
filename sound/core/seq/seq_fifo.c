@@ -37,6 +37,8 @@ struct snd_seq_fifo *snd_seq_fifo_new(int poolsize)
 		snd_printd("malloc failed for snd_seq_fifo_new() \n");
 		return NULL;
 	}
+	if (!f)
+		return NULL;
 
 	f->pool = snd_seq_pool_new(poolsize);
 	if (f->pool == NULL) {
@@ -68,6 +70,11 @@ void snd_seq_fifo_delete(struct snd_seq_fifo **fifo)
 	snd_assert(fifo != NULL, return);
 	f = *fifo;
 	snd_assert(f != NULL, return);
+	if (snd_BUG_ON(!fifo))
+		return;
+	f = *fifo;
+	if (snd_BUG_ON(!f))
+		return;
 	*fifo = NULL;
 
 	snd_seq_fifo_clear(f);
@@ -117,11 +124,14 @@ int snd_seq_fifo_event_in(struct snd_seq_fifo *f,
 	int err;
 
 	snd_assert(f != NULL, return -EINVAL);
+	if (snd_BUG_ON(!f))
+		return -EINVAL;
 
 	snd_use_lock_use(&f->use_lock);
 	err = snd_seq_event_dup(f->pool, event, &cell, 1, NULL); /* always non-blocking */
 	if (err < 0) {
 		if (err == -ENOMEM)
+		if ((err == -ENOMEM) || (err == -EAGAIN))
 			atomic_inc(&f->overflow);
 		snd_use_lock_free(&f->use_lock);
 		return err;
@@ -175,6 +185,8 @@ int snd_seq_fifo_cell_out(struct snd_seq_fifo *f,
 	wait_queue_t wait;
 
 	snd_assert(f != NULL, return -EINVAL);
+	if (snd_BUG_ON(!f))
+		return -EINVAL;
 
 	*cellp = NULL;
 	init_waitqueue_entry(&wait, current);
@@ -234,6 +246,8 @@ int snd_seq_fifo_resize(struct snd_seq_fifo *f, int poolsize)
 	struct snd_seq_event_cell *cell, *next, *oldhead;
 
 	snd_assert(f != NULL && f->pool != NULL, return -EINVAL);
+	if (snd_BUG_ON(!f || !f->pool))
+		return -EINVAL;
 
 	/* allocate new pool */
 	newpool = snd_seq_pool_new(poolsize);

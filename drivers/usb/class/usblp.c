@@ -3,6 +3,7 @@
  *
  * Copyright (c) 1999 Michael Gee	<michael@linuxspecific.com>
  * Copyright (c) 1999 Pavel Machek	<pavel@suse.cz>
+ * Copyright (c) 1999 Pavel Machek	<pavel@ucw.cz>
  * Copyright (c) 2000 Randy Dunlap	<rdunlap@xenotime.net>
  * Copyright (c) 2000 Vojtech Pavlik	<vojtech@suse.cz>
  # Copyright (c) 2001 Pete Zaitcev	<zaitcev@redhat.com>
@@ -28,6 +29,7 @@
  *	v0.12 - add hpoj.sourceforge.net ioctls (David Paschal)
  *	v0.13 - alloc space for statusbuf (<status> not on stack);
  *		use usb_buffer_alloc() for read buf & write buf;
+ *		use usb_alloc_coherent() for read buf & write buf;
  *      none  - Maintained in Linux kernel after v0.13
  */
 
@@ -58,6 +60,8 @@
 #include <linux/mutex.h>
 #undef DEBUG
 #include <linux/usb.h>
+#include <linux/usb/ch9.h>
+#include <linux/ratelimit.h>
 
 /*
  * Version Information
@@ -85,6 +89,20 @@
  * [1]=supported protocol mask (mask&(1<<n)!=0 means 7/1/n supported): */
 #define LPIOC_GET_PROTOCOLS(len) _IOC(_IOC_READ, 'P', IOCNR_GET_PROTOCOLS, len)
 /* Set protocol (arg: 1=7/1/1, 2=7/1/2, 3=7/1/3): */
+/* The following ioctls were added for http://hpoj.sourceforge.net:
+ * Get two-int array:
+ * [0]=current protocol
+ *     (1=USB_CLASS_PRINTER/1/1, 2=USB_CLASS_PRINTER/1/2,
+ *         3=USB_CLASS_PRINTER/1/3),
+ * [1]=supported protocol mask (mask&(1<<n)!=0 means
+ *     USB_CLASS_PRINTER/1/n supported):
+ */
+#define LPIOC_GET_PROTOCOLS(len) _IOC(_IOC_READ, 'P', IOCNR_GET_PROTOCOLS, len)
+/*
+ * Set protocol
+ *     (arg: 1=USB_CLASS_PRINTER/1/1, 2=USB_CLASS_PRINTER/1/2,
+ *         3=USB_CLASS_PRINTER/1/3):
+ */
 #define LPIOC_SET_PROTOCOL _IOC(_IOC_WRITE, 'P', IOCNR_SET_PROTOCOL, 0)
 /* Set channel number (HP Vendor-specific command): */
 #define LPIOC_HP_SET_CHANNEL _IOC(_IOC_WRITE, 'P', IOCNR_HP_SET_CHANNEL, 0)
@@ -136,6 +154,7 @@ MFG:HEWLETT-PACKARD;MDL:DESKJET 970C;CMD:MLC,PCL,PML;CLASS:PRINTER;DESCRIPTION:H
  */
 struct usblp {
 	struct usb_device 	*dev;			/* USB device */
+	struct usb_device	*dev;			/* USB device */
 	struct mutex		wmut;
 	struct mutex		mut;
 	spinlock_t		lock;		/* locks rcomplete, wcomplete */
@@ -148,6 +167,10 @@ struct usblp {
 	struct usb_interface	*intf;			/* The interface */
 	/* Alternate-setting numbers and endpoints for each protocol
 	 * (7/1/{index=1,2,3}) that the device supports: */
+	/*
+	 * Alternate-setting numbers and endpoints for each protocol
+	 * (USB_CLASS_PRINTER/1/{index=1,2,3}) that the device supports:
+	 */
 	struct {
 		int				alt_setting;
 		struct usb_endpoint_descriptor	*epwrite;
@@ -193,6 +216,33 @@ static void usblp_dump(struct usblp *usblp) {
 	dbg("bidir=%d", usblp->bidir);
 	dbg("sleeping=%d", usblp->sleeping);
 	dbg("device_id_string=\"%s\"",
+static void usblp_dump(struct usblp *usblp)
+{
+	struct device *dev = &usblp->intf->dev;
+	int p;
+
+	dev_dbg(dev, "usblp=0x%p\n", usblp);
+	dev_dbg(dev, "dev=0x%p\n", usblp->dev);
+	dev_dbg(dev, "present=%d\n", usblp->present);
+	dev_dbg(dev, "readbuf=0x%p\n", usblp->readbuf);
+	dev_dbg(dev, "readcount=%d\n", usblp->readcount);
+	dev_dbg(dev, "ifnum=%d\n", usblp->ifnum);
+	for (p = USBLP_FIRST_PROTOCOL; p <= USBLP_LAST_PROTOCOL; p++) {
+		dev_dbg(dev, "protocol[%d].alt_setting=%d\n", p,
+			usblp->protocol[p].alt_setting);
+		dev_dbg(dev, "protocol[%d].epwrite=%p\n", p,
+			usblp->protocol[p].epwrite);
+		dev_dbg(dev, "protocol[%d].epread=%p\n", p,
+			usblp->protocol[p].epread);
+	}
+	dev_dbg(dev, "current_protocol=%d\n", usblp->current_protocol);
+	dev_dbg(dev, "minor=%d\n", usblp->minor);
+	dev_dbg(dev, "wstatus=%d\n", usblp->wstatus);
+	dev_dbg(dev, "rstatus=%d\n", usblp->rstatus);
+	dev_dbg(dev, "quirks=%d\n", usblp->quirks);
+	dev_dbg(dev, "used=%d\n", usblp->used);
+	dev_dbg(dev, "bidir=%d\n", usblp->bidir);
+	dev_dbg(dev, "device_id_string=\"%s\"\n",
 		usblp->device_id_string ?
 			usblp->device_id_string + 2 :
 			(unsigned char *)"(null)");
@@ -220,12 +270,15 @@ static const struct quirk_printer_struct quirk_printers[] = {
 	{ 0x03f0, 0x0504, USBLP_QUIRK_BIDIR }, /* HP DeskJet 885C */
 	{ 0x03f0, 0x0604, USBLP_QUIRK_BIDIR }, /* HP DeskJet 840C */   
 	{ 0x03f0, 0x0804, USBLP_QUIRK_BIDIR }, /* HP DeskJet 816C */   
+	{ 0x03f0, 0x0604, USBLP_QUIRK_BIDIR }, /* HP DeskJet 840C */
+	{ 0x03f0, 0x0804, USBLP_QUIRK_BIDIR }, /* HP DeskJet 816C */
 	{ 0x03f0, 0x1104, USBLP_QUIRK_BIDIR }, /* HP Deskjet 959C */
 	{ 0x0409, 0xefbe, USBLP_QUIRK_BIDIR }, /* NEC Picty900 (HP OEM) */
 	{ 0x0409, 0xbef4, USBLP_QUIRK_BIDIR }, /* NEC Picty760 (HP OEM) */
 	{ 0x0409, 0xf0be, USBLP_QUIRK_BIDIR }, /* NEC Picty920 (HP OEM) */
 	{ 0x0409, 0xf1be, USBLP_QUIRK_BIDIR }, /* NEC Picty800 (HP OEM) */
 	{ 0x0482, 0x0010, USBLP_QUIRK_BIDIR }, /* Kyocera Mita FS 820, by zut <kernel@zut.de> */
+	{ 0x04f9, 0x000d, USBLP_QUIRK_BIDIR }, /* Brother Industries, Ltd HL-1440 Laser Printer */
 	{ 0x04b8, 0x0202, USBLP_QUIRK_BAD_CLASS }, /* Seiko Epson Receipt Printer M129C */
 	{ 0, 0 }
 };
@@ -258,11 +311,15 @@ static int usblp_ctrl_msg(struct usblp *usblp, int request, int type, int dir, i
 	if ((request == USBLP_REQ_GET_ID) && (type == USB_TYPE_CLASS)) {
 	  index = (usblp->ifnum<<8)|usblp->protocol[usblp->current_protocol].alt_setting;
 	}
+	if ((request == USBLP_REQ_GET_ID) && (type == USB_TYPE_CLASS))
+		index = (usblp->ifnum<<8)|usblp->protocol[usblp->current_protocol].alt_setting;
 
 	retval = usb_control_msg(usblp->dev,
 		dir ? usb_rcvctrlpipe(usblp->dev, 0) : usb_sndctrlpipe(usblp->dev, 0),
 		request, type | dir | recip, value, index, buf, len, USBLP_CTL_TIMEOUT);
 	dbg("usblp_control_msg: rq: 0x%02x dir: %d recip: %d value: %d idx: %d len: %#x result: %d",
+	dev_dbg(&usblp->intf->dev,
+		"usblp_control_msg: rq: 0x%02x dir: %d recip: %d value: %d idx: %d len: %#x result: %d\n",
 		request, !!dir, recip, value, index, len, retval);
 	return retval < 0 ? retval : 0;
 }
@@ -351,6 +408,7 @@ static int usblp_check_status(struct usblp *usblp, int err)
 		mutex_unlock(&usblp->mut);
 		if (printk_ratelimit())
 			printk(KERN_ERR
+		printk_ratelimited(KERN_ERR
 				"usblp%d: error %d reading printer status\n",
 				usblp->minor, error);
 		return 0;
@@ -376,6 +434,9 @@ static int usblp_check_status(struct usblp *usblp, int err)
 static int handle_bidir (struct usblp *usblp)
 {
 	if (usblp->bidir && usblp->used && !usblp->sleeping) {
+static int handle_bidir(struct usblp *usblp)
+{
+	if (usblp->bidir && usblp->used) {
 		if (usblp_submit_read(usblp) < 0)
 			return -EIO;
 	}
@@ -404,6 +465,13 @@ static int usblp_open(struct inode *inode, struct file *file)
 		goto out;
 	}
 	usblp = usb_get_intfdata (intf);
+	mutex_lock(&usblp_mutex);
+
+	retval = -ENODEV;
+	intf = usb_find_interface(&usblp_driver, minor);
+	if (!intf)
+		goto out;
+	usblp = usb_get_intfdata(intf);
 	if (!usblp || !usblp->dev || !usblp->present)
 		goto out;
 
@@ -439,6 +507,11 @@ out:
 }
 
 static void usblp_cleanup (struct usblp *usblp)
+	mutex_unlock(&usblp_mutex);
+	return retval;
+}
+
+static void usblp_cleanup(struct usblp *usblp)
 {
 	printk(KERN_INFO "usblp%d: removed\n", usblp->minor);
 
@@ -446,6 +519,9 @@ static void usblp_cleanup (struct usblp *usblp)
 	kfree (usblp->device_id_string);
 	kfree (usblp->statusbuf);
 	kfree (usblp);
+	kfree(usblp->device_id_string);
+	kfree(usblp->statusbuf);
+	kfree(usblp);
 }
 
 static void usblp_unlink_urbs(struct usblp *usblp)
@@ -460,6 +536,7 @@ static int usblp_release(struct inode *inode, struct file *file)
 	usblp->flags &= ~LP_ABORT;
 
 	mutex_lock (&usblp_mutex);
+	mutex_lock(&usblp_mutex);
 	usblp->used = 0;
 	if (usblp->present) {
 		usblp_unlink_urbs(usblp);
@@ -467,6 +544,9 @@ static int usblp_release(struct inode *inode, struct file *file)
 	} else 		/* finish cleanup from disconnect */
 		usblp_cleanup (usblp);
 	mutex_unlock (&usblp_mutex);
+	} else		/* finish cleanup from disconnect */
+		usblp_cleanup(usblp);
+	mutex_unlock(&usblp_mutex);
 	return 0;
 }
 
@@ -497,6 +577,7 @@ static long usblp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	int retval = 0;
 
 	mutex_lock (&usblp->mut);
+	mutex_lock(&usblp->mut);
 	if (!usblp->present) {
 		retval = -ENODEV;
 		goto done;
@@ -509,6 +590,9 @@ static long usblp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	dbg("usblp_ioctl: cmd=0x%x (%c nr=%d len=%d dir=%d)", cmd, _IOC_TYPE(cmd),
 		_IOC_NR(cmd), _IOC_SIZE(cmd), _IOC_DIR(cmd) );
+	dev_dbg(&usblp->intf->dev,
+		"usblp_ioctl: cmd=0x%x (%c nr=%d len=%d dir=%d)\n", cmd,
+		_IOC_TYPE(cmd), _IOC_NR(cmd), _IOC_SIZE(cmd), _IOC_DIR(cmd));
 
 	if (_IOC_TYPE(cmd) == 'P')	/* new-style ioctl number */
 
@@ -653,6 +737,149 @@ static long usblp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				break;
 			default:
 				retval = -ENOTTY;
+		case IOCNR_GET_DEVICE_ID: /* get the DEVICE_ID string */
+			if (_IOC_DIR(cmd) != _IOC_READ) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+			length = usblp_cache_device_id_string(usblp);
+			if (length < 0) {
+				retval = length;
+				goto done;
+			}
+			if (length > _IOC_SIZE(cmd))
+				length = _IOC_SIZE(cmd); /* truncate */
+
+			if (copy_to_user((void __user *) arg,
+					usblp->device_id_string,
+					(unsigned long) length)) {
+				retval = -EFAULT;
+				goto done;
+			}
+
+			break;
+
+		case IOCNR_GET_PROTOCOLS:
+			if (_IOC_DIR(cmd) != _IOC_READ ||
+			    _IOC_SIZE(cmd) < sizeof(twoints)) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+			twoints[0] = usblp->current_protocol;
+			twoints[1] = 0;
+			for (i = USBLP_FIRST_PROTOCOL;
+			     i <= USBLP_LAST_PROTOCOL; i++) {
+				if (usblp->protocol[i].alt_setting >= 0)
+					twoints[1] |= (1<<i);
+			}
+
+			if (copy_to_user((void __user *)arg,
+					(unsigned char *)twoints,
+					sizeof(twoints))) {
+				retval = -EFAULT;
+				goto done;
+			}
+
+			break;
+
+		case IOCNR_SET_PROTOCOL:
+			if (_IOC_DIR(cmd) != _IOC_WRITE) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+#ifdef DEBUG
+			if (arg == -10) {
+				usblp_dump(usblp);
+				break;
+			}
+#endif
+
+			usblp_unlink_urbs(usblp);
+			retval = usblp_set_protocol(usblp, arg);
+			if (retval < 0) {
+				usblp_set_protocol(usblp,
+					usblp->current_protocol);
+			}
+			break;
+
+		case IOCNR_HP_SET_CHANNEL:
+			if (_IOC_DIR(cmd) != _IOC_WRITE ||
+			    le16_to_cpu(usblp->dev->descriptor.idVendor) != 0x03F0 ||
+			    usblp->quirks & USBLP_QUIRK_BIDIR) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+			err = usblp_hp_channel_change_request(usblp,
+				arg, &newChannel);
+			if (err < 0) {
+				dev_err(&usblp->dev->dev,
+					"usblp%d: error = %d setting "
+					"HP channel\n",
+					usblp->minor, err);
+				retval = -EIO;
+				goto done;
+			}
+
+			dev_dbg(&usblp->intf->dev,
+				"usblp%d requested/got HP channel %ld/%d\n",
+				usblp->minor, arg, newChannel);
+			break;
+
+		case IOCNR_GET_BUS_ADDRESS:
+			if (_IOC_DIR(cmd) != _IOC_READ ||
+			    _IOC_SIZE(cmd) < sizeof(twoints)) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+			twoints[0] = usblp->dev->bus->busnum;
+			twoints[1] = usblp->dev->devnum;
+			if (copy_to_user((void __user *)arg,
+					(unsigned char *)twoints,
+					sizeof(twoints))) {
+				retval = -EFAULT;
+				goto done;
+			}
+
+			dev_dbg(&usblp->intf->dev,
+				"usblp%d is bus=%d, device=%d\n",
+				usblp->minor, twoints[0], twoints[1]);
+			break;
+
+		case IOCNR_GET_VID_PID:
+			if (_IOC_DIR(cmd) != _IOC_READ ||
+			    _IOC_SIZE(cmd) < sizeof(twoints)) {
+				retval = -EINVAL;
+				goto done;
+			}
+
+			twoints[0] = le16_to_cpu(usblp->dev->descriptor.idVendor);
+			twoints[1] = le16_to_cpu(usblp->dev->descriptor.idProduct);
+			if (copy_to_user((void __user *)arg,
+					(unsigned char *)twoints,
+					sizeof(twoints))) {
+				retval = -EFAULT;
+				goto done;
+			}
+
+			dev_dbg(&usblp->intf->dev,
+				"usblp%d is VID=0x%4.4X, PID=0x%4.4X\n",
+				usblp->minor, twoints[0], twoints[1]);
+			break;
+
+		case IOCNR_SOFT_RESET:
+			if (_IOC_DIR(cmd) != _IOC_NONE) {
+				retval = -EINVAL;
+				goto done;
+			}
+			retval = usblp_reset(usblp);
+			break;
+		default:
+			retval = -ENOTTY;
 		}
 	else	/* old-style ioctl value */
 		switch (cmd) {
@@ -684,6 +911,33 @@ static long usblp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 done:
 	mutex_unlock (&usblp->mut);
+		case LPGETSTATUS:
+			retval = usblp_read_status(usblp, usblp->statusbuf);
+			if (retval) {
+				printk_ratelimited(KERN_ERR "usblp%d:"
+					    "failed reading printer status (%d)\n",
+					    usblp->minor, retval);
+				retval = -EIO;
+				goto done;
+			}
+			status = *usblp->statusbuf;
+			if (copy_to_user((void __user *)arg, &status, sizeof(int)))
+				retval = -EFAULT;
+			break;
+
+		case LPABORT:
+			if (arg)
+				usblp->flags |= LP_ABORT;
+			else
+				usblp->flags &= ~LP_ABORT;
+			break;
+
+		default:
+			retval = -ENOTTY;
+		}
+
+done:
+	mutex_unlock(&usblp->mut);
 	return retval;
 }
 
@@ -695,6 +949,11 @@ static struct urb *usblp_new_writeurb(struct usblp *usblp, int transfer_length)
 	if ((writebuf = kmalloc(transfer_length, GFP_KERNEL)) == NULL)
 		return NULL;
 	if ((urb = usb_alloc_urb(0, GFP_KERNEL)) == NULL) {
+	writebuf = kmalloc(transfer_length, GFP_KERNEL);
+	if (writebuf == NULL)
+		return NULL;
+	urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (urb == NULL) {
 		kfree(writebuf);
 		return NULL;
 	}
@@ -732,6 +991,8 @@ static ssize_t usblp_write(struct file *file, const char __user *buffer, size_t 
 
 		rv = -ENOMEM;
 		if ((writeurb = usblp_new_writeurb(usblp, transfer_length)) == NULL)
+		writeurb = usblp_new_writeurb(usblp, transfer_length);
+		if (writeurb == NULL)
 			goto raise_urb;
 		usb_anchor_urb(writeurb, &usblp->urbs);
 
@@ -846,6 +1107,7 @@ static ssize_t usblp_read(struct file *file, char __user *buffer, size_t len, lo
 
 done:
 	mutex_unlock (&usblp->mut);
+	mutex_unlock(&usblp->mut);
 	return count;
 }
 
@@ -873,6 +1135,7 @@ static int usblp_wwait(struct usblp *usblp, int nonblock)
 			rc = -EINTR;
 			break;
 		}
+		set_current_state(TASK_INTERRUPTIBLE);
 		rc = usblp_wtest(usblp, nonblock);
 		mutex_unlock(&usblp->mut);
 		if (rc <= 0)
@@ -880,6 +1143,8 @@ static int usblp_wwait(struct usblp *usblp, int nonblock)
 
 		if (usblp->flags & LP_ABORT) {
 			if (schedule_timeout(msecs_to_jiffies(5000)) == 0) {
+		if (schedule_timeout(msecs_to_jiffies(1500)) == 0) {
+			if (usblp->flags & LP_ABORT) {
 				err = usblp_check_status(usblp, err);
 				if (err == 1) {	/* Paper out */
 					rc = -ENOSPC;
@@ -888,6 +1153,12 @@ static int usblp_wwait(struct usblp *usblp, int nonblock)
 			}
 		} else {
 			schedule();
+			} else {
+				/* Prod the printer, Gentoo#251237. */
+				mutex_lock(&usblp->mut);
+				usblp_read_status(usblp, usblp->statusbuf);
+				mutex_unlock(&usblp->mut);
+			}
 		}
 	}
 	set_current_state(TASK_RUNNING);
@@ -981,6 +1252,8 @@ static int usblp_submit_read(struct usblp *usblp)
 
 	rc = -ENOMEM;
 	if ((urb = usb_alloc_urb(0, GFP_KERNEL)) == NULL)
+	urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (urb == NULL)
 		goto raise_urb;
 
 	usb_fill_bulk_urb(urb, usblp->dev,
@@ -996,6 +1269,7 @@ static int usblp_submit_read(struct usblp *usblp)
 	spin_unlock_irqrestore(&usblp->lock, flags);
 	if ((rc = usb_submit_urb(urb, GFP_KERNEL)) < 0) {
 		dbg("error submitting urb (%d)", rc);
+		dev_dbg(&usblp->intf->dev, "error submitting urb (%d)\n", rc);
 		spin_lock_irqsave(&usblp->lock, flags);
 		usblp->rstatus = rc;
 		usblp->rcomplete = 1;
@@ -1030,6 +1304,7 @@ raise_urb:
  * printer status every couple of milliseconds, you will probably be OK.
  */
 static unsigned int usblp_quirks (__u16 vendor, __u16 product)
+static unsigned int usblp_quirks(__u16 vendor, __u16 product)
 {
 	int i;
 
@@ -1038,6 +1313,7 @@ static unsigned int usblp_quirks (__u16 vendor, __u16 product)
 		    product == quirk_printers[i].productId)
 			return quirk_printers[i].quirks;
  	}
+	}
 	return 0;
 }
 
@@ -1054,6 +1330,17 @@ static const struct file_operations usblp_fops = {
 
 static struct usb_class_driver usblp_class = {
 	.name =		"lp%d",
+	.llseek =	noop_llseek,
+};
+
+static char *usblp_devnode(struct device *dev, umode_t *mode)
+{
+	return kasprintf(GFP_KERNEL, "usb/%s", dev_name(dev));
+}
+
+static struct usb_class_driver usblp_class = {
+	.name =		"lp%d",
+	.devnode =	usblp_devnode,
 	.fops =		&usblp_fops,
 	.minor_base =	USBLP_MINOR_BASE,
 };
@@ -1062,6 +1349,7 @@ static ssize_t usblp_show_ieee1284_id(struct device *dev, struct device_attribut
 {
 	struct usb_interface *intf = to_usb_interface(dev);
 	struct usblp *usblp = usb_get_intfdata (intf);
+	struct usblp *usblp = usb_get_intfdata(intf);
 
 	if (usblp->device_id_string[0] == 0 &&
 	    usblp->device_id_string[1] == 0)
@@ -1077,6 +1365,8 @@ static int usblp_probe(struct usb_interface *intf,
 {
 	struct usb_device *dev = interface_to_usbdev (intf);
 	struct usblp *usblp = NULL;
+	struct usb_device *dev = interface_to_usbdev(intf);
+	struct usblp *usblp;
 	int protocol;
 	int retval;
 
@@ -1089,6 +1379,14 @@ static int usblp_probe(struct usb_interface *intf,
 	usblp->dev = dev;
 	mutex_init(&usblp->wmut);
 	mutex_init (&usblp->mut);
+	usblp = kzalloc(sizeof(struct usblp), GFP_KERNEL);
+	if (!usblp) {
+		retval = -ENOMEM;
+		goto abort_ret;
+	}
+	usblp->dev = dev;
+	mutex_init(&usblp->wmut);
+	mutex_init(&usblp->mut);
 	spin_lock_init(&usblp->lock);
 	init_waitqueue_head(&usblp->rwait);
 	init_waitqueue_head(&usblp->wwait);
@@ -1130,6 +1428,8 @@ static int usblp_probe(struct usb_interface *intf,
 	protocol = usblp_select_alts(usblp);
 	if (protocol < 0) {
 		dbg("incompatible printer-class device 0x%4.4X/0x%4.4X",
+		dev_dbg(&intf->dev,
+			"incompatible printer-class device 0x%4.4X/0x%4.4X\n",
 			le16_to_cpu(dev->descriptor.idVendor),
 			le16_to_cpu(dev->descriptor.idProduct));
 		retval = -ENODEV;
@@ -1153,6 +1453,7 @@ static int usblp_probe(struct usb_interface *intf,
 #endif
 
 	usb_set_intfdata (intf, usblp);
+	usb_set_intfdata(intf, usblp);
 
 	usblp->present = 1;
 
@@ -1166,6 +1467,14 @@ static int usblp_probe(struct usb_interface *intf,
 	usblp->minor = intf->minor;
 	printk(KERN_INFO "usblp%d: USB %sdirectional printer dev %d "
 		"if %d alt %d proto %d vid 0x%4.4X pid 0x%4.4X\n",
+		dev_err(&intf->dev,
+			"usblp: Not able to get a minor (base %u, slice default): %d\n",
+			USBLP_MINOR_BASE, retval);
+		goto abort_intfdata;
+	}
+	usblp->minor = intf->minor;
+	dev_info(&intf->dev,
+		"usblp%d: USB %sdirectional printer dev %d if %d alt %d proto %d vid 0x%4.4X pid 0x%4.4X\n",
 		usblp->minor, usblp->bidir ? "Bi" : "Uni", dev->devnum,
 		usblp->ifnum,
 		usblp->protocol[usblp->current_protocol].alt_setting,
@@ -1185,6 +1494,14 @@ abort:
 		kfree(usblp->device_id_string);
 		kfree(usblp);
 	}
+	usb_set_intfdata(intf, NULL);
+	device_remove_file(&intf->dev, &dev_attr_ieee1284_id);
+abort:
+	kfree(usblp->readbuf);
+	kfree(usblp->statusbuf);
+	kfree(usblp->device_id_string);
+	kfree(usblp);
+abort_ret:
 	return retval;
 }
 
@@ -1206,6 +1523,23 @@ abort:
  * stream-compatible, because this matches the behaviour of the old code.
  *
  * If nothing else, we bind to 7/1/1 - the unidirectional interface.
+ * for all USB printers (1=USB_CLASS_PRINTER/1/1, 2=USB_CLASS_PRINTER/1/2,
+ * 3=USB_CLASS_PRINTER/1/3).  If the device supports the preferred protocol,
+ * then we bind to it.
+ *
+ * The best interface for us is USB_CLASS_PRINTER/1/2, because it
+ * is compatible with a stream of characters. If we find it, we bind to it.
+ *
+ * Note that the people from hpoj.sourceforge.net need to be able to
+ * bind to USB_CLASS_PRINTER/1/3 (MLC/1284.4), so we provide them ioctls
+ * for this purpose.
+ *
+ * Failing USB_CLASS_PRINTER/1/2, we look for USB_CLASS_PRINTER/1/3,
+ * even though it's probably not stream-compatible, because this matches
+ * the behaviour of the old code.
+ *
+ * If nothing else, we bind to USB_CLASS_PRINTER/1/1
+ * - the unidirectional interface.
  */
 static int usblp_select_alts(struct usblp *usblp)
 {
@@ -1224,6 +1558,8 @@ static int usblp_select_alts(struct usblp *usblp)
 		ifd = &if_alt->altsetting[i];
 
 		if (ifd->desc.bInterfaceClass != 7 || ifd->desc.bInterfaceSubClass != 1)
+		if (ifd->desc.bInterfaceClass != USB_CLASS_PRINTER ||
+		    ifd->desc.bInterfaceSubClass != 1)
 			if (!(usblp->quirks & USBLP_QUIRK_BAD_CLASS))
 				continue;
 
@@ -1251,6 +1587,10 @@ static int usblp_select_alts(struct usblp *usblp)
 
 		/* Turn off reads for 7/1/1 (unidirectional) interfaces
 		 * and buggy bidirectional printers. */
+		/*
+		 * Turn off reads for USB_CLASS_PRINTER/1/1 (unidirectional)
+		 * interfaces and buggy bidirectional printers.
+		 */
 		if (ifd->desc.bInterfaceProtocol == 1) {
 			epread = NULL;
 		} else if (usblp->quirks & USBLP_QUIRK_BIDIR) {
@@ -1304,6 +1644,8 @@ static int usblp_set_protocol(struct usblp *usblp, int protocol)
 	usblp->bidir = (usblp->protocol[protocol].epread != NULL);
 	usblp->current_protocol = protocol;
 	dbg("usblp%d set protocol %d", usblp->minor, protocol);
+	dev_dbg(&usblp->intf->dev, "usblp%d set protocol %d\n",
+		usblp->minor, protocol);
 	return 0;
 }
 
@@ -1317,6 +1659,8 @@ static int usblp_cache_device_id_string(struct usblp *usblp)
 	err = usblp_get_id(usblp, 0, usblp->device_id_string, USBLP_DEVICE_ID_SIZE - 1);
 	if (err < 0) {
 		dbg("usblp%d: error = %d reading IEEE-1284 Device ID string",
+		dev_dbg(&usblp->intf->dev,
+			"usblp%d: error = %d reading IEEE-1284 Device ID string\n",
 			usblp->minor, err);
 		usblp->device_id_string[0] = usblp->device_id_string[1] = '\0';
 		return -EIO;
@@ -1333,6 +1677,7 @@ static int usblp_cache_device_id_string(struct usblp *usblp)
 	usblp->device_id_string[length] = '\0';
 
 	dbg("usblp%d Device ID string [len=%d]=\"%s\"",
+	dev_dbg(&usblp->intf->dev, "usblp%d Device ID string [len=%d]=\"%s\"\n",
 		usblp->minor, length, &usblp->device_id_string[2]);
 
 	return length;
@@ -1341,12 +1686,15 @@ static int usblp_cache_device_id_string(struct usblp *usblp)
 static void usblp_disconnect(struct usb_interface *intf)
 {
 	struct usblp *usblp = usb_get_intfdata (intf);
+	struct usblp *usblp = usb_get_intfdata(intf);
 
 	usb_deregister_dev(intf, &usblp_class);
 
 	if (!usblp || !usblp->dev) {
 		err("bogus disconnect");
 		BUG ();
+		dev_err(&intf->dev, "bogus disconnect\n");
+		BUG();
 	}
 
 	device_remove_file(&intf->dev, &dev_attr_ieee1284_id);
@@ -1372,6 +1720,25 @@ static int usblp_suspend (struct usb_interface *intf, pm_message_t message)
 
 	/* we take no more IO */
 	usblp->sleeping = 1;
+	mutex_lock(&usblp_mutex);
+	mutex_lock(&usblp->mut);
+	usblp->present = 0;
+	wake_up(&usblp->wwait);
+	wake_up(&usblp->rwait);
+	usb_set_intfdata(intf, NULL);
+
+	usblp_unlink_urbs(usblp);
+	mutex_unlock(&usblp->mut);
+
+	if (!usblp->used)
+		usblp_cleanup(usblp);
+	mutex_unlock(&usblp_mutex);
+}
+
+static int usblp_suspend(struct usb_interface *intf, pm_message_t message)
+{
+	struct usblp *usblp = usb_get_intfdata(intf);
+
 	usblp_unlink_urbs(usblp);
 #if 0 /* XXX Do we want this? What if someone is reading, should we fail? */
 	/* not strictly necessary, but just in case */
@@ -1389,6 +1756,12 @@ static int usblp_resume (struct usb_interface *intf)
 
 	usblp->sleeping = 0;
 	r = handle_bidir (usblp);
+static int usblp_resume(struct usb_interface *intf)
+{
+	struct usblp *usblp = usb_get_intfdata(intf);
+	int r;
+
+	r = handle_bidir(usblp);
 
 	return r;
 }
@@ -1400,11 +1773,19 @@ static struct usb_device_id usblp_ids [] = {
 	{ USB_INTERFACE_INFO(7, 1, 1) },
 	{ USB_INTERFACE_INFO(7, 1, 2) },
 	{ USB_INTERFACE_INFO(7, 1, 3) },
+static const struct usb_device_id usblp_ids[] = {
+	{ USB_DEVICE_INFO(USB_CLASS_PRINTER, 1, 1) },
+	{ USB_DEVICE_INFO(USB_CLASS_PRINTER, 1, 2) },
+	{ USB_DEVICE_INFO(USB_CLASS_PRINTER, 1, 3) },
+	{ USB_INTERFACE_INFO(USB_CLASS_PRINTER, 1, 1) },
+	{ USB_INTERFACE_INFO(USB_CLASS_PRINTER, 1, 2) },
+	{ USB_INTERFACE_INFO(USB_CLASS_PRINTER, 1, 3) },
 	{ USB_DEVICE(0x04b8, 0x0202) },	/* Seiko Epson Receipt Printer M129C */
 	{ }						/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, usblp_ids);
+MODULE_DEVICE_TABLE(usb, usblp_ids);
 
 static struct usb_driver usblp_driver = {
 	.name =		"usblp",
@@ -1431,6 +1812,10 @@ module_exit(usblp_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+module_usb_driver(usblp_driver);
+
+MODULE_AUTHOR(DRIVER_AUTHOR);
+MODULE_DESCRIPTION(DRIVER_DESC);
 module_param(proto_bias, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(proto_bias, "Favourite protocol number");
 MODULE_LICENSE("GPL");

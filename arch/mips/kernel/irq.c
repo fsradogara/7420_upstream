@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
+#include <linux/proc_fs.h>
 #include <linux/mm.h>
 #include <linux/random.h>
 #include <linux/sched.h>
@@ -68,6 +69,11 @@ void free_irqno(unsigned int irq)
 	clear_bit(irq, irq_map);
 	smp_mb__after_clear_bit();
 }
+
+#include <linux/ftrace.h>
+
+#include <linux/atomic.h>
+#include <asm/uaccess.h>
 
 /*
  * 'what should we do if we get a hw irq event on an illegal vector'.
@@ -123,6 +129,9 @@ skip:
 		seq_putc(p, '\n');
 		seq_printf(p, "ERR: %10u\n", atomic_read(&irq_err_count));
 	}
+int arch_show_interrupts(struct seq_file *p, int prec)
+{
+	seq_printf(p, "%*s: %10u\n", prec, "ERR", atomic_read(&irq_err_count));
 	return 0;
 }
 
@@ -150,3 +159,45 @@ void __init init_IRQ(void)
 		kgdb_early_setup = 1;
 #endif
 }
+	for (i = 0; i < NR_IRQS; i++)
+		irq_set_noprobe(i);
+
+	arch_init_irq();
+}
+
+#ifdef CONFIG_DEBUG_STACKOVERFLOW
+static inline void check_stack_overflow(void)
+{
+	unsigned long sp;
+
+	__asm__ __volatile__("move %0, $sp" : "=r" (sp));
+	sp &= THREAD_MASK;
+
+	/*
+	 * Check for stack overflow: is there less than STACK_WARN free?
+	 * STACK_WARN is defined as 1/8 of THREAD_SIZE by default.
+	 */
+	if (unlikely(sp < (sizeof(struct thread_info) + STACK_WARN))) {
+		printk("do_IRQ: stack overflow: %ld\n",
+		       sp - sizeof(struct thread_info));
+		dump_stack();
+	}
+}
+#else
+static inline void check_stack_overflow(void) {}
+#endif
+
+
+/*
+ * do_IRQ handles all normal device IRQ's (the special
+ * SMP cross-CPU interrupts have their own specific
+ * handlers).
+ */
+void __irq_entry do_IRQ(unsigned int irq)
+{
+	irq_enter();
+	check_stack_overflow();
+	generic_handle_irq(irq);
+	irq_exit();
+}
+

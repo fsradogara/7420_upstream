@@ -5,6 +5,7 @@
  * Copyright (c) 1998 Bas Vermeulen <bvermeul@blackstar.xs4all.nl>
  * Copyright (c) 2004 Christoph Hellwig <hch@lst.de>
  * Copyright (c) 2007 Red Hat <alan@redhat.com>
+ * Copyright (c) 2007 Red Hat
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -243,6 +244,7 @@ static u8 i91udftNvRam[64] =
 static u8 initio_rate_tbl[8] =	/* fast 20      */
 {
 				/* nanosecond devide by 4 */
+				/* nanosecond divide by 4 */
 	12,			/* 50ns,  20M   */
 	18,			/* 75ns,  13.3M */
 	25,			/* 100ns, 10M   */
@@ -532,6 +534,7 @@ static void initio_read_eeprom(unsigned long base)
  *	@host: InitIO we are stopping
  *
  *	Stop any pending DMA operation, aborting the DMA if neccessary
+ *	Stop any pending DMA operation, aborting the DMA if necessary
  */
 
 static void initio_stop_bm(struct initio_host * host)
@@ -1918,6 +1921,7 @@ static int int_initio_scsi_rst(struct initio_host * host)
 
 /**
  *	int_initio_scsi_resel	-	Reselection occured
+ *	int_initio_scsi_resel	-	Reselection occurred
  *	@host: InitIO host adapter
  *
  *	A SCSI reselection event has been signalled and the interrupt
@@ -2640,6 +2644,7 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
  */
 
 static int i91u_queuecommand(struct scsi_cmnd *cmd,
+static int i91u_queuecommand_lck(struct scsi_cmnd *cmd,
 		void (*done)(struct scsi_cmnd *))
 {
 	struct initio_host *host = (struct initio_host *) cmd->device->host->hostdata;
@@ -2655,6 +2660,8 @@ static int i91u_queuecommand(struct scsi_cmnd *cmd,
 	initio_exec_scb(host, cmnd);
 	return 0;
 }
+
+static DEF_SCSI_QCMD(i91u_queuecommand)
 
 /**
  *	i91u_bus_reset		-	reset the SCSI bus
@@ -2857,6 +2864,7 @@ static int initio_probe_one(struct pci_dev *pdev,
 	bios_seg = (bios_seg << 8) + ((u16) ((reg & 0xFF00) >> 8));
 
 	if (pci_set_dma_mask(pdev, DMA_32BIT_MASK)) {
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		printk(KERN_WARNING  "i91u: Could not set 32 bit DMA mask\n");
 		error = -ENODEV;
 		goto out_disable_device;
@@ -2931,6 +2939,7 @@ static int initio_probe_one(struct pci_dev *pdev,
 	shost->sg_tablesize = TOTAL_SG_ENTRY;
 
 	error = request_irq(pdev->irq, i91u_intr, IRQF_DISABLED|IRQF_SHARED, "i91u", shost);
+	error = request_irq(pdev->irq, i91u_intr, IRQF_SHARED, "i91u", shost);
 	if (error < 0) {
 		printk(KERN_WARNING "initio: Unable to request IRQ %d\n", pdev->irq);
 		goto out_free_scbs;
@@ -2992,6 +3001,7 @@ static struct pci_driver initio_pci_driver = {
 	.id_table	= initio_pci_tbl,
 	.probe		= initio_probe_one,
 	.remove		= __devexit_p(initio_remove_one),
+	.remove		= initio_remove_one,
 };
 
 static int __init initio_init_driver(void)

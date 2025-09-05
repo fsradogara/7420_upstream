@@ -2,6 +2,7 @@
  *  linux/fs/isofs/util.c
  */
 
+#include <linux/time.h>
 #include "isofs.h"
 
 /* 
@@ -20,6 +21,9 @@ int iso_date(char * p, int flag)
 	int crtime, days, i;
 
 	year = p[0] - 70;
+	int crtime;
+
+	year = p[0];
 	month = p[1];
 	day = p[2];
 	hour = p[3];
@@ -43,6 +47,7 @@ int iso_date(char * p, int flag)
 		days += day - 1;
 		crtime = ((((days * 24) + hour) * 60 + minute) * 60)
 			+ second;
+		crtime = mktime64(year+1900, month, day, hour, minute, second);
 
 		/* sign extend */
 		if (tz & 0x80)

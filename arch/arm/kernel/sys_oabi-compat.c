@@ -83,6 +83,8 @@
 #include <linux/net.h>
 #include <linux/ipc.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
 
 struct oldabi_stat64 {
 	unsigned long long st_dev;
@@ -125,6 +127,8 @@ static long cp_oldabi_stat64(struct kstat *stat,
 	tmp.st_nlink = stat->nlink;
 	tmp.st_uid = stat->uid;
 	tmp.st_gid = stat->gid;
+	tmp.st_uid = from_kuid_munged(current_user_ns(), stat->uid);
+	tmp.st_gid = from_kgid_munged(current_user_ns(), stat->gid);
 	tmp.st_rdev = huge_encode_dev(stat->rdev);
 	tmp.st_size = stat->size;
 	tmp.st_blocks = stat->blocks;
@@ -141,6 +145,7 @@ static long cp_oldabi_stat64(struct kstat *stat,
 }
 
 asmlinkage long sys_oabi_stat64(char __user * filename,
+asmlinkage long sys_oabi_stat64(const char __user * filename,
 				struct oldabi_stat64 __user * statbuf)
 {
 	struct kstat stat;
@@ -151,6 +156,7 @@ asmlinkage long sys_oabi_stat64(char __user * filename,
 }
 
 asmlinkage long sys_oabi_lstat64(char __user * filename,
+asmlinkage long sys_oabi_lstat64(const char __user * filename,
 				 struct oldabi_stat64 __user * statbuf)
 {
 	struct kstat stat;
@@ -172,6 +178,7 @@ asmlinkage long sys_oabi_fstat64(unsigned long fd,
 
 asmlinkage long sys_oabi_fstatat64(int dfd,
 				   char __user *filename,
+				   const char __user *filename,
 				   struct oldabi_stat64  __user *statbuf,
 				   int flag)
 {
@@ -191,6 +198,12 @@ asmlinkage long sys_oabi_fstatat64(int dfd,
 
 out:
 	return error;
+	int error;
+
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+	if (error)
+		return error;
+	return cp_oldabi_stat64(&stat, statbuf);
 }
 
 struct oabi_flock64 {
@@ -247,6 +260,56 @@ asmlinkage long sys_oabi_fcntl64(unsigned int fd, unsigned int cmd,
 	}
 
 	return ret;
+static long do_locks(unsigned int fd, unsigned int cmd,
+				 unsigned long arg)
+{
+	struct flock64 kernel;
+	struct oabi_flock64 user;
+	mm_segment_t fs;
+	long ret;
+
+	if (copy_from_user(&user, (struct oabi_flock64 __user *)arg,
+			   sizeof(user)))
+		return -EFAULT;
+	kernel.l_type	= user.l_type;
+	kernel.l_whence	= user.l_whence;
+	kernel.l_start	= user.l_start;
+	kernel.l_len	= user.l_len;
+	kernel.l_pid	= user.l_pid;
+
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+	ret = sys_fcntl64(fd, cmd, (unsigned long)&kernel);
+	set_fs(fs);
+
+	if (!ret && (cmd == F_GETLK64 || cmd == F_OFD_GETLK)) {
+		user.l_type	= kernel.l_type;
+		user.l_whence	= kernel.l_whence;
+		user.l_start	= kernel.l_start;
+		user.l_len	= kernel.l_len;
+		user.l_pid	= kernel.l_pid;
+		if (copy_to_user((struct oabi_flock64 __user *)arg,
+				 &user, sizeof(user)))
+			ret = -EFAULT;
+	}
+	return ret;
+}
+
+asmlinkage long sys_oabi_fcntl64(unsigned int fd, unsigned int cmd,
+				 unsigned long arg)
+{
+	switch (cmd) {
+	case F_OFD_GETLK:
+	case F_OFD_SETLK:
+	case F_OFD_SETLKW:
+	case F_GETLK64:
+	case F_SETLK64:
+	case F_SETLKW64:
+		return do_locks(fd, cmd, arg);
+
+	default:
+		return sys_fcntl64(fd, cmd, arg);
+	}
 }
 
 struct oabi_epoll_event {
@@ -320,6 +383,7 @@ asmlinkage long sys_oabi_semtimedop(int semid,
 	int i;
 
 	if (nsops < 1)
+	if (nsops < 1 || nsops > SEMOPM)
 		return -EINVAL;
 	sops = kmalloc(sizeof(*sops) * nsops, GFP_KERNEL);
 	if (!sops)
@@ -409,6 +473,7 @@ asmlinkage long sys_oabi_sendto(int fd, void __user *buff,
 }
 
 asmlinkage long sys_oabi_sendmsg(int fd, struct msghdr __user *msg, unsigned flags)
+asmlinkage long sys_oabi_sendmsg(int fd, struct user_msghdr __user *msg, unsigned flags)
 {
 	struct sockaddr __user *addr;
 	int msg_namelen;
@@ -455,6 +520,7 @@ asmlinkage long sys_oabi_socketcall(int call, unsigned long __user *args)
 	case SYS_SENDMSG:
 		if (copy_from_user(a, args, 3 * sizeof(long)) == 0)
 			r = sys_oabi_sendmsg(a[0], (struct msghdr __user *)a[1], a[2]);
+			r = sys_oabi_sendmsg(a[0], (struct user_msghdr __user *)a[1], a[2]);
 		break;
 	default:
 		r = sys_socketcall(call, args);

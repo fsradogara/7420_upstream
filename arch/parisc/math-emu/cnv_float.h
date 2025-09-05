@@ -357,6 +357,15 @@
     	Dintp2(dresultB) = Sall(sgl_value) << (exponent - 31);		\
     }									\
     Sall(sgl_value) >>= SGL_EXP_LENGTH;  /* return to original */	\
+  {unsigned int val = Sall(sgl_value) << SGL_EXP_LENGTH;		\
+    if (exponent <= 31) {						\
+	Dintp1(dresultA) = 0;						\
+	Dintp2(dresultB) = val >> (31 - exponent);			\
+    }									\
+    else {								\
+	Dintp1(dresultA) = val >> (63 - exponent);			\
+	Dintp2(dresultB) = exponent <= 62 ? val << (exponent - 31) : 0;	\
+    }									\
   }
 
 #define Duint_setzero(dresultA,dresultB) 	\

@@ -20,6 +20,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
+#include <sound/asoundef.h>
 #include "seq_oss_midi.h"
 #include "seq_oss_readq.h"
 #include "seq_oss_timer.h"
@@ -27,6 +28,7 @@
 #include <sound/seq_midi_event.h>
 #include "../seq_lock.h"
 #include <linux/init.h>
+#include <linux/slab.h>
 
 
 /*
@@ -71,6 +73,7 @@ static int send_midi_event(struct seq_oss_devinfo *dp, struct snd_seq_event *ev,
  * this looks a very exhausting job.
  */
 int __init
+int
 snd_seq_oss_midi_lookup_ports(int client)
 {
 	struct snd_seq_client_info *clinfo;
@@ -176,6 +179,9 @@ snd_seq_oss_midi_check_new_port(struct snd_seq_port_info *pinfo)
 		snd_printk(KERN_ERR "can't malloc midi info\n");
 		return -ENOMEM;
 	}
+	mdev = kzalloc(sizeof(*mdev), GFP_KERNEL);
+	if (!mdev)
+		return -ENOMEM;
 
 	/* copy the port information */
 	mdev->client = pinfo->addr.client;
@@ -190,6 +196,7 @@ snd_seq_oss_midi_check_new_port(struct snd_seq_port_info *pinfo)
 	/* create MIDI coder */
 	if (snd_midi_event_new(MAX_MIDI_EVENT_BUF, &mdev->coder) < 0) {
 		snd_printk(KERN_ERR "can't malloc midi coder\n");
+		pr_err("ALSA: seq_oss: can't malloc midi coder\n");
 		kfree(mdev);
 		return -ENOMEM;
 	}
@@ -238,6 +245,7 @@ snd_seq_oss_midi_check_exit_port(int client, int port)
 		snd_use_lock_sync(&mdev->use_lock);
 		if (mdev->coder)
 			snd_midi_event_free(mdev->coder);
+		snd_midi_event_free(mdev->coder);
 		kfree(mdev);
 	}
 	spin_lock_irqsave(&register_lock, flags);
@@ -266,6 +274,7 @@ snd_seq_oss_midi_clear_all(void)
 		if ((mdev = midi_devs[i]) != NULL) {
 			if (mdev->coder)
 				snd_midi_event_free(mdev->coder);
+			snd_midi_event_free(mdev->coder);
 			kfree(mdev);
 			midi_devs[i] = NULL;
 		}
@@ -477,6 +486,7 @@ snd_seq_oss_midi_reset(struct seq_oss_devinfo *dp, int dev)
 		if (dp->seq_mode == SNDRV_SEQ_OSS_MODE_SYNTH) {
 			ev.type = SNDRV_SEQ_EVENT_SENSING;
 			snd_seq_oss_dispatch(dp, &ev, 0, 0); /* active sensing */
+			snd_seq_oss_dispatch(dp, &ev, 0, 0);
 		}
 		for (c = 0; c < 16; c++) {
 			ev.type = SNDRV_SEQ_EVENT_CONTROLLER;
@@ -489,6 +499,15 @@ snd_seq_oss_midi_reset(struct seq_oss_devinfo *dp, int dev)
 				ev.type = SNDRV_SEQ_EVENT_PITCHBEND;
 				ev.data.control.value = 0;
 				snd_seq_oss_dispatch(dp, &ev, 0, 0); /* bender off */
+			ev.data.control.param = MIDI_CTL_ALL_NOTES_OFF;
+			snd_seq_oss_dispatch(dp, &ev, 0, 0);
+			if (dp->seq_mode == SNDRV_SEQ_OSS_MODE_MUSIC) {
+				ev.data.control.param =
+					MIDI_CTL_RESET_CONTROLLERS;
+				snd_seq_oss_dispatch(dp, &ev, 0, 0);
+				ev.type = SNDRV_SEQ_EVENT_PITCHBEND;
+				ev.data.control.value = 0;
+				snd_seq_oss_dispatch(dp, &ev, 0, 0);
 			}
 		}
 	}
@@ -669,6 +688,7 @@ snd_seq_oss_midi_make_info(struct seq_oss_devinfo *dp, int dev, struct midi_info
 
 
 #ifdef CONFIG_PROC_FS
+#ifdef CONFIG_SND_PROC_FS
 /*
  * proc interface
  */
@@ -709,3 +729,4 @@ snd_seq_oss_midi_info_read(struct snd_info_buffer *buf)
 	}
 }
 #endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_SND_PROC_FS */

@@ -47,6 +47,10 @@ void module_free(struct module *mod, void *module_region)
            table entries. */
 }
 
+#include <asm/setup.h>
+
+LIST_HEAD(module_bug_list);
+
 static const Elf_Shdr *find_section(const Elf_Ehdr *hdr,
 				    const Elf_Shdr *sechdrs,
 				    const char *name)
@@ -75,6 +79,12 @@ int module_finalize(const Elf_Ehdr *hdr,
 	sect = find_section(hdr, sechdrs, "__ftr_fixup");
 	if (sect != NULL)
 		do_feature_fixups(cur_cpu_spec->cpu_features,
+				  (void *)sect->sh_addr,
+				  (void *)sect->sh_addr + sect->sh_size);
+
+	sect = find_section(hdr, sechdrs, "__mmu_ftr_fixup");
+	if (sect != NULL)
+		do_feature_fixups(cur_cpu_spec->mmu_features,
 				  (void *)sect->sh_addr,
 				  (void *)sect->sh_addr + sect->sh_size);
 

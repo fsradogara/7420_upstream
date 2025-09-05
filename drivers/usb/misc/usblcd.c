@@ -19,6 +19,10 @@
 #include <linux/errno.h>
 #include <linux/mutex.h>
 #include <asm/uaccess.h>
+#include <linux/slab.h>
+#include <linux/errno.h>
+#include <linux/mutex.h>
+#include <linux/uaccess.h>
 #include <linux/usb.h>
 
 #define DRIVER_VERSION "USBLCD Driver Version 1.05"
@@ -34,6 +38,12 @@ static struct usb_device_id id_table [] = {
 	{ },
 };
 MODULE_DEVICE_TABLE (usb, id_table);
+static DEFINE_MUTEX(lcd_mutex);
+static const struct usb_device_id id_table[] = {
+	{ .idVendor = 0x10D2, .match_flags = USB_DEVICE_ID_MATCH_VENDOR, },
+	{ },
+};
+MODULE_DEVICE_TABLE(usb, id_table);
 
 static DEFINE_MUTEX(open_disc_mutex);
 
@@ -49,6 +59,23 @@ struct usb_lcd {
 	struct semaphore	limit_sem;		/* to stop writes at full throttle from
 							 * using up all RAM */
 	struct usb_anchor	submitted;		/* URBs to wait for before suspend */
+	struct usb_device	*udev;			/* init: probe_lcd */
+	struct usb_interface	*interface;		/* the interface for
+							   this device */
+	unsigned char		*bulk_in_buffer;	/* the buffer to receive
+							   data */
+	size_t			bulk_in_size;		/* the size of the
+							   receive buffer */
+	__u8			bulk_in_endpointAddr;	/* the address of the
+							   bulk in endpoint */
+	__u8			bulk_out_endpointAddr;	/* the address of the
+							   bulk out endpoint */
+	struct kref		kref;
+	struct semaphore	limit_sem;		/* to stop writes at
+							   full throttle from
+							   using up all RAM */
+	struct usb_anchor	submitted;		/* URBs to wait for
+							   before suspend */
 };
 #define to_lcd_dev(d) container_of(d, struct usb_lcd, kref)
 
@@ -64,6 +91,8 @@ static void lcd_delete(struct kref *kref)
 	usb_put_dev(dev->udev);
 	kfree (dev->bulk_in_buffer);
 	kfree (dev);
+	kfree(dev->bulk_in_buffer);
+	kfree(dev);
 }
 
 
@@ -73,12 +102,16 @@ static int lcd_open(struct inode *inode, struct file *file)
 	struct usb_interface *interface;
 	int subminor, r;
 
+	mutex_lock(&lcd_mutex);
 	subminor = iminor(inode);
 
 	interface = usb_find_interface(&lcd_driver, subminor);
 	if (!interface) {
 		err ("USBLCD: %s - error, can't find device for minor %d",
 		     __func__, subminor);
+		mutex_unlock(&lcd_mutex);
+		printk(KERN_ERR "USBLCD: %s - error, can't find device for minor %d\n",
+		       __func__, subminor);
 		return -ENODEV;
 	}
 
@@ -86,6 +119,7 @@ static int lcd_open(struct inode *inode, struct file *file)
 	dev = usb_get_intfdata(interface);
 	if (!dev) {
 		mutex_unlock(&open_disc_mutex);
+		mutex_unlock(&lcd_mutex);
 		return -ENODEV;
 	}
 
@@ -97,11 +131,13 @@ static int lcd_open(struct inode *inode, struct file *file)
 	r = usb_autopm_get_interface(interface);
 	if (r < 0) {
 		kref_put(&dev->kref, lcd_delete);
+		mutex_unlock(&lcd_mutex);
 		return r;
 	}
 
 	/* save our object in the file's private structure */
 	file->private_data = dev;
+	mutex_unlock(&lcd_mutex);
 
 	return 0;
 }
@@ -111,6 +147,7 @@ static int lcd_release(struct inode *inode, struct file *file)
 	struct usb_lcd *dev;
 
 	dev = (struct usb_lcd *)file->private_data;
+	dev = file->private_data;
 	if (dev == NULL)
 		return -ENODEV;
 
@@ -121,6 +158,8 @@ static int lcd_release(struct inode *inode, struct file *file)
 }
 
 static ssize_t lcd_read(struct file *file, char __user * buffer, size_t count, loff_t *ppos)
+static ssize_t lcd_read(struct file *file, char __user * buffer,
+			size_t count, loff_t *ppos)
 {
 	struct usb_lcd *dev;
 	int retval = 0;
@@ -131,6 +170,12 @@ static ssize_t lcd_read(struct file *file, char __user * buffer, size_t count, l
 	/* do a blocking bulk read to get data from the device */
 	retval = usb_bulk_msg(dev->udev, 
 			      usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
+	dev = file->private_data;
+
+	/* do a blocking bulk read to get data from the device */
+	retval = usb_bulk_msg(dev->udev,
+			      usb_rcvbulkpipe(dev->udev,
+					      dev->bulk_in_endpointAddr),
 			      dev->bulk_in_buffer,
 			      min(dev->bulk_in_size, count),
 			      &bytes_read, 10000);
@@ -161,6 +206,15 @@ static long lcd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		lock_kernel();
 		bcdDevice = le16_to_cpu((dev->udev)->descriptor.bcdDevice);
 		sprintf(buf,"%1d%1d.%1d%1d",
+	dev = file->private_data;
+	if (dev == NULL)
+		return -ENODEV;
+
+	switch (cmd) {
+	case IOCTL_GET_HARD_VERSION:
+		mutex_lock(&lcd_mutex);
+		bcdDevice = le16_to_cpu((dev->udev)->descriptor.bcdDevice);
+		sprintf(buf, "%1d%1d.%1d%1d",
 			(bcdDevice & 0xF000)>>12,
 			(bcdDevice & 0xF00)>>8,
 			(bcdDevice & 0xF0)>>4,
@@ -172,6 +226,13 @@ static long lcd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case IOCTL_GET_DRV_VERSION:
 		sprintf(buf,DRIVER_VERSION);
 		if (copy_to_user((void __user *)arg,buf,strlen(buf))!=0)
+		mutex_unlock(&lcd_mutex);
+		if (copy_to_user((void __user *)arg, buf, strlen(buf)) != 0)
+			return -EFAULT;
+		break;
+	case IOCTL_GET_DRV_VERSION:
+		sprintf(buf, DRIVER_VERSION);
+		if (copy_to_user((void __user *)arg, buf, strlen(buf)) != 0)
 			return -EFAULT;
 		break;
 	default:
@@ -213,6 +274,27 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer, siz
 	
 	dev = (struct usb_lcd *)file->private_data;
 	
+	      status == -ESHUTDOWN)) {
+		dev_dbg(&dev->interface->dev,
+			"nonzero write bulk status received: %d\n", status);
+	}
+
+	/* free up our allocated buffer */
+	usb_free_coherent(urb->dev, urb->transfer_buffer_length,
+			  urb->transfer_buffer, urb->transfer_dma);
+	up(&dev->limit_sem);
+}
+
+static ssize_t lcd_write(struct file *file, const char __user * user_buffer,
+			 size_t count, loff_t *ppos)
+{
+	struct usb_lcd *dev;
+	int retval = 0, r;
+	struct urb *urb = NULL;
+	char *buf = NULL;
+
+	dev = file->private_data;
+
 	/* verify that we actually have some data to write */
 	if (count == 0)
 		goto exit;
@@ -229,11 +311,15 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer, siz
 	}
 	
 	buf = usb_buffer_alloc(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+
+	buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL,
+				 &urb->transfer_dma);
 	if (!buf) {
 		retval = -ENOMEM;
 		goto error;
 	}
 	
+
 	if (copy_from_user(buf, user_buffer, count)) {
 		retval = -EFAULT;
 		goto error;
@@ -242,6 +328,11 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer, siz
 	/* initialize the urb properly */
 	usb_fill_bulk_urb(urb, dev->udev,
 			  usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
+
+	/* initialize the urb properly */
+	usb_fill_bulk_urb(urb, dev->udev,
+			  usb_sndbulkpipe(dev->udev,
+			  dev->bulk_out_endpointAddr),
 			  buf, count, lcd_write_bulk_callback, dev);
 	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
@@ -255,6 +346,18 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer, siz
 	}
 	
 	/* release our reference to this urb, the USB core will eventually free it entirely */
+
+	/* send the data out the bulk port */
+	retval = usb_submit_urb(urb, GFP_KERNEL);
+	if (retval) {
+		dev_err(&dev->udev->dev,
+			"%s - failed submitting write urb, error %d\n",
+			__func__, retval);
+		goto error_unanchor;
+	}
+
+	/* release our reference to this urb,
+	   the USB core will eventually free it entirely */
 	usb_free_urb(urb);
 
 exit:
@@ -263,6 +366,7 @@ error_unanchor:
 	usb_unanchor_urb(urb);
 error:
 	usb_buffer_free(dev->udev, count, buf, urb->transfer_dma);
+	usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
 	usb_free_urb(urb);
 err_no_buf:
 	up(&dev->limit_sem);
@@ -276,6 +380,13 @@ static const struct file_operations lcd_fops = {
         .open =         lcd_open,
 	.unlocked_ioctl = lcd_ioctl,
         .release =      lcd_release,
+	.owner =        THIS_MODULE,
+	.read =         lcd_read,
+	.write =        lcd_write,
+	.open =         lcd_open,
+	.unlocked_ioctl = lcd_ioctl,
+	.release =      lcd_release,
+	.llseek =	 noop_llseek,
 };
 
 /*
@@ -289,6 +400,13 @@ static struct usb_class_driver lcd_class = {
 };
 
 static int lcd_probe(struct usb_interface *interface, const struct usb_device_id *id)
+	.name =         "lcd%d",
+	.fops =         &lcd_fops,
+	.minor_base =   USBLCD_MINOR,
+};
+
+static int lcd_probe(struct usb_interface *interface,
+		     const struct usb_device_id *id)
 {
 	struct usb_lcd *dev = NULL;
 	struct usb_host_interface *iface_desc;
@@ -301,6 +419,7 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		err("Out of memory");
+		dev_err(&interface->dev, "Out of memory\n");
 		goto error;
 	}
 	kref_init(&dev->kref);
@@ -315,6 +434,11 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 		return -ENODEV;
 	}
 	
+		dev_warn(&interface->dev, "USBLCD model not supported.\n");
+		retval = -ENODEV;
+		goto error;
+	}
+
 	/* set up the endpoint information */
 	/* use only the first bulk-in and bulk-out endpoints */
 	iface_desc = interface->cur_altsetting;
@@ -325,11 +449,14 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 		    usb_endpoint_is_bulk_in(endpoint)) {
 			/* we found a bulk in endpoint */
 			buffer_size = le16_to_cpu(endpoint->wMaxPacketSize);
+			buffer_size = usb_endpoint_maxp(endpoint);
 			dev->bulk_in_size = buffer_size;
 			dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
 			dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
 			if (!dev->bulk_in_buffer) {
 				err("Could not allocate bulk_in_buffer");
+				dev_err(&interface->dev,
+					"Could not allocate bulk_in_buffer\n");
 				goto error;
 			}
 		}
@@ -342,6 +469,8 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 	}
 	if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
 		err("Could not find both bulk-in and bulk-out endpoints");
+		dev_err(&interface->dev,
+			"Could not find both bulk-in and bulk-out endpoints\n");
 		goto error;
 	}
 
@@ -353,6 +482,8 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 	if (retval) {
 		/* something prevented us from registering this driver */
 		err("Not able to get a minor for this device.");
+		dev_err(&interface->dev,
+			"Not able to get a minor for this device.\n");
 		usb_set_intfdata(interface, NULL);
 		goto error;
 	}
@@ -365,6 +496,13 @@ static int lcd_probe(struct usb_interface *interface, const struct usb_device_id
 
 	/* let the user know what node this device is now attached to */
 	info("USB LCD device now attached to USBLCD-%d", interface->minor);
+	dev_info(&interface->dev, "USBLCD Version %1d%1d.%1d%1d found "
+		 "at address %d\n", (i & 0xF000)>>12, (i & 0xF00)>>8,
+		 (i & 0xF0)>>4, (i & 0xF), dev->udev->devnum);
+
+	/* let the user know what node this device is now attached to */
+	dev_info(&interface->dev, "USB LCD device now attached to USBLCD-%d\n",
+		 interface->minor);
 	return 0;
 
 error:
@@ -393,6 +531,7 @@ static int lcd_suspend(struct usb_interface *intf, pm_message_t message)
 }
 
 static int lcd_resume (struct usb_interface *intf)
+static int lcd_resume(struct usb_interface *intf)
 {
 	return 0;
 }
@@ -414,6 +553,20 @@ static void lcd_disconnect(struct usb_interface *interface)
 	kref_put(&dev->kref, lcd_delete);
 
 	info("USB LCD #%d now disconnected", minor);
+	int minor = interface->minor;
+
+	mutex_lock(&open_disc_mutex);
+	dev = usb_get_intfdata(interface);
+	usb_set_intfdata(interface, NULL);
+	mutex_unlock(&open_disc_mutex);
+
+	/* give back our minor */
+	usb_deregister_dev(interface, &lcd_class);
+
+	/* decrement our usage count */
+	kref_put(&dev->kref, lcd_delete);
+
+	dev_info(&interface->dev, "USB LCD #%d now disconnected\n", minor);
 }
 
 static struct usb_driver lcd_driver = {
@@ -445,6 +598,7 @@ static void __exit usb_lcd_exit(void)
 
 module_init(usb_lcd_init);
 module_exit(usb_lcd_exit);
+module_usb_driver(lcd_driver);
 
 MODULE_AUTHOR("Georges Toth <g.toth@e-biz.lu>");
 MODULE_DESCRIPTION(DRIVER_VERSION);

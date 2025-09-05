@@ -64,6 +64,23 @@ int sun3x_hwclk(int set, struct rtc_time *t)
 		t->tm_mday = BCD2BIN(h->mday);
 		t->tm_mon = BCD2BIN(h->month);
 		t->tm_year = BCD2BIN(h->year);
+		h->sec = bin2bcd(t->tm_sec);
+		h->min = bin2bcd(t->tm_min);
+		h->hour = bin2bcd(t->tm_hour);
+		h->wday = bin2bcd(t->tm_wday);
+		h->mday = bin2bcd(t->tm_mday);
+		h->month = bin2bcd(t->tm_mon);
+		h->year = bin2bcd(t->tm_year);
+		h->csr &= ~C_WRITE;
+	} else {
+		h->csr |= C_READ;
+		t->tm_sec = bcd2bin(h->sec);
+		t->tm_min = bcd2bin(h->min);
+		t->tm_hour = bcd2bin(h->hour);
+		t->tm_wday = bcd2bin(h->wday);
+		t->tm_mday = bcd2bin(h->mday);
+		t->tm_mon = bcd2bin(h->month);
+		t->tm_year = bcd2bin(h->year);
 		h->csr &= ~C_READ;
 	}
 
@@ -73,6 +90,7 @@ int sun3x_hwclk(int set, struct rtc_time *t)
 }
 /* Not much we can do here */
 unsigned long sun3x_gettimeoffset (void)
+u32 sun3x_gettimeoffset(void)
 {
     return 0L;
 }

@@ -21,6 +21,7 @@
  */
 
 #include <asm/io.h>
+#include <linux/io.h>
 #include <linux/interrupt.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -28,6 +29,8 @@
 #include <linux/wait.h>
 #include <linux/firmware.h>
 #include <linux/moduleparam.h>
+#include <linux/slab.h>
+#include <linux/module.h>
 #include <sound/core.h>
 #include <sound/snd_wavefront.h>
 #include <sound/initval.h>
@@ -537,6 +540,7 @@ munge_int32 (unsigned int src,
 
 		dst++;
  	};
+	}
 	return dst;
 };
 
@@ -634,6 +638,7 @@ wavefront_get_sample_status (snd_wavefront_t *dev, int assume_rom)
 
 		if (snd_wavefront_cmd (dev, WFC_IDENTIFY_SAMPLE_TYPE, rbuf, wbuf)) {
 			snd_printk("cannot identify sample "
+			snd_printk(KERN_WARNING "cannot identify sample "
 				   "type of slot %d\n", i);
 			dev->sample_status[i] = WF_ST_EMPTY;
 			continue;
@@ -792,6 +797,7 @@ wavefront_send_patch (snd_wavefront_t *dev, wavefront_patch_info *header)
 	if (snd_wavefront_cmd (dev, WFC_DOWNLOAD_PATCH, NULL, buf)) {
 		snd_printk ("download patch failed\n");
 		return -(EIO);
+		return -EIO;
 	}
 
 	return (0);
@@ -830,6 +836,7 @@ wavefront_send_program (snd_wavefront_t *dev, wavefront_patch_info *header)
 	if (snd_wavefront_cmd (dev, WFC_DOWNLOAD_PROGRAM, NULL, buf)) {
 		snd_printk ("download patch failed\n");	
 		return -(EIO);
+		return -EIO;
 	}
 
 	return (0);
@@ -951,6 +958,7 @@ wavefront_send_sample (snd_wavefront_t *dev,
 		snd_printk ("channel selection only "
 			    "possible on 16-bit samples");
 		return -(EINVAL);
+		return -EINVAL;
 	}
 
 	switch (skip) {
@@ -1048,6 +1056,7 @@ wavefront_send_sample (snd_wavefront_t *dev,
 		snd_printk ("sample %sdownload refused.\n",
 			    header->size ? "" : "header ");
 		return -(EIO);
+		return -EIO;
 	}
 
 	if (header->size == 0) {
@@ -1074,6 +1083,7 @@ wavefront_send_sample (snd_wavefront_t *dev,
 			snd_printk ("download block "
 				    "request refused.\n");
 			return -(EIO);
+			return -EIO;
 		}
 
 		for (i = 0; i < blocksize; i++) {
@@ -1134,11 +1144,13 @@ wavefront_send_sample (snd_wavefront_t *dev,
 				snd_printk ("upload sample "
 					    "DMA ack timeout\n");
 				return -(EIO);
+				return -EIO;
 			} else {
 				snd_printk ("upload sample "
 					    "DMA ack error 0x%x\n",
 					    dma_ack);
 				return -(EIO);
+				return -EIO;
 			}
 		}
 	}
@@ -1180,6 +1192,7 @@ wavefront_send_alias (snd_wavefront_t *dev, wavefront_patch_info *header)
 	if (snd_wavefront_cmd (dev, WFC_DOWNLOAD_SAMPLE_ALIAS, NULL, alias_hdr)) {
 		snd_printk ("download alias failed.\n");
 		return -(EIO);
+		return -EIO;
 	}
 
 	dev->sample_status[header->number] = (WF_SLOT_FILLED|WF_ST_ALIAS);
@@ -1195,6 +1208,7 @@ wavefront_send_multisample (snd_wavefront_t *dev, wavefront_patch_info *header)
 	unsigned char *msample_hdr;
 
 	msample_hdr = kmalloc(sizeof(WF_MSAMPLE_BYTES), GFP_KERNEL);
+	msample_hdr = kmalloc(WF_MSAMPLE_BYTES, GFP_KERNEL);
 	if (! msample_hdr)
 		return -ENOMEM;
 
@@ -1231,6 +1245,7 @@ wavefront_send_multisample (snd_wavefront_t *dev, wavefront_patch_info *header)
 		snd_printk ("download of multisample failed.\n");
 		kfree(msample_hdr);
 		return -(EIO);
+		return -EIO;
 	}
 
 	dev->sample_status[header->number] = (WF_SLOT_FILLED|WF_ST_MULTISAMPLE);
@@ -1253,6 +1268,7 @@ wavefront_fetch_multisample (snd_wavefront_t *dev,
 	if (snd_wavefront_cmd (dev, WFC_UPLOAD_MULTISAMPLE, log_ns, number)) {
 		snd_printk ("upload multisample failed.\n");
 		return -(EIO);
+		return -EIO;
 	}
     
 	DPRINT (WF_DEBUG_DATA, "msample %d has %d samples\n",
@@ -1272,6 +1288,7 @@ wavefront_fetch_multisample (snd_wavefront_t *dev,
 			snd_printk ("upload multisample failed "
 				    "during sample loop.\n");
 			return -(EIO);
+			return -EIO;
 		}
 		d[0] = val;
 
@@ -1279,6 +1296,7 @@ wavefront_fetch_multisample (snd_wavefront_t *dev,
 			snd_printk ("upload multisample failed "
 				    "during sample loop.\n");
 			return -(EIO);
+			return -EIO;
 		}
 		d[1] = val;
 	
@@ -1314,6 +1332,7 @@ wavefront_send_drum (snd_wavefront_t *dev, wavefront_patch_info *header)
 	if (snd_wavefront_cmd (dev, WFC_DOWNLOAD_EDRUM_PROGRAM, NULL, drumbuf)) {
 		snd_printk ("download drum failed.\n");
 		return -(EIO);
+		return -EIO;
 	}
 
 	return (0);
@@ -1651,6 +1670,10 @@ snd_wavefront_synth_ioctl (struct snd_hwdep *hw, struct file *file,
 	snd_assert(card != NULL, return -ENODEV);
 
 	snd_assert(card->private_data != NULL, return -ENODEV);
+	if (snd_BUG_ON(!card))
+		return -ENODEV;
+	if (snd_BUG_ON(!card->private_data))
+		return -ENODEV;
 
 	acard = card->private_data;
 	dev = &acard->wavefront;
@@ -1669,6 +1692,11 @@ snd_wavefront_synth_ioctl (struct snd_hwdep *hw, struct file *file,
 		if (copy_from_user (wc, argp, sizeof (*wc)))
 			err = -EFAULT;
 		else if (wavefront_synth_control (acard, wc) < 0)
+		wc = memdup_user(argp, sizeof(*wc));
+		if (IS_ERR(wc))
+			return PTR_ERR(wc);
+
+		if (wavefront_synth_control (acard, wc) < 0)
 			err = -EIO;
 		else if (copy_to_user (argp, wc, sizeof (*wc)))
 			err = -EFAULT;
@@ -1738,6 +1766,7 @@ snd_wavefront_internal_interrupt (snd_wavefront_card_t *card)
 */
 
 static int __devinit
+static int
 snd_wavefront_interrupt_bits (int irq)
 
 {
@@ -1766,6 +1795,7 @@ snd_wavefront_interrupt_bits (int irq)
 }
 
 static void __devinit
+static void
 wavefront_should_cause_interrupt (snd_wavefront_t *dev, 
 				  int val, int port, unsigned long timeout)
 
@@ -1785,6 +1815,7 @@ wavefront_should_cause_interrupt (snd_wavefront_t *dev,
 }
 
 static int __devinit
+static int
 wavefront_reset_to_cleanliness (snd_wavefront_t *dev)
 
 {
@@ -1936,6 +1967,7 @@ wavefront_reset_to_cleanliness (snd_wavefront_t *dev)
 }
 
 static int __devinit
+static int
 wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 
 {
@@ -2009,6 +2041,7 @@ wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 
 
 static int __devinit
+static int
 wavefront_do_reset (snd_wavefront_t *dev)
 
 {
@@ -2098,6 +2131,7 @@ wavefront_do_reset (snd_wavefront_t *dev)
 }
 
 int __devinit
+int
 snd_wavefront_start (snd_wavefront_t *dev)
 
 {
@@ -2140,6 +2174,7 @@ snd_wavefront_start (snd_wavefront_t *dev)
 }
 
 int __devinit
+int
 snd_wavefront_detect (snd_wavefront_card_t *card)
 
 {

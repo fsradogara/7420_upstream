@@ -5,6 +5,8 @@
  *	Mitsuru KANDA @USAGI
  * 	Kazunori MIYAZAWA @USAGI
  * 	Kunihiro Ishiguro <kunihiro@ipinfusion.com>
+ *	Kazunori MIYAZAWA @USAGI
+ *	Kunihiro Ishiguro <kunihiro@ipinfusion.com>
  *	YOSHIFUJI Hideaki @USAGI
  *		IPv6 support
  */
@@ -43,6 +45,8 @@ int xfrm6_transport_finish(struct sk_buff *skb, int async)
 	__skb_push(skb, skb->data - skb_network_header(skb));
 
 	NF_HOOK(PF_INET6, NF_INET_PRE_ROUTING, skb, skb->dev, NULL,
+	NF_HOOK(NFPROTO_IPV6, NF_INET_PRE_ROUTING,
+		dev_net(skb->dev), NULL, skb, skb->dev, NULL,
 		ip6_rcv_finish);
 	return -1;
 }
@@ -58,6 +62,7 @@ EXPORT_SYMBOL(xfrm6_rcv);
 int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 		     xfrm_address_t *saddr, u8 proto)
 {
+	struct net *net = dev_net(skb->dev);
 	struct xfrm_state *x = NULL;
 	int i = 0;
 
@@ -68,6 +73,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 		sp = secpath_dup(skb->sp);
 		if (!sp) {
 			XFRM_INC_STATS(LINUX_MIB_XFRMINERROR);
+			XFRM_INC_STATS(net, LINUX_MIB_XFRMINERROR);
 			goto drop;
 		}
 		if (skb->sp)
@@ -77,6 +83,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 
 	if (1 + skb->sp->len == XFRM_MAX_DEPTH) {
 		XFRM_INC_STATS(LINUX_MIB_XFRMINBUFFERERROR);
+		XFRM_INC_STATS(net, LINUX_MIB_XFRMINBUFFERERROR);
 		goto drop;
 	}
 
@@ -101,6 +108,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 		}
 
 		x = xfrm_state_lookup_byaddr(dst, src, proto, AF_INET6);
+		x = xfrm_state_lookup_byaddr(net, skb->mark, dst, src, proto, AF_INET6);
 		if (!x)
 			continue;
 
@@ -123,6 +131,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 
 	if (!x) {
 		XFRM_INC_STATS(LINUX_MIB_XFRMINNOSTATES);
+		XFRM_INC_STATS(net, LINUX_MIB_XFRMINNOSTATES);
 		xfrm_audit_state_notfound_simple(skb, AF_INET6);
 		goto drop;
 	}

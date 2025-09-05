@@ -25,6 +25,7 @@
  *  This driver programs the PCX-U/PCX-W performance counters
  *  on the PA-RISC 2.0 chips.  The driver keeps all images now
  *  internally to the kernel to hopefully eliminate the possiblity
+ *  internally to the kernel to hopefully eliminate the possibility
  *  of a bad image halting the CPU.  Also, there are different
  *  images for the PCX-W and later chips vs the PCX-U chips.
  *
@@ -266,6 +267,9 @@ static int perf_open(struct inode *inode, struct file *file)
 	if (perf_enabled) {
 		spin_unlock(&perf_lock);
 		unlock_kernel();
+	spin_lock(&perf_lock);
+	if (perf_enabled) {
+		spin_unlock(&perf_lock);
 		return -EBUSY;
 	}
 	perf_enabled = 1;
@@ -547,6 +551,13 @@ static int __init perf_init(void)
 
 	return 0;
 }
+	cpu_device = per_cpu(cpu_data, 0).dev;
+	printk("Performance monitoring counters enabled for %s\n",
+		per_cpu(cpu_data, 0).dev->name);
+
+	return 0;
+}
+device_initcall(perf_init);
 
 /*
  * perf_start_counters(void)

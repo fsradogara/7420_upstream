@@ -39,6 +39,9 @@
 	addil LT%per_cpu__exception_data,%r27
 	LDREG RT%per_cpu__exception_data(%r1),\t1
 	/* t1 = &__get_cpu_var(exception_data) */
+	addil LT%exception_data,%r27
+	LDREG RT%exception_data(%r1),\t1
+	/* t1 = this_cpu_ptr(&exception_data) */
 	add,l \t1,\t2,\t1
 	/* t1 = t1->fault_ip */
 	LDREG EXCDATA_IP(\t1), \t1
@@ -48,6 +51,9 @@
 	/* t1 = &__get_cpu_var(exception_data) */
 	addil LT%per_cpu__exception_data,%r27
 	LDREG RT%per_cpu__exception_data(%r1),\t2
+	/* t1 = this_cpu_ptr(&exception_data) */
+	addil LT%exception_data,%r27
+	LDREG RT%exception_data(%r1),\t2
 	/* t1 = t2->fault_ip */
 	LDREG EXCDATA_IP(\t2), \t1
 	.endm

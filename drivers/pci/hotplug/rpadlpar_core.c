@@ -18,6 +18,14 @@
 #include <linux/pci.h>
 #include <linux/string.h>
 
+#undef DEBUG
+
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/pci.h>
+#include <linux/string.h>
+#include <linux/vmalloc.h>
+
 #include <asm/pci-bridge.h>
 #include <linux/mutex.h>
 #include <asm/rtas.h>
@@ -142,6 +150,7 @@ static void dlpar_pci_add_bus(struct device_node *dn)
 	struct pci_dev *dev = NULL;
 
 	eeh_add_device_tree_early(dn);
+	eeh_add_device_tree_early(pdn);
 
 	/* Add EADS device to PHB bus, adding new entry to bus->devices */
 	dev = of_create_pci_dev(dn, phb->bus, pdn->devfn);
@@ -159,12 +168,21 @@ static void dlpar_pci_add_bus(struct device_node *dn)
 
 	/* Claim new bus resources */
 	pcibios_claim_one_bus(dev->bus);
+	/* Scan below the new bridge */
+	if (pci_is_bridge(dev))
+		of_scan_pci_bridge(dev);
 
 	/* Map IO space for child bus, which may or may not succeed */
 	pcibios_map_io_space(dev->subordinate);
 
 	/* Add new devices to global lists.  Register in proc, sysfs. */
 	pci_bus_add_devices(phb->bus);
+	/* Finish adding it : resource allocation, adding devices, etc...
+	 * Note that we need to perform the finish pass on the -parent-
+	 * bus of the EADS bridge so the bridge device itself gets
+	 * properly added
+	 */
+	pcibios_finish_adding_to_bus(phb->bus);
 }
 
 static int dlpar_add_pci_slot(char *drc_name, struct device_node *dn)
@@ -242,11 +260,18 @@ static int dlpar_remove_phb(char *drc_name, struct device_node *dn)
 				__func__, drc_name);
 			return -EIO;
 		}
+	/* If pci slot is hotpluggable, use hotplug to remove it */
+	slot = find_php_slot(dn);
+	if (slot && rpaphp_deregister_slot(slot)) {
+		printk(KERN_ERR "%s: unable to remove hotplug slot %s\n",
+		       __func__, drc_name);
+		return -EIO;
 	}
 
 	pdn = dn->data;
 	BUG_ON(!pdn || !pdn->phb);
 	rc = dlpar_remove_root_bus(pdn->phb);
+	rc = remove_phb_dynamic(pdn->phb);
 	if (rc < 0)
 		return rc;
 
@@ -381,6 +406,24 @@ int dlpar_remove_pci_slot(char *drc_name, struct device_node *dn)
 	/* If pci slot is hotplugable, use hotplug to remove it */
 	slot = find_php_slot(dn);
 	if (slot) {
+	int ret = 0;
+
+	pci_lock_rescan_remove();
+
+	bus = pcibios_find_pci_bus(dn);
+	if (!bus) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	pr_debug("PCI: Removing PCI slot below EADS bridge %s\n",
+		 bus->self ? pci_name(bus->self) : "<!PHB!>");
+
+	slot = find_php_slot(dn);
+	if (slot) {
+		pr_debug("PCI: Removing hotplug slot for %04x:%02x...\n",
+			 pci_domain_nr(bus), bus->number);
+
 		if (rpaphp_deregister_slot(slot)) {
 			printk(KERN_ERR
 				"%s: unable to remove hotplug slot %s\n",
@@ -399,6 +442,30 @@ int dlpar_remove_pci_slot(char *drc_name, struct device_node *dn)
 	BUG_ON(!bus->self);
 	pci_remove_bus_device(bus->self);
 	return 0;
+			ret = -EIO;
+			goto out;
+		}
+	}
+
+	/* Remove all devices below slot */
+	pcibios_remove_pci_devices(bus);
+
+	/* Unmap PCI IO space */
+	if (pcibios_unmap_io_space(bus)) {
+		printk(KERN_ERR "%s: failed to unmap bus range\n",
+			__func__);
+		ret = -ERANGE;
+		goto out;
+	}
+
+	/* Remove the EADS bridge device itself */
+	BUG_ON(!bus->self);
+	pr_debug("PCI: Now removing bridge device %s\n", pci_name(bus->self));
+	pci_stop_and_remove_bus_device(bus->self);
+
+ out:
+	pci_unlock_rescan_remove();
+	return ret;
 }
 
 /**
@@ -439,6 +506,8 @@ int dlpar_remove_slot(char *drc_name)
 			rc = dlpar_remove_pci_slot(drc_name, dn);
 			break;
 	}
+	vm_unmap_aliases();
+
 	printk(KERN_INFO "%s: slot %s removed\n", DLPAR_MODULE_NAME, drc_name);
 exit:
 	mutex_unlock(&rpadlpar_mutex);

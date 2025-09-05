@@ -7,6 +7,7 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/errno.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include "base.h"
 
@@ -20,6 +21,10 @@ static char *make_driver_name(struct device_driver *drv)
 		return NULL;
 
 	sprintf(driver_name, "%s:%s", drv->bus->name, drv->name);
+	driver_name = kasprintf(GFP_KERNEL, "%s:%s", drv->bus->name, drv->name);
+	if (!driver_name)
+		return NULL;
+
 	return driver_name;
 }
 

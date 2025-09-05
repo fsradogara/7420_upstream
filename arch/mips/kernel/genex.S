@@ -7,6 +7,8 @@
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
  * Copyright (C) 2001 MIPS Technologies, Inc.
  * Copyright (C) 2002, 2007  Maciej W. Rozycki
+ * Copyright (C) 2002, 2007  Maciej W. Rozycki
+ * Copyright (C) 2001, 2012 MIPS Technologies, Inc.  All rights reserved.
  */
 #include <linux/init.h>
 
@@ -43,6 +45,10 @@ NESTED(except_vec1_generic, 0, sp)
 	PANIC_PIC("Exception vector 1 called")
 	END(except_vec1_generic)
 
+#include <asm/thread_info.h>
+
+	__INIT
+
 /*
  * General exception vector for all other CPUs.
  *
@@ -74,6 +80,7 @@ NESTED(except_vec3_generic, 0, sp)
 NESTED(except_vec3_r4000, 0, sp)
 	.set	push
 	.set	mips3
+	.set	arch=r4000
 	.set	noat
 	mfc0	k1, CP0_CAUSE
 	li	k0, 31<<2
@@ -129,6 +136,7 @@ handle_vcei:
 
 	.align	5	/* 32 byte rollback region */
 LEAF(r4k_wait)
+LEAF(__r4k_wait)
 	.set	push
 	.set	noreorder
 	/* start of rollback region */
@@ -146,6 +154,20 @@ LEAF(r4k_wait)
 1:
 	jr	ra
 	END(r4k_wait)
+#ifdef CONFIG_CPU_MICROMIPS
+	nop
+	nop
+	nop
+	nop
+#endif
+	.set	MIPS_ISA_ARCH_LEVEL_RAW
+	wait
+	/* end of rollback region (the region size must be power of two) */
+1:
+	jr	ra
+	nop
+	.set	pop
+	END(__r4k_wait)
 
 	.macro	BUILD_ROLLBACK_PROLOGUE handler
 	FEXPORT(rollback_\handler)
@@ -153,6 +175,7 @@ LEAF(r4k_wait)
 	.set	noat
 	MFC0	k0, CP0_EPC
 	PTR_LA	k1, r4k_wait
+	PTR_LA	k1, __r4k_wait
 	ori	k0, 0x1f	/* 32 byte rollback region */
 	xori	k0, 0x1f
 	bne	k0, k1, 9f
@@ -162,6 +185,7 @@ LEAF(r4k_wait)
 	.endm
 
 	.align  5
+	.align	5
 BUILD_ROLLBACK_PROLOGUE handle_int
 NESTED(handle_int, PT_SIZE, sp)
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -203,6 +227,11 @@ NESTED(handle_int, PT_SIZE, sp)
 	LONG_S	sp, TI_REGS($28)
 	PTR_LA	ra, ret_from_irq
 	j	plat_irq_dispatch
+	PTR_LA  v0, plat_irq_dispatch
+	jr	v0
+#ifdef CONFIG_CPU_MICROMIPS
+	nop
+#endif
 	END(handle_int)
 
 	__INIT
@@ -224,10 +253,14 @@ NESTED(except_vec4, 0, sp)
  * EJTAG debug exception handler.
  * The EJTAG debug exception entry point is 0xbfc00480, which
  * normally is in the boot PROM, so the boot PROM must do a
+ * normally is in the boot PROM, so the boot PROM must do an
  * unconditional jump to this vector.
  */
 NESTED(except_vec_ejtag_debug, 0, sp)
 	j	ejtag_debug_handler
+#ifdef CONFIG_CPU_MICROMIPS
+	 nop
+#endif
 	END(except_vec_ejtag_debug)
 
 	__FINIT
@@ -255,6 +288,10 @@ FEXPORT(except_vec_vi_mori)
 FEXPORT(except_vec_vi_lui)
 	lui	v0, 0		/* Patched */
 	j	except_vec_vi_handler
+	PTR_LA	v1, except_vec_vi_handler
+FEXPORT(except_vec_vi_lui)
+	lui	v0, 0		/* Patched */
+	jr	v1
 FEXPORT(except_vec_vi_ori)
 	 ori	v0, 0		/* Patched */
 	.set	pop
@@ -299,6 +336,10 @@ NESTED(except_vec_vi_handler, 0, sp)
 #ifdef CONFIG_MIPS_MT_SMTC
 	move	a0, s1
 #endif
+	CLI
+#ifdef CONFIG_TRACE_IRQFLAGS
+	move	s0, v0
+	TRACE_IRQS_OFF
 	move	v0, s0
 #endif
 
@@ -355,6 +396,9 @@ EXPORT(ejtag_debug_buffer)
  */
 NESTED(except_vec_nmi, 0, sp)
 	j	nmi_handler
+#ifdef CONFIG_CPU_MICROMIPS
+	 nop
+#endif
 	END(except_vec_nmi)
 
 	__FINIT
@@ -368,6 +412,20 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	RESTORE_ALL
 	.set	mips3
 	eret
+	/*
+	 * Clear ERL - restore segment mapping
+	 * Clear BEV - required for page fault exception handler to work
+	 */
+	mfc0	k0, CP0_STATUS
+	ori     k0, k0, ST0_EXL
+	li	k1, ~(ST0_BEV | ST0_ERL)
+	and     k0, k0, k1
+	mtc0    k0, CP0_STATUS
+	_ehb
+	SAVE_ALL
+	move	a0, sp
+	jal	nmi_exception_handler
+	/* nmi_exception_handler never returns */
 	.set	pop
 	END(nmi_handler)
 
@@ -391,6 +449,20 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	ctc1	a2, fcr31
 	TRACE_IRQS_ON
 	STI
+	.set	push
+	/* gas fails to assemble cfc1 for some archs (octeon).*/ \
+	.set	mips1
+	SET_HARDFLOAT
+	cfc1	a1, fcr31
+	.set	pop
+	CLI
+	TRACE_IRQS_OFF
+	.endm
+
+	.macro	__build_clear_msa_fpe
+	_cfcmsa	a1, MSA_CSR
+	CLI
+	TRACE_IRQS_OFF
 	.endm
 
 	.macro	__build_clear_ade
@@ -407,6 +479,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	   recognize an unknown escape code.  So make the arguments
 	   start with an n and gas will believe \n is ok ...  */
 	.macro	__BUILD_verbose	nexception
+	.macro	__BUILD_verbose nexception
 	LONG_L	a1, PT_EPC(sp)
 #ifdef CONFIG_32BIT
 	PRINT("Got \nexception at %08lx\012")
@@ -430,6 +503,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	SAVE_ALL
 	FEXPORT(handle_\exception\ext)
 	__BUILD_clear_\clear
+	__build_clear_\clear
 	.set	at
 	__BUILD_\verbose \exception
 	move	a0, sp
@@ -440,6 +514,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 
 	.macro	BUILD_HANDLER exception handler clear verbose
 	__BUILD_HANDLER	\exception \handler \clear \verbose _int
+	__BUILD_HANDLER \exception \handler \clear \verbose _int
 	.endm
 
 	BUILD_HANDLER adel ade ade silent		/* #4  */
@@ -454,6 +529,20 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	BUILD_HANDLER fpe fpe fpe silent		/* #15 */
 	BUILD_HANDLER mdmx mdmx sti silent		/* #22 */
 	BUILD_HANDLER watch watch sti verbose		/* #23 */
+	BUILD_HANDLER msa_fpe msa_fpe msa_fpe silent	/* #14 */
+	BUILD_HANDLER fpe fpe fpe silent		/* #15 */
+	BUILD_HANDLER ftlb ftlb none silent		/* #16 */
+	BUILD_HANDLER msa msa sti silent		/* #21 */
+	BUILD_HANDLER mdmx mdmx sti silent		/* #22 */
+#ifdef	CONFIG_HARDWARE_WATCHPOINTS
+	/*
+	 * For watch, interrupts will be enabled after the watch
+	 * registers are read.
+	 */
+	BUILD_HANDLER watch watch cli silent		/* #23 */
+#else
+	BUILD_HANDLER watch watch sti verbose		/* #23 */
+#endif
 	BUILD_HANDLER mcheck mcheck cli verbose		/* #24 */
 	BUILD_HANDLER mt mt sti silent			/* #25 */
 	BUILD_HANDLER dsp dsp sti silent		/* #26 */
@@ -473,6 +562,8 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	MFC0	k0, CP0_EPC
 	PTR_SRL	k0, PAGE_SHIFT + 1
 	PTR_SLL	k0, PAGE_SHIFT + 1
+	PTR_SRL k0, _PAGE_SHIFT + 1
+	PTR_SLL k0, _PAGE_SHIFT + 1
 	or	k1, k0
 	MTC0	k1, CP0_ENTRYHI
 	mtc0_tlbw_hazard
@@ -496,6 +587,35 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	ori	k0, 0xe83b
 	.set	reorder
 	bne	k0, k1, handle_ri	/* if not ours */
+	/* MIPS32:    0x7c03e83b: rdhwr v1,$29 */
+	/* microMIPS: 0x007d6b3c: rdhwr v1,$29 */
+	MFC0	k1, CP0_EPC
+#if defined(CONFIG_CPU_MICROMIPS) || defined(CONFIG_CPU_MIPS32_R2) || defined(CONFIG_CPU_MIPS64_R2)
+	and     k0, k1, 1
+	beqz    k0, 1f
+	xor     k1, k0
+	lhu     k0, (k1)
+	lhu     k1, 2(k1)
+	ins     k1, k0, 16, 16
+	lui     k0, 0x007d
+	b       docheck
+	ori     k0, 0x6b3c
+1:
+	lui     k0, 0x7c03
+	lw      k1, (k1)
+	ori     k0, 0xe83b
+#else
+	andi    k0, k1, 1
+	bnez    k0, handle_ri
+	lui     k0, 0x7c03
+	lw      k1, (k1)
+	ori     k0, 0xe83b
+#endif
+	.set    reorder
+docheck:
+	bne	k0, k1, handle_ri	/* if not ours */
+
+isrdhwr:
 	/* The insn is rdhwr.  No need to check CAUSE.BD here. */
 	get_saved_sp	/* k1 := current_thread_info */
 	.set	noreorder
@@ -521,6 +641,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	xori	k1, _THREAD_MASK
 	LONG_L	v1, TI_TP_VALUE(k1)
 	.set	mips3
+	.set	arch=r4000
 	eret
 	.set	mips0
 #endif

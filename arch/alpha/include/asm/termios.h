@@ -67,6 +67,8 @@ struct termio {
 #define _VSWTC	7
 
 #ifdef __KERNEL__
+#include <uapi/asm/termios.h>
+
 /*	eof=^D		eol=\0		eol2=\0		erase=del
 	werase=^W	kill=^U		reprint=^R	sxtc=\0
 	intr=^C		quit=^\		susp=^Z		<OSF/1 VDSUSP>

@@ -34,6 +34,7 @@
  * SOFTWARE.
  */
 
+#include <linux/gfp.h>
 #include <linux/hardirq.h>
 #include <linux/sched.h>
 
@@ -643,6 +644,8 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 		checksum = (be32_to_cpu(cqe->rqpn) >> 24) |
 				((be32_to_cpu(cqe->my_ee) >> 16) & 0xff00);
 		entry->csum_ok = (cqe->sl_ipok & 1 && checksum == 0xffff);
+		entry->wc_flags	  |=  (cqe->sl_ipok & 1 && checksum == 0xffff) ?
+							IB_WC_IP_CSUM_OK : 0;
 	}
 
 	entry->status = IB_WC_SUCCESS;
@@ -847,6 +850,7 @@ int mthca_init_cq(struct mthca_dev *dev, int nent,
 	}
 
 	err = mthca_SW2HW_CQ(dev, mailbox, cq->cqn, &status);
+	err = mthca_SW2HW_CQ(dev, mailbox, cq->cqn);
 	if (err) {
 		mthca_warn(dev, "SW2HW_CQ failed (%d)\n", err);
 		goto err_out_free_mr;
@@ -927,6 +931,9 @@ void mthca_free_cq(struct mthca_dev *dev,
 		mthca_warn(dev, "HW2SW_CQ failed (%d)\n", err);
 	else if (status)
 		mthca_warn(dev, "HW2SW_CQ returned status 0x%02x\n", status);
+	err = mthca_HW2SW_CQ(dev, mailbox, cq->cqn);
+	if (err)
+		mthca_warn(dev, "HW2SW_CQ failed (%d)\n", err);
 
 	if (0) {
 		__be32 *ctx = mailbox->buf;

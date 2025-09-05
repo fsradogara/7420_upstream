@@ -21,6 +21,9 @@ extern unsigned long mmu_context_bmap[];
 extern void get_new_mmu_context(struct mm_struct *mm);
 #ifdef CONFIG_SMP
 extern void smp_new_mmu_context_version(void);
+void get_new_mmu_context(struct mm_struct *mm);
+#ifdef CONFIG_SMP
+void smp_new_mmu_context_version(void);
 #else
 #define smp_new_mmu_context_version() do { } while (0)
 #endif
@@ -32,12 +35,20 @@ extern void __tsb_context_switch(unsigned long pgd_pa,
 				 struct tsb_config *tsb_base,
 				 struct tsb_config *tsb_huge,
 				 unsigned long tsb_descr_pa);
+int init_new_context(struct task_struct *tsk, struct mm_struct *mm);
+void destroy_context(struct mm_struct *mm);
+
+void __tsb_context_switch(unsigned long pgd_pa,
+			  struct tsb_config *tsb_base,
+			  struct tsb_config *tsb_huge,
+			  unsigned long tsb_descr_pa);
 
 static inline void tsb_context_switch(struct mm_struct *mm)
 {
 	__tsb_context_switch(__pa(mm->pgd),
 			     &mm->context.tsb_block[0],
 #ifdef CONFIG_HUGETLB_PAGE
+#if defined(CONFIG_HUGETLB_PAGE) || defined(CONFIG_TRANSPARENT_HUGEPAGE)
 			     (mm->context.tsb_block[1].tsb ?
 			      &mm->context.tsb_block[1] :
 			      NULL)
@@ -50,6 +61,11 @@ static inline void tsb_context_switch(struct mm_struct *mm)
 extern void tsb_grow(struct mm_struct *mm, unsigned long tsb_index, unsigned long mm_rss);
 #ifdef CONFIG_SMP
 extern void smp_tsb_sync(struct mm_struct *mm);
+void tsb_grow(struct mm_struct *mm,
+	      unsigned long tsb_index,
+	      unsigned long mm_rss);
+#ifdef CONFIG_SMP
+void smp_tsb_sync(struct mm_struct *mm);
 #else
 #define smp_tsb_sync(__mm) do { } while (0)
 #endif
@@ -70,6 +86,9 @@ extern void smp_tsb_sync(struct mm_struct *mm);
 extern void __flush_tlb_mm(unsigned long, unsigned long);
 
 /* Switch the current MM context.  Interrupts are disabled.  */
+void __flush_tlb_mm(unsigned long, unsigned long);
+
+/* Switch the current MM context. */
 static inline void switch_mm(struct mm_struct *old_mm, struct mm_struct *mm, struct task_struct *tsk)
 {
 	unsigned long ctx_valid, flags;
@@ -123,6 +142,8 @@ static inline void switch_mm(struct mm_struct *old_mm, struct mm_struct *mm, str
 	cpu = smp_processor_id();
 	if (!ctx_valid || !cpu_isset(cpu, mm->cpu_vm_mask)) {
 		cpu_set(cpu, mm->cpu_vm_mask);
+	if (!ctx_valid || !cpumask_test_cpu(cpu, mm_cpumask(mm))) {
+		cpumask_set_cpu(cpu, mm_cpumask(mm));
 		__flush_tlb_mm(CTX_HWBITS(mm->context),
 			       SECONDARY_CONTEXT);
 	}
@@ -143,6 +164,8 @@ static inline void activate_mm(struct mm_struct *active_mm, struct mm_struct *mm
 	cpu = smp_processor_id();
 	if (!cpu_isset(cpu, mm->cpu_vm_mask))
 		cpu_set(cpu, mm->cpu_vm_mask);
+	if (!cpumask_test_cpu(cpu, mm_cpumask(mm)))
+		cpumask_set_cpu(cpu, mm_cpumask(mm));
 
 	load_secondary_context(mm);
 	__flush_tlb_mm(CTX_HWBITS(mm->context), SECONDARY_CONTEXT);

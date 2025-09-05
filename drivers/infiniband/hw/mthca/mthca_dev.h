@@ -159,6 +159,7 @@ struct mthca_limits {
 	int      reserved_eqs;
 	int      num_mpts;
 	int      num_mtt_segs;
+	int	 mtt_seg_size;
 	int      fmr_reserved_mtts;
 	int      reserved_mtts;
 	int      reserved_mrws;
@@ -356,6 +357,7 @@ struct mthca_dev {
 	struct ib_ah         *sm_ah[MTHCA_MAX_PORTS];
 	spinlock_t            sm_lock;
 	u8                    rate[MTHCA_MAX_PORTS];
+	bool		      active;
 };
 
 #ifdef CONFIG_INFINIBAND_MTHCA_DEBUG
@@ -578,6 +580,11 @@ int mthca_process_mad(struct ib_device *ibdev,
 		      struct ib_grh *in_grh,
 		      struct ib_mad *in_mad,
 		      struct ib_mad *out_mad);
+		      const struct ib_wc *in_wc,
+		      const struct ib_grh *in_grh,
+		      const struct ib_mad_hdr *in, size_t in_mad_size,
+		      struct ib_mad_hdr *out, size_t *out_mad_size,
+		      u16 *out_mad_pkey_index);
 int mthca_create_agents(struct mthca_dev *dev);
 void mthca_free_agents(struct mthca_dev *dev);
 

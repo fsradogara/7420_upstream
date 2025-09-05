@@ -18,6 +18,9 @@
 #include <linux/netdevice.h>
 #include <linux/trdevice.h>
 #include <linux/skbuff.h>
+#include <linux/netdevice.h>
+#include <linux/skbuff.h>
+#include <linux/export.h>
 #include <net/llc.h>
 #include <net/llc_pdu.h>
 
@@ -75,6 +78,18 @@ int llc_mac_hdr_init(struct sk_buff *skb,
 		printk(KERN_WARNING "device type not supported: %d\n",
 		       skb->dev->type);
 		rc = -EINVAL;
+	int rc = -EINVAL;
+
+	switch (skb->dev->type) {
+	case ARPHRD_ETHER:
+	case ARPHRD_LOOPBACK:
+		rc = dev_hard_header(skb, skb->dev, ETH_P_802_2, da, sa,
+				     skb->len);
+		if (rc > 0)
+			rc = 0;
+		break;
+	default:
+		break;
 	}
 	return rc;
 }

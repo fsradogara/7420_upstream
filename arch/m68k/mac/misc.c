@@ -106,6 +106,8 @@ static long pmu_read_time(void)
 
 	time = (req.reply[0] << 24) | (req.reply[1] << 16)
 		| (req.reply[2] << 8) | req.reply[3];
+	time = (req.reply[1] << 24) | (req.reply[2] << 16)
+		| (req.reply[3] << 8) | req.reply[4];
 	return time - RTC_OFFSET;
 }
 
@@ -149,6 +151,7 @@ static void pmu_write_pram(int offset, __u8 data)
 #endif
 
 #ifdef CONFIG_ADB_MACIISI
+#if 0 /* def CONFIG_ADB_MACIISI */
 extern int maciisi_request(struct adb_request *req,
 			void (*done)(struct adb_request *), int nbytes, ...);
 
@@ -310,6 +313,15 @@ static long via_read_time(void)
 		long  idata;
 	} result, last_result;
 	int	ct;
+		__u8 cdata[4];
+		long idata;
+	} result, last_result;
+	int count = 1;
+
+	via_pram_command(0x81, &last_result.cdata[3]);
+	via_pram_command(0x85, &last_result.cdata[2]);
+	via_pram_command(0x89, &last_result.cdata[1]);
+	via_pram_command(0x8D, &last_result.cdata[0]);
 
 	/*
 	 * The NetBSD guys say to loop until you get the same reading
@@ -328,6 +340,7 @@ static long via_read_time(void)
 		last_result.idata = result.idata;
 		result.idata = 0;
 
+	while (1) {
 		via_pram_command(0x81, &result.cdata[3]);
 		via_pram_command(0x85, &result.cdata[2]);
 		via_pram_command(0x89, &result.cdata[1]);
@@ -335,6 +348,21 @@ static long via_read_time(void)
 	} while (result.idata != last_result.idata);
 
 	return result.idata - RTC_OFFSET;
+
+		if (result.idata == last_result.idata)
+			return result.idata - RTC_OFFSET;
+
+		if (++count > 10)
+			break;
+
+		last_result.idata = result.idata;
+	}
+
+	pr_err("via_read_time: failed to read a stable value; "
+	       "got 0x%08lx then 0x%08lx\n",
+	       last_result.idata, result.idata);
+
+	return 0;
 }
 
 /*
@@ -724,6 +752,18 @@ int mac_hwclk(int op, struct rtc_time *t)
 			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 
 #if 0	/* it trashes my rtc */
+#if 0
+		printk("mac_hwclk: read %04d-%02d-%-2d %02d:%02d:%02d\n",
+			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+			t->tm_hour, t->tm_min, t->tm_sec);
+#endif
+	} else { /* write */
+#if 0
+		printk("mac_hwclk: tried to write %04d-%02d-%-2d %02d:%02d:%02d\n",
+			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+			t->tm_hour, t->tm_min, t->tm_sec);
+#endif
+
 		now = mktime(t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			     t->tm_hour, t->tm_min, t->tm_sec);
 

@@ -2,6 +2,7 @@
  * JFFS2 -- Journalling Flash File System, Version 2.
  *
  * Copyright © 2001-2007 Red Hat, Inc.
+ * Copyright © 2004-2010 David Woodhouse <dwmw2@infradead.org>
  *
  * Created by Arjan van de Ven <arjanv@redhat.com>
  *
@@ -34,6 +35,9 @@ static int jffs2_rtime_compress(unsigned char *data_in,
 				void *model)
 {
 	short positions[256];
+				uint32_t *sourcelen, uint32_t *dstlen)
+{
+	unsigned short positions[256];
 	int outpos = 0;
 	int pos=0;
 
@@ -76,6 +80,9 @@ static int jffs2_rtime_decompress(unsigned char *data_in,
 				  void *model)
 {
 	short positions[256];
+				  uint32_t srclen, uint32_t destlen)
+{
+	unsigned short positions[256];
 	int outpos = 0;
 	int pos=0;
 

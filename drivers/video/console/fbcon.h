@@ -70,10 +70,12 @@ struct fbcon_ops {
 	struct fb_cursor cursor_state;
 	struct display *p;
         int    currcon;	                /* Current VC. */
+	int    cur_blink_jiffies;
 	int    cursor_flash;
 	int    cursor_reset;
 	int    blank_state;
 	int    graphics;
+	int    save_graphics; /* for debug enter/leave */
 	int    flags;
 	int    rotate;
 	int    cur_rotate;

@@ -45,6 +45,10 @@ struct backing_dev_info directly_mappable_cdev_bdi = {
 		BDI_CAP_READ_MAP | BDI_CAP_WRITE_MAP | BDI_CAP_EXEC_MAP),
 };
 
+#include <linux/tty.h>
+
+#include "internal.h"
+
 static struct kobj_map *cdev_map;
 
 static DEFINE_MUTEX(chrdevs_lock);
@@ -60,6 +64,7 @@ static struct char_device_struct {
 
 /* index in the above */
 static inline int major_to_index(int major)
+static inline int major_to_index(unsigned major)
 {
 	return major % CHRDEV_MAJOR_HASH_SIZE;
 }
@@ -124,6 +129,7 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 	cd->baseminor = baseminor;
 	cd->minorct = minorct;
 	strncpy(cd->name,name, 64);
+	strlcpy(cd->name, name, sizeof(cd->name));
 
 	i = major_to_index(major);
 
@@ -243,6 +249,10 @@ int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count,
 /**
  * register_chrdev() - Register a major number for character devices.
  * @major: major device number or 0 for dynamic allocation
+ * __register_chrdev() - create and register a cdev occupying a range of minors
+ * @major: major device number or 0 for dynamic allocation
+ * @baseminor: first of the requested range of minor numbers
+ * @count: the number of minor numbers required
  * @name: name of this range of devices
  * @fops: file operations associated with this devices
  *
@@ -274,6 +284,19 @@ int register_chrdev(unsigned int major, const char *name,
 	if (IS_ERR(cd))
 		return PTR_ERR(cd);
 	
+ */
+int __register_chrdev(unsigned int major, unsigned int baseminor,
+		      unsigned int count, const char *name,
+		      const struct file_operations *fops)
+{
+	struct char_device_struct *cd;
+	struct cdev *cdev;
+	int err = -ENOMEM;
+
+	cd = __register_chrdev_region(major, baseminor, count, name);
+	if (IS_ERR(cd))
+		return PTR_ERR(cd);
+
 	cdev = cdev_alloc();
 	if (!cdev)
 		goto out2;
@@ -285,6 +308,8 @@ int register_chrdev(unsigned int major, const char *name,
 		*s = '!';
 		
 	err = cdev_add(cdev, MKDEV(cd->major, 0), 256);
+
+	err = cdev_add(cdev, MKDEV(cd->major, baseminor), count);
 	if (err)
 		goto out;
 
@@ -295,11 +320,13 @@ out:
 	kobject_put(&cdev->kobj);
 out2:
 	kfree(__unregister_chrdev_region(cd->major, 0, 256));
+	kfree(__unregister_chrdev_region(cd->major, baseminor, count));
 	return err;
 }
 
 /**
  * unregister_chrdev_region() - return a range of device numbers
+ * unregister_chrdev_region() - unregister a range of device numbers
  * @from: the first in the range of numbers to unregister
  * @count: the number of device numbers to unregister
  *
@@ -324,6 +351,23 @@ void unregister_chrdev(unsigned int major, const char *name)
 {
 	struct char_device_struct *cd;
 	cd = __unregister_chrdev_region(major, 0, 256);
+/**
+ * __unregister_chrdev - unregister and destroy a cdev
+ * @major: major device number
+ * @baseminor: first of the range of minor numbers
+ * @count: the number of minor numbers this cdev is occupying
+ * @name: name of this range of devices
+ *
+ * Unregister and destroy the cdev occupying the region described by
+ * @major, @baseminor and @count.  This function undoes what
+ * __register_chrdev() did.
+ */
+void __unregister_chrdev(unsigned int major, unsigned int baseminor,
+			 unsigned int count, const char *name)
+{
+	struct char_device_struct *cd;
+
+	cd = __unregister_chrdev_region(major, baseminor, count);
 	if (cd && cd->cdev)
 		cdev_del(cd->cdev);
 	kfree(cd);
@@ -358,6 +402,7 @@ void cdev_put(struct cdev *p)
  */
 static int chrdev_open(struct inode *inode, struct file *filp)
 {
+	const struct file_operations *fops;
 	struct cdev *p;
 	struct cdev *new = NULL;
 	int ret = 0;
@@ -398,6 +443,23 @@ static int chrdev_open(struct inode *inode, struct file *filp)
 		ret = filp->f_op->open(inode,filp);
 	if (ret)
 		cdev_put(p);
+
+	ret = -ENXIO;
+	fops = fops_get(p->ops);
+	if (!fops)
+		goto out_cdev_put;
+
+	replace_fops(filp, fops);
+	if (filp->f_op->open) {
+		ret = filp->f_op->open(inode, filp);
+		if (ret)
+			goto out_cdev_put;
+	}
+
+	return 0;
+
+ out_cdev_put:
+	cdev_put(p);
 	return ret;
 }
 
@@ -428,6 +490,7 @@ static void cdev_purge(struct cdev *cdev)
  */
 const struct file_operations def_chr_fops = {
 	.open = chrdev_open,
+	.llseek = noop_llseek,
 };
 
 static struct kobject *exact_match(dev_t dev, int *part, void *data)
@@ -457,6 +520,19 @@ int cdev_add(struct cdev *p, dev_t dev, unsigned count)
 	p->dev = dev;
 	p->count = count;
 	return kobj_map(cdev_map, dev, count, NULL, exact_match, exact_lock, p);
+	int error;
+
+	p->dev = dev;
+	p->count = count;
+
+	error = kobj_map(cdev_map, dev, count, NULL,
+			 exact_match, exact_lock, p);
+	if (error)
+		return error;
+
+	kobject_get(p->kobj.parent);
+
+	return 0;
 }
 
 static void cdev_unmap(dev_t dev, unsigned count)
@@ -482,6 +558,10 @@ static void cdev_default_release(struct kobject *kobj)
 {
 	struct cdev *p = container_of(kobj, struct cdev, kobj);
 	cdev_purge(p);
+	struct kobject *parent = kobj->parent;
+
+	cdev_purge(p);
+	kobject_put(parent);
 }
 
 static void cdev_dynamic_release(struct kobject *kobj)
@@ -489,6 +569,11 @@ static void cdev_dynamic_release(struct kobject *kobj)
 	struct cdev *p = container_of(kobj, struct cdev, kobj);
 	cdev_purge(p);
 	kfree(p);
+	struct kobject *parent = kobj->parent;
+
+	cdev_purge(p);
+	kfree(p);
+	kobject_put(parent);
 }
 
 static struct kobj_type ktype_cdev_default = {
@@ -556,3 +641,5 @@ EXPORT_SYMBOL(cdev_add);
 EXPORT_SYMBOL(register_chrdev);
 EXPORT_SYMBOL(unregister_chrdev);
 EXPORT_SYMBOL(directly_mappable_cdev_bdi);
+EXPORT_SYMBOL(__register_chrdev);
+EXPORT_SYMBOL(__unregister_chrdev);

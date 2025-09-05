@@ -43,6 +43,9 @@ struct atalk_netrange {
 
 #include <net/sock.h>
 
+#include <net/sock.h>
+#include <uapi/linux/atalk.h>
+
 struct atalk_route {
 	struct net_device  *dev;
 	struct atalk_addr  target;

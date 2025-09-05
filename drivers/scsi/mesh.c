@@ -418,6 +418,7 @@ static void mesh_start_cmd(struct mesh_state *ms, struct scsi_cmnd *cmd)
 		int i;
 		printk(KERN_DEBUG "mesh_start: %p ser=%lu tgt=%d cmd=",
 		       cmd, cmd->serial_number, id);
+		printk(KERN_DEBUG "mesh_start: %p tgt=%d cmd=", cmd, id);
 		for (i = 0; i < cmd->cmd_len; ++i)
 			printk(" %x", cmd->cmnd[i]);
 		printk(" use_sg=%d buffer=%p bufflen=%u\n",
@@ -1234,6 +1235,7 @@ static void handle_msgin(struct mesh_state *ms)
 			} else if (code != cmd->device->lun + IDENTIFY_BASE) {
 				printk(KERN_WARNING "mesh: lun mismatch "
 				       "(%d != %d) on reselection from "
+				       "(%d != %llu) on reselection from "
 				       "target %d\n", code - IDENTIFY_BASE,
 				       cmd->device->lun, ms->conn_tgt);
 			}
@@ -1293,6 +1295,9 @@ static void set_dma_cmds(struct mesh_state *ms, struct scsi_cmnd *cmd)
 				st_le16(&dcmds->req_count, dma_len - off);
 				st_le16(&dcmds->command, dma_cmd);
 				st_le32(&dcmds->phy_addr, dma_addr + off);
+				dcmds->req_count = cpu_to_le16(dma_len - off);
+				dcmds->command = cpu_to_le16(dma_cmd);
+				dcmds->phy_addr = cpu_to_le32(dma_addr + off);
 				dcmds->xfer_status = 0;
 				++dcmds;
 				dtot += dma_len - off;
@@ -1308,6 +1313,8 @@ static void set_dma_cmds(struct mesh_state *ms, struct scsi_cmnd *cmd)
 		dtot = sizeof(mesh_extra_buf);
 		st_le16(&dcmds->req_count, dtot);
 		st_le32(&dcmds->phy_addr, virt_to_phys(mesh_extra_buf));
+		dcmds->req_count = cpu_to_le16(dtot);
+		dcmds->phy_addr = cpu_to_le32(virt_to_phys(mesh_extra_buf));
 		dcmds->xfer_status = 0;
 		++dcmds;
 	}
@@ -1315,6 +1322,9 @@ static void set_dma_cmds(struct mesh_state *ms, struct scsi_cmnd *cmd)
 	st_le16(&dcmds[-1].command, dma_cmd);
 	memset(dcmds, 0, sizeof(*dcmds));
 	st_le16(&dcmds->command, DBDMA_STOP);
+	dcmds[-1].command = cpu_to_le16(dma_cmd);
+	memset(dcmds, 0, sizeof(*dcmds));
+	dcmds->command = cpu_to_le16(DBDMA_STOP);
 	ms->dma_count = dtot;
 }
 
@@ -1629,6 +1639,7 @@ static void cmd_complete(struct mesh_state *ms)
  * request
  */
 static int mesh_queue(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
+static int mesh_queue_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
 {
 	struct mesh_state *ms;
 
@@ -1648,6 +1659,8 @@ static int mesh_queue(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
 
 	return 0;
 }
+
+static DEF_SCSI_QCMD(mesh_queue)
 
 /*
  * Called to handle interrupts, either call by the interrupt
@@ -1919,6 +1932,8 @@ static int mesh_probe(struct macio_dev *mdev, const struct of_device_id *match)
 	dma_cmd_space = pci_alloc_consistent(macio_get_pci_dev(mdev),
 					     ms->dma_cmd_size,
 					     &dma_cmd_bus);
+	dma_cmd_space = pci_zalloc_consistent(macio_get_pci_dev(mdev),
+					      ms->dma_cmd_size, &dma_cmd_bus);
 	if (dma_cmd_space == NULL) {
 		printk(KERN_ERR "mesh: can't allocate DMA table\n");
 		goto out_unmap;
@@ -2039,6 +2054,11 @@ static struct macio_driver mesh_driver =
 {
 	.name 		= "mesh",
 	.match_table	= mesh_match,
+	.driver = {
+		.name 		= "mesh",
+		.owner		= THIS_MODULE,
+		.of_match_table	= mesh_match,
+	},
 	.probe		= mesh_probe,
 	.remove		= mesh_remove,
 	.shutdown	= mesh_shutdown,

@@ -46,6 +46,8 @@
 #define CTX_PGSZ_HUGE		CTX_PGSZ_64KB
 #endif
 
+#define CTX_PGSZ_BASE	CTX_PGSZ_8KB
+#define CTX_PGSZ_HUGE	CTX_PGSZ_4MB
 #define CTX_PGSZ_KERN	CTX_PGSZ_4MB
 
 /* Thus, when running on UltraSPARC-III+ and later, we use the following
@@ -84,6 +86,9 @@ struct tsb {
 extern void __tsb_insert(unsigned long ent, unsigned long tag, unsigned long pte);
 extern void tsb_flush(unsigned long ent, unsigned long tag);
 extern void tsb_init(struct tsb *tsb, unsigned long size);
+void __tsb_insert(unsigned long ent, unsigned long tag, unsigned long pte);
+void tsb_flush(unsigned long ent, unsigned long tag);
+void tsb_init(struct tsb *tsb, unsigned long size);
 
 struct tsb_config {
 	struct tsb		*tsb;
@@ -97,6 +102,7 @@ struct tsb_config {
 #define MM_TSB_BASE	0
 
 #ifdef CONFIG_HUGETLB_PAGE
+#if defined(CONFIG_HUGETLB_PAGE) || defined(CONFIG_TRANSPARENT_HUGEPAGE)
 #define MM_TSB_HUGE	1
 #define MM_NUM_TSBS	2
 #else

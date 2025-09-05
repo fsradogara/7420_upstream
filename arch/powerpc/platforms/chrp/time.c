@@ -29,6 +29,10 @@
 
 extern spinlock_t rtc_lock;
 
+#define NVRAM_AS0  0x74
+#define NVRAM_AS1  0x75
+#define NVRAM_DATA 0x77
+
 static int nvram_as1 = NVRAM_AS1;
 static int nvram_as0 = NVRAM_AS0;
 static int nvram_data = NVRAM_DATA;
@@ -100,6 +104,12 @@ int chrp_set_rtc_time(struct rtc_time *tmarg)
 		BIN_TO_BCD(tm.tm_mon);
 		BIN_TO_BCD(tm.tm_mday);
 		BIN_TO_BCD(tm.tm_year);
+		tm.tm_sec = bin2bcd(tm.tm_sec);
+		tm.tm_min = bin2bcd(tm.tm_min);
+		tm.tm_hour = bin2bcd(tm.tm_hour);
+		tm.tm_mon = bin2bcd(tm.tm_mon);
+		tm.tm_mday = bin2bcd(tm.tm_mday);
+		tm.tm_year = bin2bcd(tm.tm_year);
 	}
 	chrp_cmos_clock_write(tm.tm_sec,RTC_SECONDS);
 	chrp_cmos_clock_write(tm.tm_min,RTC_MINUTES);
@@ -142,6 +152,12 @@ void chrp_get_rtc_time(struct rtc_time *tm)
 		BCD_TO_BIN(day);
 		BCD_TO_BIN(mon);
 		BCD_TO_BIN(year);
+		sec = bcd2bin(sec);
+		min = bcd2bin(min);
+		hour = bcd2bin(hour);
+		day = bcd2bin(day);
+		mon = bcd2bin(mon);
+		year = bcd2bin(year);
 	}
 	if (year < 70)
 		year += 100;

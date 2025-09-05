@@ -12,6 +12,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/init.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
@@ -50,3 +51,12 @@ module_init(blackhole_module_init)
 module_exit(blackhole_module_exit)
 
 MODULE_LICENSE("GPL");
+	.peek		= blackhole_dequeue,
+	.owner		= THIS_MODULE,
+};
+
+static int __init blackhole_init(void)
+{
+	return register_qdisc(&blackhole_qdisc_ops);
+}
+device_initcall(blackhole_init)

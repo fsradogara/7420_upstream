@@ -11,6 +11,7 @@
 
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/ip.h>
 #include "internal.h"
@@ -128,6 +129,15 @@ bool afs_cm_incoming_call(struct afs_call *call)
 static void afs_cm_destructor(struct afs_call *call)
 {
 	_enter("");
+
+	/* Break the callbacks here so that we do it after the final ACK is
+	 * received.  The step number here must match the final number in
+	 * afs_deliver_cb_callback().
+	 */
+	if (call->unmarshall == 6) {
+		ASSERT(call->server && call->count && call->request);
+		afs_break_callbacks(call->server, call->count, call->request);
+	}
 
 	afs_put_server(call->server);
 	call->server = NULL;
@@ -271,6 +281,16 @@ static int afs_deliver_cb_callback(struct afs_call *call, struct sk_buff *skb,
 		_debug("trailer");
 		if (skb->len != 0)
 			return -EBADMSG;
+
+		/* Record that the message was unmarshalled successfully so
+		 * that the call destructor can know do the callback breaking
+		 * work, even if the final ACK isn't received.
+		 *
+		 * If the step number changes, then afs_cm_destructor() must be
+		 * updated also.
+		 */
+		call->unmarshall++;
+	case 6:
 		break;
 	}
 
@@ -289,6 +309,7 @@ static int afs_deliver_cb_callback(struct afs_call *call, struct sk_buff *skb,
 
 	INIT_WORK(&call->work, SRXAFSCB_CallBack);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }
 
@@ -336,6 +357,7 @@ static int afs_deliver_cb_init_call_back_state(struct afs_call *call,
 
 	INIT_WORK(&call->work, SRXAFSCB_InitCallBackState);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }
 
@@ -367,6 +389,7 @@ static int afs_deliver_cb_init_call_back_state3(struct afs_call *call,
 
 	INIT_WORK(&call->work, SRXAFSCB_InitCallBackState);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }
 
@@ -400,6 +423,7 @@ static int afs_deliver_cb_probe(struct afs_call *call, struct sk_buff *skb,
 
 	INIT_WORK(&call->work, SRXAFSCB_Probe);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }
 
@@ -496,6 +520,7 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call, struct sk_buff *skb,
 
 	INIT_WORK(&call->work, SRXAFSCB_ProbeUuid);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }
 
@@ -580,5 +605,6 @@ static int afs_deliver_cb_tell_me_about_yourself(struct afs_call *call,
 
 	INIT_WORK(&call->work, SRXAFSCB_TellMeAboutYourself);
 	schedule_work(&call->work);
+	queue_work(afs_wq, &call->work);
 	return 0;
 }

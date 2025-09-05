@@ -115,6 +115,8 @@ static struct snd_seq_queue *queue_new(int owner, int locked)
 		snd_printd("malloc failed for snd_seq_queue_new()\n");
 		return NULL;
 	}
+	if (!q)
+		return NULL;
 
 	spin_lock_init(&q->owner_lock);
 	spin_lock_init(&q->check_lock);
@@ -316,6 +318,8 @@ int snd_seq_enqueue_event(struct snd_seq_event_cell *cell, int atomic, int hop)
 	struct snd_seq_queue *q;
 
 	snd_assert(cell != NULL, return -EINVAL);
+	if (snd_BUG_ON(!cell))
+		return -EINVAL;
 	dest = cell->event.queue;	/* destination queue */
 	q = queueptr(dest);
 	if (q == NULL)
@@ -735,6 +739,8 @@ int snd_seq_control_queue(struct snd_seq_event *ev, int atomic, int hop)
 	struct snd_seq_queue *q;
 
 	snd_assert(ev != NULL, return -EINVAL);
+	if (snd_BUG_ON(!ev))
+		return -EINVAL;
 	q = queueptr(ev->data.queue.queue);
 
 	if (q == NULL)
@@ -756,6 +762,7 @@ int snd_seq_control_queue(struct snd_seq_event *ev, int atomic, int hop)
 /*----------------------------------------------------------------*/
 
 #ifdef CONFIG_PROC_FS
+#ifdef CONFIG_SND_PROC_FS
 /* exported to seq_info.c */
 void snd_seq_info_queues_read(struct snd_info_entry *entry, 
 			      struct snd_info_buffer *buffer)
@@ -790,4 +797,5 @@ void snd_seq_info_queues_read(struct snd_info_entry *entry,
 	}
 }
 #endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_SND_PROC_FS */
 

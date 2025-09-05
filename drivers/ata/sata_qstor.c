@@ -31,6 +31,8 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/init.h>
+#include <linux/gfp.h>
+#include <linux/pci.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -113,6 +115,8 @@ struct qs_port_priv {
 
 static int qs_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val);
 static int qs_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val);
+static int qs_scr_read(struct ata_link *link, unsigned int sc_reg, u32 *val);
+static int qs_scr_write(struct ata_link *link, unsigned int sc_reg, u32 val);
 static int qs_ata_init_one(struct pci_dev *pdev, const struct pci_device_id *ent);
 static int qs_port_start(struct ata_port *ap);
 static void qs_host_stop(struct ata_host *host);
@@ -147,6 +151,7 @@ static struct ata_port_operations qs_ata_ops = {
 	.softreset		= ATA_OP_NULL,
 	.error_handler		= qs_error_handler,
 	.post_internal_cmd	= ATA_OP_NULL,
+	.lost_interrupt		= ATA_OP_NULL,
 
 	.scr_read		= qs_scr_read,
 	.scr_write		= qs_scr_write,
@@ -161,6 +166,8 @@ static const struct ata_port_info qs_port_info[] = {
 		.flags		= ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
 				  ATA_FLAG_MMIO | ATA_FLAG_PIO_POLLING,
 		.pio_mask	= 0x10, /* pio4 */
+		.flags		= ATA_FLAG_SATA | ATA_FLAG_PIO_POLLING,
+		.pio_mask	= ATA_PIO4_ONLY,
 		.udma_mask	= ATA_UDMA6,
 		.port_ops	= &qs_ata_ops,
 	},
@@ -247,6 +254,11 @@ static int qs_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val)
 	if (sc_reg > SCR_CONTROL)
 		return -EINVAL;
 	*val = readl(ap->ioaddr.scr_addr + (sc_reg * 8));
+static int qs_scr_read(struct ata_link *link, unsigned int sc_reg, u32 *val)
+{
+	if (sc_reg > SCR_CONTROL)
+		return -EINVAL;
+	*val = readl(link->ap->ioaddr.scr_addr + (sc_reg * 8));
 	return 0;
 }
 
@@ -261,6 +273,14 @@ static int qs_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val)
 	if (sc_reg > SCR_CONTROL)
 		return -EINVAL;
 	writel(val, ap->ioaddr.scr_addr + (sc_reg * 8));
+	ata_sff_error_handler(ap);
+}
+
+static int qs_scr_write(struct ata_link *link, unsigned int sc_reg, u32 val)
+{
+	if (sc_reg > SCR_CONTROL)
+		return -EINVAL;
+	writel(val, link->ap->ioaddr.scr_addr + (sc_reg * 8));
 	return 0;
 }
 
@@ -306,6 +326,8 @@ static void qs_qc_prep(struct ata_queued_cmd *qc)
 		ata_sff_qc_prep(qc);
 		return;
 	}
+	if (qc->tf.protocol != ATA_PROT_DMA)
+		return;
 
 	nelem = qs_fill_sg(qc);
 
@@ -402,6 +424,8 @@ static inline unsigned int qs_intr_pkt(struct ata_host *host)
 			u8 sHST = sff1 & 0x3f;	/* host status */
 			unsigned int port_no = (sff1 >> 8) & 0x03;
 			struct ata_port *ap = host->ports[port_no];
+			struct qs_port_priv *pp = ap->private_data;
+			struct ata_queued_cmd *qc;
 
 			DPRINTK("SFF=%08x%08x: sCHAN=%u sHST=%d sDST=%02x\n",
 					sff1, sff0, port_no, sHST, sDST);
@@ -422,6 +446,18 @@ static inline unsigned int qs_intr_pkt(struct ata_host *host)
 					default:
 						break;
 					}
+			if (!pp || pp->state != qs_state_pkt)
+				continue;
+			qc = ata_qc_from_tag(ap, ap->link.active_tag);
+			if (qc && (!(qc->tf.flags & ATA_TFLAG_POLLING))) {
+				switch (sHST) {
+				case 0: /* successful CPB */
+				case 3: /* device error */
+					qs_enter_reg_mode(qc->ap);
+					qs_do_or_die(qc, sDST);
+					break;
+				default:
+					break;
 				}
 			}
 		}
@@ -461,6 +497,30 @@ static inline unsigned int qs_intr_mmio(struct ata_host *host)
 			if (!(qc->tf.flags & ATA_TFLAG_POLLING))
 				handled |= ata_sff_host_intr(ap, qc);
 		}
+		struct ata_port *ap = host->ports[port_no];
+		struct qs_port_priv *pp = ap->private_data;
+		struct ata_queued_cmd *qc;
+
+		qc = ata_qc_from_tag(ap, ap->link.active_tag);
+		if (!qc) {
+			/*
+			 * The qstor hardware generates spurious
+			 * interrupts from time to time when switching
+			 * in and out of packet mode.  There's no
+			 * obvious way to know if we're here now due
+			 * to that, so just ack the irq and pretend we
+			 * knew it was ours.. (ugh).  This does not
+			 * affect packet mode.
+			 */
+			ata_sff_check_status(ap);
+			handled = 1;
+			continue;
+		}
+
+		if (!pp || pp->state != qs_state_mmio)
+			continue;
+		if (!(qc->tf.flags & ATA_TFLAG_POLLING))
+			handled |= ata_sff_port_intr(ap, qc);
 	}
 	return handled;
 }
@@ -512,6 +572,7 @@ static int qs_port_start(struct ata_port *ap)
 	rc = ata_port_start(ap);
 	if (rc)
 		return rc;
+
 	pp = devm_kzalloc(dev, sizeof(*pp), GFP_KERNEL);
 	if (!pp)
 		return -ENOMEM;
@@ -590,6 +651,13 @@ static int qs_set_dma_masks(struct pci_dev *pdev, void __iomem *mmio_base)
 			if (rc) {
 				dev_printk(KERN_ERR, &pdev->dev,
 					   "64-bit DMA enable failed\n");
+	    !dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
+		rc = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(64));
+		if (rc) {
+			rc = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
+			if (rc) {
+				dev_err(&pdev->dev,
+					"64-bit DMA enable failed\n");
 				return rc;
 			}
 		}
@@ -603,6 +671,14 @@ static int qs_set_dma_masks(struct pci_dev *pdev, void __iomem *mmio_base)
 		rc = pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK);
 		if (rc) {
 			dev_printk(KERN_ERR, &pdev->dev,
+		rc = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
+		if (rc) {
+			dev_err(&pdev->dev, "32-bit DMA enable failed\n");
+			return rc;
+		}
+		rc = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
+		if (rc) {
+			dev_err(&pdev->dev,
 				"32-bit consistent DMA enable failed\n");
 			return rc;
 		}
@@ -621,6 +697,7 @@ static int qs_ata_init_one(struct pci_dev *pdev,
 
 	if (!printed_version++)
 		dev_printk(KERN_DEBUG, &pdev->dev, "version " DRV_VERSION "\n");
+	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
 	/* alloc host */
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, QS_PORTS);
@@ -672,6 +749,7 @@ static void __exit qs_ata_exit(void)
 {
 	pci_unregister_driver(&qs_ata_pci_driver);
 }
+module_pci_driver(qs_ata_pci_driver);
 
 MODULE_AUTHOR("Mark Lord");
 MODULE_DESCRIPTION("Pacific Digital Corporation QStor SATA low-level driver");

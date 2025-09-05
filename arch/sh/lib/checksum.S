@@ -38,6 +38,7 @@
 /*	
  * unsigned int csum_partial(const unsigned char *buf, int len,
  *                           unsigned int sum);
+ * asmlinkage __wsum csum_partial(const void *buf, int len, __wsum sum);
  */
 
 .text
@@ -54,6 +55,31 @@ ENTRY(csum_partial)
 	tst	#2, r0		! Check alignment.
 	bt	2f		! Jump if alignment is ok.
 	!
+	mov	r4, r0
+	tst	#3, r0		! Check alignment.
+	bt/s	2f		! Jump if alignment is ok.
+	 mov	r4, r7		! Keep a copy to check for alignment
+	!
+	tst	#1, r0		! Check alignment.
+	bt	21f		! Jump if alignment is boundary of 2bytes.
+
+	! buf is odd
+	tst	r5, r5
+	add	#-1, r5
+	bt	9f
+	mov.b	@r4+, r0
+	extu.b	r0, r0
+	addc	r0, r6		! t=0 from previous tst
+	mov	r6, r0
+	shll8	r6
+	shlr16	r0
+	shlr8	r0
+	or	r0, r6
+	mov	r4, r0
+	tst	#2, r0
+	bt	2f
+21:
+	! buf is 2 byte aligned (len could be 0)
 	add	#-2, r5		! Alignment uses up two bytes.
 	cmp/pz	r5		!
 	bt/s	1f		! Jump if we had at least two bytes.
@@ -71,6 +97,11 @@ ENTRY(csum_partial)
 	mov	#-5, r0
 	shld	r0, r5
 	tst	r5, r5
+	! buf is 4 byte aligned (len could be 0)
+	mov	r5, r1
+	mov	#-5, r0
+	shld	r0, r1
+	tst	r1, r1
 	bt/s	4f		! if it's =0, go to 4f
 	 clrt
 	.align	2
@@ -104,6 +135,19 @@ ENTRY(csum_partial)
 	bt/s	6f
 	 mov	r0, r5
 	shlr2	r5
+	dt	r1
+	bf/s	3b
+	 cmp/eq	#1, r0
+	! here, we know r1==0
+	addc	r1, r6			! add carry to r6
+4:
+	mov	r5, r0
+	and	#0x1c, r0
+	tst	r0, r0
+	bt	6f
+	! 4 bytes or more remaining
+	mov	r0, r1
+	shlr2	r1
 	mov	#0, r2
 5:
 	addc	r2, r6
@@ -116,6 +160,13 @@ ENTRY(csum_partial)
 	addc	r5, r6		! r5==0 here, so it means add carry-bit
 6:
 	mov	r1, r5
+	dt	r1
+	bf/s	5b
+	 cmp/eq	#1, r0
+	addc	r2, r6
+	addc	r1, r6		! r1==0 here, so it means add carry-bit
+6:
+	! 3 bytes or less remaining
 	mov	#3, r0
 	and	r0, r5
 	tst	r5, r5
@@ -141,6 +192,18 @@ ENTRY(csum_partial)
 	mov	#0, r0
 	addc	r0, r6 
 9:
+	addc	r0, r6
+9:
+	! Check if the buffer was misaligned, if so realign sum
+	mov	r7, r0
+	tst	#1, r0
+	bt	10f
+	mov	r6, r0
+	shll8	r6
+	shlr16	r0
+	shlr8	r0
+	or	r0, r6
+10:
 	rts
 	 mov	r6, r0
 

@@ -77,6 +77,7 @@ extern void jffs2_clear_xattr_subsystem(struct jffs2_sb_info *c);
 extern struct jffs2_xattr_datum *jffs2_setup_xattr_datum(struct jffs2_sb_info *c,
 							 uint32_t xid, uint32_t version);
 
+extern void jffs2_xattr_do_crccheck_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic);
 extern void jffs2_xattr_delete_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic);
 extern void jffs2_xattr_free_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic);
 
@@ -96,6 +97,9 @@ extern int do_jffs2_setxattr(struct inode *inode, int xprefix, const char *xname
 extern struct xattr_handler *jffs2_xattr_handlers[];
 extern struct xattr_handler jffs2_user_xattr_handler;
 extern struct xattr_handler jffs2_trusted_xattr_handler;
+extern const struct xattr_handler *jffs2_xattr_handlers[];
+extern const struct xattr_handler jffs2_user_xattr_handler;
+extern const struct xattr_handler jffs2_trusted_xattr_handler;
 
 extern ssize_t jffs2_listxattr(struct dentry *, char *, size_t);
 #define jffs2_getxattr		generic_getxattr
@@ -108,6 +112,7 @@ extern ssize_t jffs2_listxattr(struct dentry *, char *, size_t);
 #define jffs2_build_xattr_subsystem(c)
 #define jffs2_clear_xattr_subsystem(c)
 
+#define jffs2_xattr_do_crccheck_inode(c, ic)
 #define jffs2_xattr_delete_inode(c, ic)
 #define jffs2_xattr_free_inode(c, ic)
 #define jffs2_verify_xattr(c)			(1)
@@ -125,6 +130,11 @@ extern int jffs2_init_security(struct inode *inode, struct inode *dir);
 extern struct xattr_handler jffs2_security_xattr_handler;
 #else
 #define jffs2_init_security(inode,dir)	(0)
+extern int jffs2_init_security(struct inode *inode, struct inode *dir,
+			       const struct qstr *qstr);
+extern const struct xattr_handler jffs2_security_xattr_handler;
+#else
+#define jffs2_init_security(inode,dir,qstr)	(0)
 #endif /* CONFIG_JFFS2_FS_SECURITY */
 
 #endif /* _JFFS2_FS_XATTR_H_ */

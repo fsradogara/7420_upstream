@@ -31,6 +31,9 @@
  * but for 020/030 we want to use early termination page descriptor and we
  * can't mix this with normal page descriptors, so we have to copy that code
  * (mm/vmalloc.c) and return appriorate aligned addresses.
+ * but for 020/030 we want to use early termination page descriptors and we
+ * can't mix this with normal page descriptors, so we have to copy that code
+ * (mm/vmalloc.c) and return appropriately aligned addresses.
  */
 
 #ifdef CPU_M68040_OR_M68060_ONLY
@@ -68,6 +71,10 @@ static struct vm_struct *get_io_area(unsigned long size)
 			break;
 		if (addr > KMAP_END-size)
 			return NULL;
+		if (addr > KMAP_END-size) {
+			kfree(area);
+			return NULL;
+		}
 		addr = tmp->size + (unsigned long)tmp->addr;
 	}
 	area->addr = (void *)addr;
@@ -99,6 +106,7 @@ static inline void free_io_area(void *addr)
 /*
  * Map some physical address range into the kernel address space. The
  * code is copied and adapted from map_chunk().
+ * Map some physical address range into the kernel address space.
  */
 /* Rewritten by Andreas Schwab to remove all races. */
 
@@ -115,6 +123,7 @@ void __iomem *__ioremap(unsigned long physaddr, unsigned long size, int cachefla
 	 * Don't allow mappings that wrap..
 	 */
 	if (!size || size > physaddr + size)
+	if (!size || physaddr > (unsigned long)(-size))
 		return NULL;
 
 #ifdef CONFIG_AMIGA
@@ -171,6 +180,8 @@ void __iomem *__ioremap(unsigned long physaddr, unsigned long size, int cachefla
 		}
 	} else {
 		physaddr |= (_PAGE_PRESENT | _PAGE_ACCESSED | _PAGE_DIRTY);
+		physaddr |= (_PAGE_PRESENT | _PAGE_ACCESSED |
+			     _PAGE_DIRTY | _PAGE_READWRITE);
 		switch (cacheflag) {
 		case IOMAP_NOCACHE_SER:
 		case IOMAP_NOCACHE_NONSER:
@@ -224,6 +235,7 @@ EXPORT_SYMBOL(__ioremap);
 
 /*
  * Unmap a ioremap()ed region again
+ * Unmap an ioremap()ed region again
  */
 void iounmap(void __iomem *addr)
 {
@@ -242,6 +254,8 @@ EXPORT_SYMBOL(iounmap);
  * __iounmap unmaps nearly everything, so be careful
  * it doesn't free currently pointer/page tables anymore but it
  * wans't used anyway and might be added later.
+ * Currently it doesn't free pointer/page tables anymore but this
+ * wasn't used anyway and might be added later.
  */
 void __iounmap(void *addr, unsigned long size)
 {

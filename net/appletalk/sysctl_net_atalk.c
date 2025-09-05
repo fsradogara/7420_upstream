@@ -22,6 +22,9 @@ static struct ctl_table atalk_table[] = {
 	},
 	{
 		.ctl_name	= NET_ATALK_AARP_TICK_TIME,
+		.proc_handler	= proc_dointvec_jiffies,
+	},
+	{
 		.procname	= "aarp-tick-time",
 		.data		= &sysctl_aarp_tick_time,
 		.maxlen		= sizeof(int),
@@ -31,6 +34,9 @@ static struct ctl_table atalk_table[] = {
 	},
 	{
 		.ctl_name	= NET_ATALK_AARP_RETRANSMIT_LIMIT,
+		.proc_handler	= proc_dointvec_jiffies,
+	},
+	{
 		.procname	= "aarp-retransmit-limit",
 		.data		= &sysctl_aarp_retransmit_limit,
 		.maxlen		= sizeof(int),
@@ -39,6 +45,9 @@ static struct ctl_table atalk_table[] = {
 	},
 	{
 		.ctl_name	= NET_ATALK_AARP_RESOLVE_TIME,
+		.proc_handler	= proc_dointvec,
+	},
+	{
 		.procname	= "aarp-resolve-time",
 		.data		= &sysctl_aarp_resolve_time,
 		.maxlen		= sizeof(int),
@@ -53,6 +62,9 @@ static struct ctl_path atalk_path[] = {
 	{ .procname = "net", .ctl_name = CTL_NET, },
 	{ .procname = "appletalk", .ctl_name = NET_ATALK, },
 	{ }
+		.proc_handler	= proc_dointvec_jiffies,
+	},
+	{ },
 };
 
 static struct ctl_table_header *atalk_table_header;
@@ -60,9 +72,11 @@ static struct ctl_table_header *atalk_table_header;
 void atalk_register_sysctl(void)
 {
 	atalk_table_header = register_sysctl_paths(atalk_path, atalk_table);
+	atalk_table_header = register_net_sysctl(&init_net, "net/appletalk", atalk_table);
 }
 
 void atalk_unregister_sysctl(void)
 {
 	unregister_sysctl_table(atalk_table_header);
+	unregister_net_sysctl_table(atalk_table_header);
 }

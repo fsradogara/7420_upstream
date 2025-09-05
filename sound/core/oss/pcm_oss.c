@@ -31,6 +31,8 @@
 #include <linux/time.h>
 #include <linux/vmalloc.h>
 #include <linux/moduleparam.h>
+#include <linux/module.h>
+#include <linux/math64.h>
 #include <linux/string.h>
 #include <sound/core.h>
 #include <sound/minors.h>
@@ -40,12 +42,14 @@
 #include <sound/info.h>
 #include <linux/soundcard.h>
 #include <sound/initval.h>
+#include <sound/mixer_oss.h>
 
 #define OSS_ALSAEMULVER		_SIOR ('M', 249, int)
 
 static int dsp_map[SNDRV_CARDS];
 static int adsp_map[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS-1)] = 1};
 static int nonblock_open = 1;
+static bool nonblock_open = 1;
 
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>, Abramo Bagnara <abramo@alsa-project.org>");
 MODULE_DESCRIPTION("PCM OSS emulation for ALSA.");
@@ -453,6 +457,10 @@ static int snd_pcm_hw_param_near(struct snd_pcm_substream *pcm,
 		*params = *save;
 		max = snd_pcm_hw_param_max(pcm, params, var, max, &maxdir);
 		snd_assert(max >= 0, return -EINVAL);
+		if (max < 0) {
+			kfree(save);
+			return max;
+		}
 		last = 1;
 	}
  _end:
@@ -462,6 +470,7 @@ static int snd_pcm_hw_param_near(struct snd_pcm_substream *pcm,
 	else
 		v = snd_pcm_hw_param_first(pcm, params, var, dir);
 	snd_assert(v >= 0, return -EINVAL);
+	snd_BUG_ON(v < 0);
 	return v;
 }
 
@@ -619,6 +628,7 @@ static long snd_pcm_oss_bytes(struct snd_pcm_substream *substream, long frames)
 		u32 rem;
 		div64_32(&bsize, buffer_size, &rem);
 		return (long)bsize;
+		return div_u64(bsize, buffer_size);
 	}
 #endif
 }
@@ -630,6 +640,12 @@ static long snd_pcm_alsa_frames(struct snd_pcm_substream *substream, long bytes)
 	if (buffer_size == runtime->oss.buffer_bytes)
 		return bytes_to_frames(runtime, bytes);
 	return bytes_to_frames(runtime, (buffer_size * bytes) / runtime->oss.buffer_bytes);
+}
+
+static inline
+snd_pcm_uframes_t get_hw_ptr_period(struct snd_pcm_runtime *runtime)
+{
+	return runtime->hw_ptr_interrupt;
 }
 
 /* define extended formats in the recent OSS versions (if any) */
@@ -649,6 +665,7 @@ static long snd_pcm_alsa_frames(struct snd_pcm_substream *substream, long bytes)
 #define AFMT_VORBIS      0x00000800
 
 static int snd_pcm_oss_format_from(int format)
+static snd_pcm_format_t snd_pcm_oss_format_from(int format)
 {
 	switch (format) {
 	case AFMT_MU_LAW:	return SNDRV_PCM_FORMAT_MU_LAW;
@@ -673,6 +690,7 @@ static int snd_pcm_oss_format_from(int format)
 }
 
 static int snd_pcm_oss_format_to(int format)
+static int snd_pcm_oss_format_to(snd_pcm_format_t format)
 {
 	switch (format) {
 	case SNDRV_PCM_FORMAT_MU_LAW:	return AFMT_MU_LAW;
@@ -712,6 +730,7 @@ static int snd_pcm_oss_period_size(struct snd_pcm_substream *substream,
 	oss_buffer_size = snd_pcm_plug_client_size(substream,
 						   snd_pcm_hw_param_value_max(slave_params, SNDRV_PCM_HW_PARAM_BUFFER_SIZE, NULL)) * oss_frame_size;
 	oss_buffer_size = 1 << ld2(oss_buffer_size);
+	oss_buffer_size = rounddown_pow_of_two(oss_buffer_size);
 	if (atomic_read(&substream->mmap_count)) {
 		if (oss_buffer_size > runtime->oss.mmap_bytes)
 			oss_buffer_size = runtime->oss.mmap_bytes;
@@ -748,6 +767,7 @@ static int snd_pcm_oss_period_size(struct snd_pcm_substream *substream,
 						   snd_pcm_hw_param_value_min(slave_params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, NULL));
 	min_period_size *= oss_frame_size;
 	min_period_size = 1 << (ld2(min_period_size - 1) + 1);
+	min_period_size = roundup_pow_of_two(min_period_size);
 	if (oss_period_size < min_period_size)
 		oss_period_size = min_period_size;
 
@@ -755,6 +775,7 @@ static int snd_pcm_oss_period_size(struct snd_pcm_substream *substream,
 						   snd_pcm_hw_param_value_max(slave_params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, NULL));
 	max_period_size *= oss_frame_size;
 	max_period_size = 1 << ld2(max_period_size);
+	max_period_size = rounddown_pow_of_two(max_period_size);
 	if (oss_period_size > max_period_size)
 		oss_period_size = max_period_size;
 
@@ -779,6 +800,8 @@ static int snd_pcm_oss_period_size(struct snd_pcm_substream *substream,
 		oss_period_size /= 2;
 
 	snd_assert(oss_period_size >= 16, return -EINVAL);
+	if (oss_period_size < 16)
+		return -EINVAL;
 	runtime->oss.period_bytes = oss_period_size;
 	runtime->oss.period_frames = 1;
 	runtime->oss.periods = oss_periods;
@@ -835,6 +858,8 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 	int err;
 	int direct;
 	int format, sformat, n;
+	snd_pcm_format_t format, sformat;
+	int n;
 	struct snd_mask sformat_mask;
 	struct snd_mask mask;
 
@@ -868,6 +893,15 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 	err = snd_pcm_hw_param_mask(substream, sparams, SNDRV_PCM_HW_PARAM_ACCESS, &mask);
 	if (err < 0) {
 		snd_printd("No usable accesses\n");
+		snd_mask_set(&mask, (__force int)SNDRV_PCM_ACCESS_MMAP_INTERLEAVED);
+	else {
+		snd_mask_set(&mask, (__force int)SNDRV_PCM_ACCESS_RW_INTERLEAVED);
+		if (!direct)
+			snd_mask_set(&mask, (__force int)SNDRV_PCM_ACCESS_RW_NONINTERLEAVED);
+	}
+	err = snd_pcm_hw_param_mask(substream, sparams, SNDRV_PCM_HW_PARAM_ACCESS, &mask);
+	if (err < 0) {
+		pcm_dbg(substream->pcm, "No usable accesses\n");
 		err = -EINVAL;
 		goto failure;
 	}
@@ -890,12 +924,26 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 		}
 		if (sformat > SNDRV_PCM_FORMAT_LAST) {
 			snd_printd("Cannot find a format!!!\n");
+	if ((__force int)sformat < 0 ||
+	    !snd_mask_test(&sformat_mask, (__force int)sformat)) {
+		for (sformat = (__force snd_pcm_format_t)0;
+		     (__force int)sformat <= (__force int)SNDRV_PCM_FORMAT_LAST;
+		     sformat = (__force snd_pcm_format_t)((__force int)sformat + 1)) {
+			if (snd_mask_test(&sformat_mask, (__force int)sformat) &&
+			    snd_pcm_oss_format_to(sformat) >= 0)
+				break;
+		}
+		if ((__force int)sformat > (__force int)SNDRV_PCM_FORMAT_LAST) {
+			pcm_dbg(substream->pcm, "Cannot find a format!!!\n");
 			err = -EINVAL;
 			goto failure;
 		}
 	}
 	err = _snd_pcm_hw_param_set(sparams, SNDRV_PCM_HW_PARAM_FORMAT, sformat, 0);
 	snd_assert(err >= 0, goto failure);
+	err = _snd_pcm_hw_param_set(sparams, SNDRV_PCM_HW_PARAM_FORMAT, (__force int)sformat, 0);
+	if (err < 0)
+		goto failure;
 
 	if (direct) {
 		memcpy(params, sparams, sizeof(*params));
@@ -905,6 +953,9 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 				      SNDRV_PCM_ACCESS_RW_INTERLEAVED, 0);
 		_snd_pcm_hw_param_set(params, SNDRV_PCM_HW_PARAM_FORMAT,
 				      snd_pcm_oss_format_from(runtime->oss.format), 0);
+				      (__force int)SNDRV_PCM_ACCESS_RW_INTERLEAVED, 0);
+		_snd_pcm_hw_param_set(params, SNDRV_PCM_HW_PARAM_FORMAT,
+				      (__force int)snd_pcm_oss_format_from(runtime->oss.format), 0);
 		_snd_pcm_hw_param_set(params, SNDRV_PCM_HW_PARAM_CHANNELS,
 				      runtime->oss.channels, 0);
 		_snd_pcm_hw_param_set(params, SNDRV_PCM_HW_PARAM_RATE,
@@ -929,6 +980,8 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 						       params, 
 						       sparams)) < 0) {
 			snd_printd("snd_pcm_plug_format_plugins failed: %i\n", err);
+			pcm_dbg(substream->pcm,
+				"snd_pcm_plug_format_plugins failed: %i\n", err);
 			snd_pcm_oss_plugin_clear(substream);
 			goto failure;
 		}
@@ -936,6 +989,8 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 			struct snd_pcm_plugin *plugin;
 			if ((err = snd_pcm_plugin_build_io(substream, sparams, &plugin)) < 0) {
 				snd_printd("snd_pcm_plugin_build_io failed: %i\n", err);
+				pcm_dbg(substream->pcm,
+					"snd_pcm_plugin_build_io failed: %i\n", err);
 				snd_pcm_oss_plugin_clear(substream);
 				goto failure;
 			}
@@ -963,11 +1018,19 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 	err = snd_pcm_hw_param_near(substream, sparams, SNDRV_PCM_HW_PARAM_PERIODS,
 				     runtime->oss.periods, NULL);
 	snd_assert(err >= 0, goto failure);
+	if (err < 0)
+		goto failure;
+
+	err = snd_pcm_hw_param_near(substream, sparams, SNDRV_PCM_HW_PARAM_PERIODS,
+				     runtime->oss.periods, NULL);
+	if (err < 0)
+		goto failure;
 
 	snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_DROP, NULL);
 
 	if ((err = snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_HW_PARAMS, sparams)) < 0) {
 		snd_printd("HW_PARAMS failed: %i\n", err);
+		pcm_dbg(substream->pcm, "HW_PARAMS failed: %i\n", err);
 		goto failure;
 	}
 
@@ -1001,12 +1064,17 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 
 	if ((err = snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_SW_PARAMS, sw_params)) < 0) {
 		snd_printd("SW_PARAMS failed: %i\n", err);
+		pcm_dbg(substream->pcm, "SW_PARAMS failed: %i\n", err);
 		goto failure;
 	}
 
 	runtime->oss.periods = params_periods(sparams);
 	oss_period_size = snd_pcm_plug_client_size(substream, params_period_size(sparams));
 	snd_assert(oss_period_size >= 0, err = -EINVAL; goto failure);
+	if (oss_period_size < 0) {
+		err = -EINVAL;
+		goto failure;
+	}
 #ifdef CONFIG_SND_PCM_OSS_PLUGINS
 	if (runtime->oss.plugin_first) {
 		err = snd_pcm_plug_alloc(substream, oss_period_size);
@@ -1018,6 +1086,10 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 
 	oss_buffer_size = oss_period_size * runtime->oss.periods;
 	snd_assert(oss_buffer_size >= 0, err = -EINVAL; goto failure);
+	if (oss_buffer_size < 0) {
+		err = -EINVAL;
+		goto failure;
+	}
 
 	runtime->oss.period_bytes = oss_period_size;
 	runtime->oss.buffer_bytes = oss_buffer_size;
@@ -1037,6 +1109,15 @@ static int snd_pcm_oss_change_params(struct snd_pcm_substream *substream)
 	runtime->oss.prepare = 1;
 	vfree(runtime->oss.buffer);
 	runtime->oss.buffer = vmalloc(runtime->oss.period_bytes);
+	vfree(runtime->oss.buffer);
+	runtime->oss.buffer = vmalloc(runtime->oss.period_bytes);
+	if (!runtime->oss.buffer) {
+		err = -ENOMEM;
+		goto failure;
+	}
+
+	runtime->oss.params = 0;
+	runtime->oss.prepare = 1;
 	runtime->oss.buffer_used = 0;
 	if (runtime->dma_area)
 		snd_pcm_format_set_silence(runtime->format, runtime->dma_area, bytes_to_samples(runtime, runtime->dma_bytes));
@@ -1070,6 +1151,8 @@ static int snd_pcm_oss_get_active_substream(struct snd_pcm_oss_file *pcm_oss_fil
 		}
 	}
 	snd_assert(asubstream != NULL, return -EIO);
+	if (!asubstream)
+		return -EIO;
 	if (r_substream)
 		*r_substream = asubstream;
 	return 0;
@@ -1087,6 +1170,12 @@ static int snd_pcm_oss_prepare(struct snd_pcm_substream *substream)
 	}
 	runtime->oss.prepare = 0;
 	runtime->oss.prev_hw_ptr_interrupt = 0;
+		pcm_dbg(substream->pcm,
+			"snd_pcm_oss_prepare: SNDRV_PCM_IOCTL_PREPARE failed\n");
+		return err;
+	}
+	runtime->oss.prepare = 0;
+	runtime->oss.prev_hw_ptr_period = 0;
 	runtime->oss.period_ptr = 0;
 	runtime->oss.buffer_used = 0;
 
@@ -1151,6 +1240,10 @@ snd_pcm_sframes_t snd_pcm_oss_write3(struct snd_pcm_substream *substream, const 
 				printk("pcm_oss: write: recovering from XRUN\n");
 			else
 				printk("pcm_oss: write: recovering from SUSPEND\n");
+			pcm_dbg(substream->pcm,
+				"pcm_oss: write: recovering from %s\n",
+				runtime->status->state == SNDRV_PCM_STATE_XRUN ?
+				"XRUN" : "SUSPEND");
 #endif
 			ret = snd_pcm_oss_prepare(substream);
 			if (ret < 0)
@@ -1163,6 +1256,10 @@ snd_pcm_sframes_t snd_pcm_oss_write3(struct snd_pcm_substream *substream, const 
 			snd_leave_user(fs);
 		} else {
 			ret = snd_pcm_lib_write(substream, (void __user *)ptr, frames);
+			ret = snd_pcm_lib_write(substream, (void __force __user *)ptr, frames);
+			snd_leave_user(fs);
+		} else {
+			ret = snd_pcm_lib_write(substream, (void __force __user *)ptr, frames);
 		}
 		if (ret != -EPIPE && ret != -ESTRPIPE)
 			break;
@@ -1187,6 +1284,10 @@ snd_pcm_sframes_t snd_pcm_oss_read3(struct snd_pcm_substream *substream, char *p
 				printk("pcm_oss: read: recovering from XRUN\n");
 			else
 				printk("pcm_oss: read: recovering from SUSPEND\n");
+			pcm_dbg(substream->pcm,
+				"pcm_oss: read: recovering from %s\n",
+				runtime->status->state == SNDRV_PCM_STATE_XRUN ?
+				"XRUN" : "SUSPEND");
 #endif
 			ret = snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_DRAIN, NULL);
 			if (ret < 0)
@@ -1206,6 +1307,10 @@ snd_pcm_sframes_t snd_pcm_oss_read3(struct snd_pcm_substream *substream, char *p
 			snd_leave_user(fs);
 		} else {
 			ret = snd_pcm_lib_read(substream, (void __user *)ptr, frames);
+			ret = snd_pcm_lib_read(substream, (void __force __user *)ptr, frames);
+			snd_leave_user(fs);
+		} else {
+			ret = snd_pcm_lib_read(substream, (void __force __user *)ptr, frames);
 		}
 		if (ret == -EPIPE) {
 			if (runtime->status->state == SNDRV_PCM_STATE_DRAINING) {
@@ -1233,6 +1338,10 @@ snd_pcm_sframes_t snd_pcm_oss_writev3(struct snd_pcm_substream *substream, void 
 				printk("pcm_oss: writev: recovering from XRUN\n");
 			else
 				printk("pcm_oss: writev: recovering from SUSPEND\n");
+			pcm_dbg(substream->pcm,
+				"pcm_oss: writev: recovering from %s\n",
+				runtime->status->state == SNDRV_PCM_STATE_XRUN ?
+				"XRUN" : "SUSPEND");
 #endif
 			ret = snd_pcm_oss_prepare(substream);
 			if (ret < 0)
@@ -1269,6 +1378,10 @@ snd_pcm_sframes_t snd_pcm_oss_readv3(struct snd_pcm_substream *substream, void *
 				printk("pcm_oss: readv: recovering from XRUN\n");
 			else
 				printk("pcm_oss: readv: recovering from SUSPEND\n");
+			pcm_dbg(substream->pcm,
+				"pcm_oss: readv: recovering from %s\n",
+				runtime->status->state == SNDRV_PCM_STATE_XRUN ?
+				"XRUN" : "SUSPEND");
 #endif
 			ret = snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_DRAIN, NULL);
 			if (ret < 0)
@@ -1302,6 +1415,7 @@ static ssize_t snd_pcm_oss_write2(struct snd_pcm_substream *substream, const cha
 		size_t oss_frame_bytes = (runtime->oss.plugin_first->src_width * runtime->oss.plugin_first->src_format.channels) / 8;
 		if (!in_kernel) {
 			if (copy_from_user(runtime->oss.buffer, (const char __user *)buf, bytes))
+			if (copy_from_user(runtime->oss.buffer, (const char __force __user *)buf, bytes))
 				return -EFAULT;
 			buf = runtime->oss.buffer;
 		}
@@ -1398,6 +1512,7 @@ static ssize_t snd_pcm_oss_read2(struct snd_pcm_substream *substream, char *buf,
 	snd_pcm_sframes_t frames, frames1;
 #ifdef CONFIG_SND_PCM_OSS_PLUGINS
 	char __user *final_dst = (char __user *)buf;
+	char __user *final_dst = (char __force __user *)buf;
 	if (runtime->oss.plugin_first) {
 		struct snd_pcm_plugin_channel *channels;
 		size_t oss_frame_bytes = (runtime->oss.plugin_last->dst_width * runtime->oss.plugin_last->dst_format.channels) / 8;
@@ -1490,6 +1605,19 @@ static int snd_pcm_oss_reset(struct snd_pcm_oss_file *pcm_oss_file)
 	if (substream != NULL) {
 		snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_DROP, NULL);
 		substream->runtime->oss.prepare = 1;
+	struct snd_pcm_runtime *runtime;
+	int i;
+
+	for (i = 0; i < 2; i++) { 
+		substream = pcm_oss_file->streams[i];
+		if (!substream)
+			continue;
+		runtime = substream->runtime;
+		snd_pcm_kernel_ioctl(substream, SNDRV_PCM_IOCTL_DROP, NULL);
+		runtime->oss.prepare = 1;
+		runtime->oss.buffer_used = 0;
+		runtime->oss.prev_hw_ptr_period = 0;
+		runtime->oss.period_ptr = 0;
 	}
 	return 0;
 }
@@ -1514,6 +1642,7 @@ static int snd_pcm_oss_sync1(struct snd_pcm_substream *substream, size_t size)
 {
 	struct snd_pcm_runtime *runtime;
 	ssize_t result = 0;
+	snd_pcm_state_t state;
 	long res;
 	wait_queue_t wait;
 
@@ -1522,6 +1651,7 @@ static int snd_pcm_oss_sync1(struct snd_pcm_substream *substream, size_t size)
 	add_wait_queue(&runtime->sleep, &wait);
 #ifdef OSS_DEBUG
 	printk("sync1: size = %li\n", size);
+	pcm_dbg(substream->pcm, "sync1: size = %li\n", size);
 #endif
 	while (1) {
 		result = snd_pcm_oss_write2(substream, runtime->oss.buffer, size, 1);
@@ -1538,6 +1668,9 @@ static int snd_pcm_oss_sync1(struct snd_pcm_substream *substream, size_t size)
 		res = runtime->status->state;
 		snd_pcm_stream_unlock_irq(substream);
 		if (res != SNDRV_PCM_STATE_RUNNING) {
+		state = runtime->status->state;
+		snd_pcm_stream_unlock_irq(substream);
+		if (state != SNDRV_PCM_STATE_RUNNING) {
 			set_current_state(TASK_RUNNING);
 			break;
 		}
@@ -1548,6 +1681,8 @@ static int snd_pcm_oss_sync1(struct snd_pcm_substream *substream, size_t size)
 		}
 		if (res == 0) {
 			snd_printk(KERN_ERR "OSS sync error - DMA timeout\n");
+			pcm_err(substream->pcm,
+				"OSS sync error - DMA timeout\n");
 			result = -EIO;
 			break;
 		}
@@ -1579,6 +1714,7 @@ static int snd_pcm_oss_sync(struct snd_pcm_oss_file *pcm_oss_file)
 		if (runtime->oss.buffer_used > 0) {
 #ifdef OSS_DEBUG
 			printk("sync: buffer_used\n");
+			pcm_dbg(substream->pcm, "sync: buffer_used\n");
 #endif
 			size = (8 * (runtime->oss.period_bytes - runtime->oss.buffer_used) + 7) / width;
 			snd_pcm_format_set_silence(format,
@@ -1592,6 +1728,7 @@ static int snd_pcm_oss_sync(struct snd_pcm_oss_file *pcm_oss_file)
 		} else if (runtime->oss.period_ptr > 0) {
 #ifdef OSS_DEBUG
 			printk("sync: period_ptr\n");
+			pcm_dbg(substream->pcm, "sync: period_ptr\n");
 #endif
 			size = runtime->oss.period_bytes - runtime->oss.period_ptr;
 			snd_pcm_format_set_silence(format,
@@ -1624,6 +1761,7 @@ static int snd_pcm_oss_sync(struct snd_pcm_oss_file *pcm_oss_file)
 					size1 /= runtime->channels; /* frames */
 					fs = snd_enter_user();
 					snd_pcm_lib_write(substream, (void __user *)runtime->oss.buffer, size1);
+					snd_pcm_lib_write(substream, (void __force __user *)runtime->oss.buffer, size1);
 					snd_leave_user(fs);
 				}
 			} else if (runtime->access == SNDRV_PCM_ACCESS_RW_NONINTERLEAVED) {
@@ -1756,6 +1894,7 @@ static int snd_pcm_oss_get_formats(struct snd_pcm_oss_file *pcm_oss_file)
 		       AFMT_U16_BE |
 			AFMT_S32_LE | AFMT_S32_BE |
 			AFMT_S24_LE | AFMT_S24_LE |
+			AFMT_S24_LE | AFMT_S24_BE |
 			AFMT_S24_PACKED;
 	params = kmalloc(sizeof(*params), GFP_KERNEL);
 	if (!params)
@@ -1765,6 +1904,8 @@ static int snd_pcm_oss_get_formats(struct snd_pcm_oss_file *pcm_oss_file)
 	format_mask = *hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT); 
 	kfree(params);
 	snd_assert(err >= 0, return err);
+	if (err < 0)
+		return err;
 	for (fmt = 0; fmt < 32; ++fmt) {
 		if (snd_mask_test(&format_mask, fmt)) {
 			int f = snd_pcm_oss_format_to(fmt);
@@ -1883,6 +2024,9 @@ static int snd_pcm_oss_set_fragment(struct snd_pcm_oss_file *pcm_oss_file, unsig
 static int snd_pcm_oss_nonblock(struct file * file)
 {
 	file->f_flags |= O_NONBLOCK;
+	spin_lock(&file->f_lock);
+	file->f_flags |= O_NONBLOCK;
+	spin_unlock(&file->f_lock);
 	return 0;
 }
 
@@ -1924,6 +2068,8 @@ static int snd_pcm_oss_get_caps(struct snd_pcm_oss_file *pcm_oss_file)
 }
 
 static void snd_pcm_oss_simulate_fill(struct snd_pcm_substream *substream, snd_pcm_uframes_t hw_ptr)
+static void snd_pcm_oss_simulate_fill(struct snd_pcm_substream *substream,
+				      snd_pcm_uframes_t hw_ptr)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t appl_ptr;
@@ -1940,6 +2086,7 @@ static int snd_pcm_oss_set_trigger(struct snd_pcm_oss_file *pcm_oss_file, int tr
 
 #ifdef OSS_DEBUG
 	printk("pcm_oss: trigger = 0x%x\n", trigger);
+	pcm_dbg(substream->pcm, "pcm_oss: trigger = 0x%x\n", trigger);
 #endif
 	
 	psubstream = pcm_oss_file->streams[SNDRV_PCM_STREAM_PLAYBACK];
@@ -1960,6 +2107,8 @@ static int snd_pcm_oss_set_trigger(struct snd_pcm_oss_file *pcm_oss_file, int tr
 				goto _skip1;
 			if (atomic_read(&psubstream->mmap_count))
 				snd_pcm_oss_simulate_fill(psubstream, runtime->hw_ptr_interrupt);
+				snd_pcm_oss_simulate_fill(psubstream,
+						get_hw_ptr_period(runtime));
 			runtime->oss.trigger = 1;
 			runtime->start_threshold = 1;
 			cmd = SNDRV_PCM_IOCTL_START;
@@ -2083,6 +2232,12 @@ static int snd_pcm_oss_get_ptr(struct snd_pcm_oss_file *pcm_oss_file, int stream
 			n += runtime->boundary;
 		info.blocks = n / runtime->period_size;
 		runtime->oss.prev_hw_ptr_interrupt = delay;
+		delay = get_hw_ptr_period(runtime);
+		n = delay - runtime->oss.prev_hw_ptr_period;
+		if (n < 0)
+			n += runtime->boundary;
+		info.blocks = n / runtime->period_size;
+		runtime->oss.prev_hw_ptr_period = delay;
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 			snd_pcm_oss_simulate_fill(substream, delay);
 		info.bytes = snd_pcm_oss_bytes(substream, runtime->status->hw_ptr) & INT_MAX;
@@ -2158,6 +2313,9 @@ static int snd_pcm_oss_get_space(struct snd_pcm_oss_file *pcm_oss_file, int stre
 
 #ifdef OSS_DEBUG
 	printk("pcm_oss: space: bytes = %i, fragments = %i, fragstotal = %i, fragsize = %i\n", info.bytes, info.fragments, info.fragstotal, info.fragsize);
+	pcm_dbg(substream->pcm,
+		"pcm_oss: space: bytes = %i, fragments = %i, fragstotal = %i, fragsize = %i\n",
+		info.bytes, info.fragments, info.fragstotal, info.fragsize);
 #endif
 	if (copy_to_user(_info, &info, sizeof(info)))
 		return -EFAULT;
@@ -2168,6 +2326,7 @@ static int snd_pcm_oss_get_mapbuf(struct snd_pcm_oss_file *pcm_oss_file, int str
 {
 	// it won't be probably implemented
 	// snd_printd("TODO: snd_pcm_oss_get_mapbuf\n");
+	// pr_debug("TODO: snd_pcm_oss_get_mapbuf\n");
 	return -EINVAL;
 }
 
@@ -2251,6 +2410,8 @@ static int snd_pcm_oss_release_file(struct snd_pcm_oss_file *pcm_oss_file)
 {
 	int cidx;
 	snd_assert(pcm_oss_file != NULL, return -ENXIO);
+	if (!pcm_oss_file)
+		return 0;
 	for (cidx = 0; cidx < 2; ++cidx) {
 		struct snd_pcm_substream *substream = pcm_oss_file->streams[cidx];
 		if (substream)
@@ -2273,6 +2434,10 @@ static int snd_pcm_oss_open_file(struct file *file,
 
 	snd_assert(rpcm_oss_file != NULL, return -EINVAL);
 	*rpcm_oss_file = NULL;
+	fmode_t f_mode = file->f_mode;
+
+	if (rpcm_oss_file)
+		*rpcm_oss_file = NULL;
 
 	pcm_oss_file = kzalloc(sizeof(*pcm_oss_file), GFP_KERNEL);
 	if (pcm_oss_file == NULL)
@@ -2313,6 +2478,8 @@ static int snd_pcm_oss_open_file(struct file *file,
 
 	file->private_data = pcm_oss_file;
 	*rpcm_oss_file = pcm_oss_file;
+	if (rpcm_oss_file)
+		*rpcm_oss_file = pcm_oss_file;
 	return 0;
 }
 
@@ -2322,6 +2489,8 @@ static int snd_task_name(struct task_struct *task, char *name, size_t size)
 	unsigned int idx;
 
 	snd_assert(task != NULL && name != NULL && size >= 2, return -EINVAL);
+	if (snd_BUG_ON(!task || !name || size < 2))
+		return -EINVAL;
 	for (idx = 0; idx < sizeof(task->comm) && idx + 1 < size; idx++)
 		name[idx] = task->comm[idx];
 	name[idx] = '\0';
@@ -2337,6 +2506,10 @@ static int snd_pcm_oss_open(struct inode *inode, struct file *file)
 	struct snd_pcm_oss_setup setup[2];
 	int nonblock;
 	wait_queue_t wait;
+
+	err = nonseekable_open(inode, file);
+	if (err < 0)
+		return err;
 
 	pcm = snd_lookup_oss_minor_data(iminor(inode),
 					SNDRV_OSS_DEVICE_TYPE_PCM);
@@ -2386,6 +2559,10 @@ static int snd_pcm_oss_open(struct inode *inode, struct file *file)
 		mutex_unlock(&pcm->open_mutex);
 		schedule();
 		mutex_lock(&pcm->open_mutex);
+		if (pcm->card->shutdown) {
+			err = -ENODEV;
+			break;
+		}
 		if (signal_pending(current)) {
 			err = -ERESTARTSYS;
 			break;
@@ -2395,6 +2572,7 @@ static int snd_pcm_oss_open(struct inode *inode, struct file *file)
 	mutex_unlock(&pcm->open_mutex);
 	if (err < 0)
 		goto __error;
+	snd_card_unref(pcm->card);
 	return err;
 
       __error:
@@ -2402,6 +2580,8 @@ static int snd_pcm_oss_open(struct inode *inode, struct file *file)
       __error2:
       	snd_card_file_remove(pcm->card, file);
       __error1:
+	if (pcm)
+		snd_card_unref(pcm->card);
 	return err;
 }
 
@@ -2416,6 +2596,8 @@ static int snd_pcm_oss_release(struct inode *inode, struct file *file)
 	if (substream == NULL)
 		substream = pcm_oss_file->streams[SNDRV_PCM_STREAM_CAPTURE];
 	snd_assert(substream != NULL, return -ENXIO);
+	if (snd_BUG_ON(!substream))
+		return -ENXIO;
 	pcm = substream->pcm;
 	if (!pcm->card->shutdown)
 		snd_pcm_oss_sync(pcm_oss_file);
@@ -2449,6 +2631,8 @@ static long snd_pcm_oss_ioctl(struct file *file, unsigned int cmd, unsigned long
 				break;
 		}
 		snd_assert(substream != NULL, return -ENXIO);
+		if (snd_BUG_ON(idx >= 2))
+			return -ENXIO;
 		return snd_mixer_oss_ioctl_card(substream->pcm->card, cmd, arg);
 	}
 #endif
@@ -2456,6 +2640,7 @@ static long snd_pcm_oss_ioctl(struct file *file, unsigned int cmd, unsigned long
 		return -EINVAL;
 #ifdef OSS_DEBUG
 	printk("pcm_oss: ioctl = 0x%x\n", cmd);
+	pr_debug("pcm_oss: ioctl = 0x%x\n", cmd);
 #endif
 	switch (cmd) {
 	case SNDCTL_DSP_RESET:
@@ -2583,6 +2768,7 @@ static long snd_pcm_oss_ioctl(struct file *file, unsigned int cmd, unsigned long
 		return 0;	/* silently ignore */
 	default:
 		snd_printd("pcm_oss: unknown command = 0x%x\n", cmd);
+		pr_debug("pcm_oss: unknown command = 0x%x\n", cmd);
 	}
 	return -EINVAL;
 }
@@ -2610,6 +2796,9 @@ static ssize_t snd_pcm_oss_read(struct file *file, char __user *buf, size_t coun
 	{
 		ssize_t res = snd_pcm_oss_read1(substream, buf, count);
 		printk("pcm_oss: read %li bytes (returned %li bytes)\n", (long)count, (long)res);
+		pcm_dbg(substream->pcm,
+			"pcm_oss: read %li bytes (returned %li bytes)\n",
+			(long)count, (long)res);
 		return res;
 	}
 #endif
@@ -2629,6 +2818,8 @@ static ssize_t snd_pcm_oss_write(struct file *file, const char __user *buf, size
 	result = snd_pcm_oss_write1(substream, buf, count);
 #ifdef OSS_DEBUG
 	printk("pcm_oss: write %li bytes (wrote %li bytes)\n", (long)count, (long)result);
+	pcm_dbg(substream->pcm, "pcm_oss: write %li bytes (wrote %li bytes)\n",
+	       (long)count, (long)result);
 #endif
 	return result;
 }
@@ -2640,6 +2831,11 @@ static int snd_pcm_oss_playback_ready(struct snd_pcm_substream *substream)
 		return runtime->oss.prev_hw_ptr_interrupt != runtime->hw_ptr_interrupt;
 	else
 		return snd_pcm_playback_avail(runtime) >= runtime->oss.period_frames;
+		return runtime->oss.prev_hw_ptr_period !=
+						get_hw_ptr_period(runtime);
+	else
+		return snd_pcm_playback_avail(runtime) >=
+						runtime->oss.period_frames;
 }
 
 static int snd_pcm_oss_capture_ready(struct snd_pcm_substream *substream)
@@ -2649,6 +2845,11 @@ static int snd_pcm_oss_capture_ready(struct snd_pcm_substream *substream)
 		return runtime->oss.prev_hw_ptr_interrupt != runtime->hw_ptr_interrupt;
 	else
 		return snd_pcm_capture_avail(runtime) >= runtime->oss.period_frames;
+		return runtime->oss.prev_hw_ptr_period !=
+						get_hw_ptr_period(runtime);
+	else
+		return snd_pcm_capture_avail(runtime) >=
+						runtime->oss.period_frames;
 }
 
 static unsigned int snd_pcm_oss_poll(struct file *file, poll_table * wait)
@@ -2703,6 +2904,7 @@ static int snd_pcm_oss_mmap(struct file *file, struct vm_area_struct *area)
 
 #ifdef OSS_DEBUG
 	printk("pcm_oss: mmap begin\n");
+	pr_debug("pcm_oss: mmap begin\n");
 #endif
 	pcm_oss_file = file->private_data;
 	switch ((area->vm_flags & (VM_READ | VM_WRITE))) {
@@ -2753,6 +2955,8 @@ static int snd_pcm_oss_mmap(struct file *file, struct vm_area_struct *area)
 	runtime->silence_size = 0;
 #ifdef OSS_DEBUG
 	printk("pcm_oss: mmap ok, bytes = 0x%x\n", runtime->oss.mmap_bytes);
+	pr_debug("pcm_oss: mmap ok, bytes = 0x%x\n",
+	       runtime->oss.mmap_bytes);
 #endif
 	/* In mmap mode we never stop */
 	runtime->stop_threshold = runtime->boundary;
@@ -2805,6 +3009,8 @@ static void snd_pcm_oss_proc_write(struct snd_info_entry *entry,
 {
 	struct snd_pcm_str *pstr = entry->private_data;
 	char line[128], str[32], task_name[32], *ptr;
+	char line[128], str[32], task_name[32];
+	const char *ptr;
 	int idx1;
 	struct snd_pcm_oss_setup *setup, *setup1, template;
 
@@ -2855,6 +3061,7 @@ static void snd_pcm_oss_proc_write(struct snd_info_entry *entry,
 			if (! setup) {
 				buffer->error = -ENOMEM;
 				mutex_lock(&pstr->oss.setup_mutex);
+				mutex_unlock(&pstr->oss.setup_mutex);
 				return;
 			}
 			if (pstr->oss.setup_list == NULL)
@@ -2869,6 +3076,7 @@ static void snd_pcm_oss_proc_write(struct snd_info_entry *entry,
 				kfree(setup);
 				buffer->error = -ENOMEM;
 				mutex_lock(&pstr->oss.setup_mutex);
+				mutex_unlock(&pstr->oss.setup_mutex);
 				return;
 			}
 		}
@@ -2926,6 +3134,7 @@ static const struct file_operations snd_pcm_oss_f_reg =
 	.write =	snd_pcm_oss_write,
 	.open =		snd_pcm_oss_open,
 	.release =	snd_pcm_oss_release,
+	.llseek =	no_llseek,
 	.poll =		snd_pcm_oss_poll,
 	.unlocked_ioctl =	snd_pcm_oss_ioctl,
 	.compat_ioctl =	snd_pcm_oss_ioctl_compat,
@@ -2940,6 +3149,10 @@ static void register_oss_dsp(struct snd_pcm *pcm, int index)
 				    pcm->card, index, &snd_pcm_oss_f_reg,
 				    pcm, name) < 0) {
 		snd_printk(KERN_ERR "unable to register OSS PCM device %i:%i\n",
+	if (snd_register_oss_device(SNDRV_OSS_DEVICE_TYPE_PCM,
+				    pcm->card, index, &snd_pcm_oss_f_reg,
+				    pcm) < 0) {
+		pcm_err(pcm, "unable to register OSS PCM device %i:%i\n",
 			   pcm->card->number, pcm->device);
 	}
 }
@@ -3021,11 +3234,13 @@ static int __init alsa_pcm_oss_init(void)
 	for (i = 0; i < SNDRV_CARDS; i++) {
 		if (dsp_map[i] < 0 || dsp_map[i] >= SNDRV_PCM_DEVICES) {
 			snd_printk(KERN_ERR "invalid dsp_map[%d] = %d\n",
+			pr_err("ALSA: pcm_oss: invalid dsp_map[%d] = %d\n",
 				   i, dsp_map[i]);
 			dsp_map[i] = 0;
 		}
 		if (adsp_map[i] < 0 || adsp_map[i] >= SNDRV_PCM_DEVICES) {
 			snd_printk(KERN_ERR "invalid adsp_map[%d] = %d\n",
+			pr_err("ALSA: pcm_oss: invalid adsp_map[%d] = %d\n",
 				   i, adsp_map[i]);
 			adsp_map[i] = 1;
 		}

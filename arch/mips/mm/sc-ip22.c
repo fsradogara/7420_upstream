@@ -3,6 +3,7 @@
  *
  * Copyright (C) 1997, 2001 Ralf Baechle (ralf@gnu.org),
  * derived from r4xx0.c by David S. Miller (dm@engr.sgi.com).
+ * derived from r4xx0.c by David S. Miller (davem@davemloft.net).
  */
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -162,6 +163,8 @@ static inline int __init indy_sc_probe(void)
 /* XXX Check with wje if the Indy caches can differenciate between
    writeback + invalidate and just invalidate.  */
 struct bcache_ops indy_sc_ops = {
+   writeback + invalidate and just invalidate.	*/
+static struct bcache_ops indy_sc_ops = {
 	.bc_enable = indy_sc_enable,
 	.bc_disable = indy_sc_disable,
 	.bc_wback_inv = indy_sc_wback_invalidate,
@@ -169,6 +172,7 @@ struct bcache_ops indy_sc_ops = {
 };
 
 void __cpuinit indy_sc_init(void)
+void indy_sc_init(void)
 {
 	if (indy_sc_probe()) {
 		indy_sc_enable();

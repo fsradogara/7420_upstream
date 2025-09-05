@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
  */
 #include <linux/module.h>
+#include <linux/export.h>
+#include <linux/sched.h>
 #include <linux/string.h>
 #include <linux/cryptohash.h>
 #include <linux/delay.h>
@@ -18,6 +20,10 @@
 #include <asm/io.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+
+#include <asm/checksum.h>
 #include <asm/ftrace.h>
 
 /*
@@ -35,6 +41,8 @@ extern void __ucmpdi2(void);
 extern void __udivsi3(void);
 extern void __umodsi3(void);
 extern void __do_div64(void);
+extern void __bswapsi2(void);
+extern void __bswapdi2(void);
 
 extern void __aeabi_idiv(void);
 extern void __aeabi_idivmod(void);
@@ -74,6 +82,12 @@ EXPORT_SYMBOL(__backtrace);
 	/* platform dependent support */
 EXPORT_SYMBOL(__udelay);
 EXPORT_SYMBOL(__const_udelay);
+
+void mmioset(void *, unsigned int, size_t);
+void mmiocpy(void *, const void *, size_t);
+
+	/* platform dependent support */
+EXPORT_SYMBOL(arm_delay_ops);
 
 	/* networking */
 EXPORT_SYMBOL(csum_partial);
@@ -118,10 +132,27 @@ EXPORT_SYMBOL(__strncpy_from_user);
 EXPORT_SYMBOL(__copy_from_user);
 EXPORT_SYMBOL(__copy_to_user);
 EXPORT_SYMBOL(__clear_user);
+EXPORT_SYMBOL(mmioset);
+EXPORT_SYMBOL(mmiocpy);
+
+#ifdef CONFIG_MMU
+EXPORT_SYMBOL(copy_page);
+
+EXPORT_SYMBOL(arm_copy_from_user);
+EXPORT_SYMBOL(arm_copy_to_user);
+EXPORT_SYMBOL(arm_clear_user);
 
 EXPORT_SYMBOL(__get_user_1);
 EXPORT_SYMBOL(__get_user_2);
 EXPORT_SYMBOL(__get_user_4);
+EXPORT_SYMBOL(__get_user_8);
+
+#ifdef __ARMEB__
+EXPORT_SYMBOL(__get_user_64t_1);
+EXPORT_SYMBOL(__get_user_64t_2);
+EXPORT_SYMBOL(__get_user_64t_4);
+EXPORT_SYMBOL(__get_user_32t_8);
+#endif
 
 EXPORT_SYMBOL(__put_user_1);
 EXPORT_SYMBOL(__put_user_2);
@@ -143,6 +174,8 @@ EXPORT_SYMBOL(__ucmpdi2);
 EXPORT_SYMBOL(__udivsi3);
 EXPORT_SYMBOL(__umodsi3);
 EXPORT_SYMBOL(__do_div64);
+EXPORT_SYMBOL(__bswapsi2);
+EXPORT_SYMBOL(__bswapdi2);
 
 #ifdef CONFIG_AEABI
 EXPORT_SYMBOL(__aeabi_idiv);
@@ -163,6 +196,12 @@ EXPORT_SYMBOL(_clear_bit_le);
 EXPORT_SYMBOL(_test_and_clear_bit_le);
 EXPORT_SYMBOL(_change_bit_le);
 EXPORT_SYMBOL(_test_and_change_bit_le);
+EXPORT_SYMBOL(_set_bit);
+EXPORT_SYMBOL(_test_and_set_bit);
+EXPORT_SYMBOL(_clear_bit);
+EXPORT_SYMBOL(_test_and_clear_bit);
+EXPORT_SYMBOL(_change_bit);
+EXPORT_SYMBOL(_test_and_change_bit);
 EXPORT_SYMBOL(_find_first_zero_bit_le);
 EXPORT_SYMBOL(_find_next_zero_bit_le);
 EXPORT_SYMBOL(_find_first_bit_le);
@@ -185,4 +224,15 @@ EXPORT_SYMBOL(copy_page);
 
 #ifdef CONFIG_FTRACE
 EXPORT_SYMBOL(mcount);
+#endif
+#ifdef CONFIG_FUNCTION_TRACER
+#ifdef CONFIG_OLD_MCOUNT
+EXPORT_SYMBOL(mcount);
+#endif
+EXPORT_SYMBOL(__gnu_mcount_nc);
+#endif
+
+#ifdef CONFIG_ARM_PATCH_PHYS_VIRT
+EXPORT_SYMBOL(__pv_phys_pfn_offset);
+EXPORT_SYMBOL(__pv_offset);
 #endif

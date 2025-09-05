@@ -32,6 +32,7 @@
 EXPORT_SYMBOL(memset);
 
 #include <asm/atomic.h>
+#include <linux/atomic.h>
 EXPORT_SYMBOL(__xchg8);
 EXPORT_SYMBOL(__xchg32);
 EXPORT_SYMBOL(__cmpxchg_u32);
@@ -121,11 +122,13 @@ extern void __ashrdi3(void);
 extern void __ashldi3(void);
 extern void __lshrdi3(void);
 extern void __muldi3(void);
+extern void __ucmpdi2(void);
 
 EXPORT_SYMBOL(__ashrdi3);
 EXPORT_SYMBOL(__ashldi3);
 EXPORT_SYMBOL(__lshrdi3);
 EXPORT_SYMBOL(__muldi3);
+EXPORT_SYMBOL(__ucmpdi2);
 
 asmlinkage void * __canonicalize_funcptr_for_compare(void *);
 EXPORT_SYMBOL(__canonicalize_funcptr_for_compare);
@@ -155,3 +158,11 @@ EXPORT_SYMBOL(pfnnid_map);
 
 /* from pacache.S -- needed for copy_page */
 EXPORT_SYMBOL(copy_user_page_asm);
+#ifdef CONFIG_FUNCTION_TRACER
+extern void _mcount(void);
+EXPORT_SYMBOL(_mcount);
+#endif
+
+/* from pacache.S -- needed for clear/copy_page */
+EXPORT_SYMBOL(clear_page_asm);
+EXPORT_SYMBOL(copy_page_asm);

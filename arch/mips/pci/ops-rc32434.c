@@ -36,6 +36,7 @@
 #include <asm/mach-rc32434/pci.h>
 
 #define PCI_ACCESS_READ  0
+#define PCI_ACCESS_READ	 0
 #define PCI_ACCESS_WRITE 1
 
 

@@ -28,6 +28,8 @@ static void set_bitmap(unsigned long *bitmap, unsigned int base,
 			__clear_bit(i, bitmap);
 	}
 }
+#include <linux/bitmap.h>
+#include <asm/syscalls.h>
 
 /*
  * this changes the io permissions bitmap in the current task.
@@ -36,6 +38,8 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
 {
 	struct thread_struct * t = &current->thread;
 	struct tss_struct * tss;
+	struct thread_struct *t = &current->thread;
+	struct tss_struct *tss;
 	unsigned int i, max_long, bytes, bytes_updated;
 
 	if ((from + num <= from) || (from + num > IO_BITMAP_BITS))
@@ -69,6 +73,12 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
 	tss = &per_cpu(init_tss, get_cpu());
 
 	set_bitmap(t->io_bitmap_ptr, from, num, !turn_on);
+	tss = &per_cpu(cpu_tss, get_cpu());
+
+	if (turn_on)
+		bitmap_clear(t->io_bitmap_ptr, from, num);
+	else
+		bitmap_set(t->io_bitmap_ptr, from, num);
 
 	/*
 	 * Search for a (possibly new) maximum. This is simple and stupid,
@@ -97,6 +107,8 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
 	/* Update the TSS: */
 	memcpy(tss->io_bitmap, t->io_bitmap_ptr, bytes_updated);
 #endif
+	/* Update the TSS: */
+	memcpy(tss->io_bitmap, t->io_bitmap_ptr, bytes_updated);
 
 	put_cpu();
 
@@ -116,6 +128,11 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
 static int do_iopl(unsigned int level, struct pt_regs *regs)
 {
 	unsigned int old = (regs->flags >> 12) & 3;
+SYSCALL_DEFINE1(iopl, unsigned int, level)
+{
+	struct pt_regs *regs = current_pt_regs();
+	unsigned int old = (regs->flags >> 12) & 3;
+	struct thread_struct *t = &current->thread;
 
 	if (level > 3)
 		return -EINVAL;
@@ -152,3 +169,8 @@ asmlinkage long sys_iopl(unsigned int level, struct pt_regs *regs)
 	return do_iopl(level, regs);
 }
 #endif
+	t->iopl = level << 12;
+	set_iopl_mask(t->iopl);
+
+	return 0;
+}

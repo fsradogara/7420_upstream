@@ -23,6 +23,7 @@
  */
 #include <linux/time.h>
 #include "asequencer.h"
+#include <sound/asequencer.h>
 
 typedef struct snd_seq_real_time snd_seq_real_time_t;
 typedef union snd_seq_timestamp snd_seq_timestamp_t;
@@ -32,6 +33,8 @@ typedef union snd_seq_timestamp snd_seq_timestamp_t;
 
 /* maximum number of queues */
 #define SNDRV_SEQ_MAX_QUEUES		8
+/* maximum number of queues */
+#define SNDRV_SEQ_MAX_QUEUES		32
 
 /* max number of concurrent clients */
 #define SNDRV_SEQ_MAX_CLIENTS 		192
@@ -78,6 +81,9 @@ struct snd_seq_port_callback {
 int snd_seq_create_kernel_client(struct snd_card *card, int client_index,
 				 const char *name_fmt, ...)
 	__attribute__ ((format (printf, 3, 4)));
+__printf(3, 4)
+int snd_seq_create_kernel_client(struct snd_card *card, int client_index,
+				 const char *name_fmt, ...);
 int snd_seq_delete_kernel_client(int client);
 int snd_seq_kernel_client_enqueue(int client, struct snd_seq_event *ev, int atomic, int hop);
 int snd_seq_kernel_client_dispatch(int client, struct snd_seq_event *ev, int atomic, int hop);
@@ -111,6 +117,11 @@ void snd_seq_autoload_unlock(void);
 #else
 #define snd_seq_autoload_lock()
 #define snd_seq_autoload_unlock()
+void snd_seq_autoload_init(void);
+void snd_seq_autoload_exit(void);
+#else
+#define snd_seq_autoload_init()
+#define snd_seq_autoload_exit()
 #endif
 
 #endif /* __SOUND_SEQ_KERNEL_H */

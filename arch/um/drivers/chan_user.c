@@ -15,6 +15,8 @@
 #include "os.h"
 #include "um_malloc.h"
 #include "user.h"
+#include <os.h>
+#include <um_malloc.h>
 
 void generic_close(int fd, void *unused)
 {
@@ -219,6 +221,7 @@ static int winch_thread(void *arg)
 }
 
 static int winch_tramp(int fd, struct tty_struct *tty, int *fd_out,
+static int winch_tramp(int fd, struct tty_port *port, int *fd_out,
 		       unsigned long *stack_out)
 {
 	struct winch_data data;
@@ -274,6 +277,7 @@ static int winch_tramp(int fd, struct tty_struct *tty, int *fd_out,
 }
 
 void register_winch(int fd, struct tty_struct *tty)
+void register_winch(int fd, struct tty_port *port)
 {
 	unsigned long stack;
 	int pid, thread, count, thread_fd = -1;
@@ -289,6 +293,17 @@ void register_winch(int fd, struct tty_struct *tty)
 			return;
 
 		register_winch_irq(thread_fd, fd, thread, tty, stack);
+	if (is_skas_winch(pid, fd, port)) {
+		register_winch_irq(-1, fd, -1, port, 0);
+		return;
+	}
+
+	if (pid == -1) {
+		thread = winch_tramp(fd, port, &thread_fd, &stack);
+		if (thread < 0)
+			return;
+
+		register_winch_irq(thread_fd, fd, thread, port, stack);
 
 		count = write(thread_fd, &c, sizeof(c));
 		if (count != sizeof(c))

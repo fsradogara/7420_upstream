@@ -18,6 +18,8 @@ asmlinkage long
 sys_pciconfig_read(unsigned long bus, unsigned long dfn,
 		   unsigned long off, unsigned long len,
 		   void __user *buf)
+SYSCALL_DEFINE5(pciconfig_read, unsigned long, bus, unsigned long, dfn,
+		unsigned long, off, unsigned long, len, void __user *, buf)
 {
 	struct pci_dev *dev;
 	u8 byte;
@@ -48,6 +50,7 @@ sys_pciconfig_read(unsigned long bus, unsigned long dfn,
 		err = -EINVAL;
 		goto error;
 	};
+	}
 
 	err = -EIO;
 	if (cfg_ret != PCIBIOS_SUCCESSFUL)
@@ -90,6 +93,8 @@ asmlinkage long
 sys_pciconfig_write(unsigned long bus, unsigned long dfn,
 		    unsigned long off, unsigned long len,
 		    void __user *buf)
+SYSCALL_DEFINE5(pciconfig_write, unsigned long, bus, unsigned long, dfn,
+		unsigned long, off, unsigned long, len, void __user *, buf)
 {
 	struct pci_dev *dev;
 	u8 byte;
@@ -105,6 +110,7 @@ sys_pciconfig_write(unsigned long bus, unsigned long dfn,
 		return -ENODEV;
 
 	switch(len) {
+	switch (len) {
 	case 1:
 		err = get_user(byte, (u8 __user *)buf);
 		if (err)

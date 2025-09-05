@@ -2,12 +2,15 @@
  * JFFS2 -- Journalling Flash File System, Version 2.
  *
  * Copyright © 2001-2007 Red Hat, Inc.
+ * Copyright © 2004-2010 David Woodhouse <dwmw2@infradead.org>
  *
  * Created by David Woodhouse <dwmw2@infradead.org>
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -23,6 +26,7 @@ static inline struct jffs2_inode_cache *
 first_inode_chain(int *i, struct jffs2_sb_info *c)
 {
 	for (; *i < INOCACHE_HASHSIZE; (*i)++) {
+	for (; *i < c->inocache_hashsize; (*i)++) {
 		if (c->inocache_list[*i])
 			return c->inocache_list[*i];
 	}
@@ -308,6 +312,8 @@ static void jffs2_calc_trigger_levels(struct jffs2_sb_info *c)
 
 	dbg_fsbuild("JFFS2 trigger levels (size %d KiB, block size %d KiB, %d blocks)\n",
 		  c->flash_size / 1024, c->sector_size / 1024, c->nr_blocks);
+	dbg_fsbuild("trigger levels (size %d KiB, block size %d KiB, %d blocks)\n",
+		    c->flash_size / 1024, c->sector_size / 1024, c->nr_blocks);
 	dbg_fsbuild("Blocks required to allow deletion:    %d (%d KiB)\n",
 		  c->resv_blocks_deletion, c->resv_blocks_deletion*c->sector_size/1024);
 	dbg_fsbuild("Blocks required to allow writes:      %d (%d KiB)\n",
@@ -343,6 +349,13 @@ int jffs2_do_mount_fs(struct jffs2_sb_info *c)
 		return -ENOMEM;
 
 	memset(c->blocks, 0, size);
+		c->blocks = vzalloc(size);
+	else
+#endif
+		c->blocks = kzalloc(size, GFP_KERNEL);
+	if (!c->blocks)
+		return -ENOMEM;
+
 	for (i=0; i<c->nr_blocks; i++) {
 		INIT_LIST_HEAD(&c->blocks[i].list);
 		c->blocks[i].offset = i * c->sector_size;

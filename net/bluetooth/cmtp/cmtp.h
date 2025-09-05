@@ -38,6 +38,7 @@
 
 struct cmtp_connadd_req {
 	int   sock;	// Connected socket
+	int   sock;	/* Connected socket */
 	__u32 flags;
 };
 
@@ -82,6 +83,7 @@ struct cmtp_session {
 	char name[BTNAMSIZ];
 
 	atomic_t terminate;
+	struct task_struct *task;
 
 	wait_queue_head_t wait;
 

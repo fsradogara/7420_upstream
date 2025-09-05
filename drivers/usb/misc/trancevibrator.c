@@ -22,6 +22,7 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/usb.h>
 
@@ -34,6 +35,7 @@
 #define TRANCEVIBRATOR_PRODUCT_ID	0x064f	/* Trance Vibrator */
 
 static struct usb_device_id id_table [] = {
+static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(TRANCEVIBRATOR_VENDOR_ID, TRANCEVIBRATOR_PRODUCT_ID) },
 	{ },
 };
@@ -86,6 +88,7 @@ static ssize_t set_speed(struct device *dev, struct device_attribute *attr,
 }
 
 static DEVICE_ATTR(speed, S_IWUGO | S_IRUGO, show_speed, set_speed);
+static DEVICE_ATTR(speed, S_IRUGO | S_IWUSR, show_speed, set_speed);
 
 static int tv_probe(struct usb_interface *interface,
 		    const struct usb_device_id *id)
@@ -155,6 +158,7 @@ static void __exit tv_exit(void)
 
 module_init (tv_init);
 module_exit (tv_exit);
+module_usb_driver(tv_driver);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);

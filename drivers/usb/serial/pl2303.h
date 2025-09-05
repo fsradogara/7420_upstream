@@ -7,6 +7,12 @@
  *	(at your option) any later version.
  * 
  */
+ *
+ */
+
+#define BENQ_VENDOR_ID			0x04a5
+#define BENQ_PRODUCT_ID_S81		0x4027
+
 #define PL2303_VENDOR_ID	0x067b
 #define PL2303_PRODUCT_ID	0x2303
 #define PL2303_PRODUCT_ID_RSAQ2		0x04bb
@@ -16,6 +22,9 @@
 #define PL2303_PRODUCT_ID_ALDIGA	0x0611
 #define PL2303_PRODUCT_ID_MMX		0x0612
 #define PL2303_PRODUCT_ID_GPRS		0x0609
+#define PL2303_PRODUCT_ID_HCR331	0x331a
+#define PL2303_PRODUCT_ID_MOTOROLA	0x0307
+#define PL2303_PRODUCT_ID_ZTEK		0xe1f1
 
 #define ATEN_VENDOR_ID		0x0557
 #define ATEN_VENDOR_ID2		0x0547
@@ -110,3 +119,39 @@
 /* Y.C. Cable U.S.A., Inc - USB to RS-232 */
 #define YCCABLE_VENDOR_ID	0x05ad
 #define YCCABLE_PRODUCT_ID	0x0fba
+
+/* "Superial" USB - Serial */
+#define SUPERIAL_VENDOR_ID	0x5372
+#define SUPERIAL_PRODUCT_ID	0x2303
+
+/* Hewlett-Packard POS Pole Displays */
+#define HP_VENDOR_ID		0x03f0
+#define HP_LD960_PRODUCT_ID	0x0b39
+#define HP_LCM220_PRODUCT_ID	0x3139
+#define HP_LCM960_PRODUCT_ID	0x3239
+#define HP_LD220_PRODUCT_ID	0x3524
+
+/* Cressi Edy (diving computer) PC interface */
+#define CRESSI_VENDOR_ID	0x04b8
+#define CRESSI_EDY_PRODUCT_ID	0x0521
+
+/* Zeagle dive computer interface */
+#define ZEAGLE_VENDOR_ID	0x04b8
+#define ZEAGLE_N2ITION3_PRODUCT_ID	0x0522
+
+/* Sony, USB data cable for CMD-Jxx mobile phones */
+#define SONY_VENDOR_ID		0x054c
+#define SONY_QN3USB_PRODUCT_ID	0x0437
+
+/* Sanwa KB-USB2 multimeter cable (ID: 11ad:0001) */
+#define SANWA_VENDOR_ID		0x11ad
+#define SANWA_PRODUCT_ID	0x0001
+
+/* ADLINK ND-6530 RS232,RS485 and RS422 adapter */
+#define ADLINK_VENDOR_ID		0x0b63
+#define ADLINK_ND6530_PRODUCT_ID	0x6530
+
+/* SMART USB Serial Adapter */
+#define SMART_VENDOR_ID	0x0b8c
+#define SMART_PRODUCT_ID	0x2303
+

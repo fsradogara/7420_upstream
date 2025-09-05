@@ -26,6 +26,15 @@ typedef unsigned int RING_IDX;
  */
 #define __RING_SIZE(_s, _sz) \
     (__RD32(((_sz) - (long)&(_s)->ring + (long)(_s)) / sizeof((_s)->ring[0])))
+#define __CONST_RING_SIZE(_s, _sz)				\
+	(__RD32(((_sz) - offsetof(struct _s##_sring, ring)) /	\
+		sizeof(((struct _s##_sring *)0)->ring[0])))
+
+/*
+ * The same for passing in an actual pointer instead of a name tag.
+ */
+#define __RING_SIZE(_s, _sz)						\
+	(__RD32(((_sz) - (long)&(_s)->ring + (long)(_s)) / sizeof((_s)->ring[0])))
 
 /*
  * Macros to make the correct C datatypes for a new kind of ring.
@@ -174,12 +183,31 @@ struct __name##_back_ring {						\
 #define RING_GET_REQUEST(_r, _idx)					\
     (&((_r)->sring->ring[((_idx) & (RING_SIZE(_r) - 1))].req))
 
+/*
+ * Get a local copy of a request.
+ *
+ * Use this in preference to RING_GET_REQUEST() so all processing is
+ * done on a local copy that cannot be modified by the other end.
+ *
+ * Note that https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58145 may cause this
+ * to be ineffective where _req is a struct which consists of only bitfields.
+ */
+#define RING_COPY_REQUEST(_r, _idx, _req) do {				\
+	/* Use volatile to force the copy into _req. */			\
+	*(_req) = *(volatile typeof(_req))RING_GET_REQUEST(_r, _idx);	\
+} while (0)
+
 #define RING_GET_RESPONSE(_r, _idx)					\
     (&((_r)->sring->ring[((_idx) & (RING_SIZE(_r) - 1))].rsp))
 
 /* Loop termination condition: Would the specified index overflow the ring? */
 #define RING_REQUEST_CONS_OVERFLOW(_r, _cons)				\
     (((_cons) - (_r)->rsp_prod_pvt) >= RING_SIZE(_r))
+
+/* Ill-behaved frontend determination: Can there be this many requests? */
+#define RING_REQUEST_PROD_OVERFLOW(_r, _prod)               \
+    (((_prod) - (_r)->rsp_prod_pvt) > RING_SIZE(_r))
+
 
 #define RING_PUSH_REQUESTS(_r) do {					\
     wmb(); /* back sees requests /before/ updated producer index */	\

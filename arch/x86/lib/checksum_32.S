@@ -28,6 +28,8 @@
 #include <linux/linkage.h>
 #include <asm/dwarf2.h>
 #include <asm/errno.h>
+#include <asm/errno.h>
+#include <asm/asm.h>
 				
 /*
  * computes a partial checksum, e.g. for TCP/UDP fragments
@@ -56,6 +58,8 @@ ENTRY(csum_partial)
 	pushl %ebx
 	CFI_ADJUST_CFA_OFFSET 4
 	CFI_REL_OFFSET ebx, 0
+	pushl %esi
+	pushl %ebx
 	movl 20(%esp),%eax	# Function arg: unsigned int sum
 	movl 16(%esp),%ecx	# Function arg: int len
 	movl 12(%esp),%esi	# Function arg: unsigned char *buff
@@ -63,6 +67,7 @@ ENTRY(csum_partial)
 	jz 2f			# Jump if alignment is ok.
 	testl $1, %esi		# Check alignment.
 	jz 10f			# Jump if alignment is boundary of 2bytes.
+	jz 10f			# Jump if alignment is boundary of 2 bytes.
 
 	# buf is odd
 	dec %ecx
@@ -129,6 +134,7 @@ ENTRY(csum_partial)
 	adcl $0, %eax 
 7:	
 	testl $1, 12(%esp)
+	testb $1, 12(%esp)
 	jz 8f
 	roll $8, %eax
 8:
@@ -140,6 +146,8 @@ ENTRY(csum_partial)
 	CFI_RESTORE esi
 	ret
 	CFI_ENDPROC
+	popl %esi
+	ret
 ENDPROC(csum_partial)
 
 #else
@@ -154,6 +162,8 @@ ENTRY(csum_partial)
 	pushl %ebx
 	CFI_ADJUST_CFA_OFFSET 4
 	CFI_REL_OFFSET ebx, 0
+	pushl %esi
+	pushl %ebx
 	movl 20(%esp),%eax	# Function arg: unsigned int sum
 	movl 16(%esp),%ecx	# Function arg: int len
 	movl 12(%esp),%esi	# Function arg:	const unsigned char *buf
@@ -257,6 +267,7 @@ ENTRY(csum_partial)
 	adcl $0,%eax
 80: 
 	testl $1, 12(%esp)
+	testb $1, 12(%esp)
 	jz 90f
 	roll $8, %eax
 90: 
@@ -268,6 +279,8 @@ ENTRY(csum_partial)
 	CFI_RESTORE esi
 	ret
 	CFI_ENDPROC
+	popl %esi
+	ret
 ENDPROC(csum_partial)
 				
 #endif
@@ -299,6 +312,11 @@ unsigned int csum_partial_copy_generic (const char *src, char *dst,
 	.section __ex_table, "a";	\
 	.long 9999b, 6002f	;	\
 	.previous
+	_ASM_EXTABLE(9999b, 6001f)
+
+#define DST(y...)			\
+	9999: y;			\
+	_ASM_EXTABLE(9999b, 6002f)
 
 #ifndef CONFIG_X86_USE_PPRO_CHECKSUM
 
@@ -318,6 +336,10 @@ ENTRY(csum_partial_copy_generic)
 	pushl %ebx
 	CFI_ADJUST_CFA_OFFSET 4
 	CFI_REL_OFFSET ebx, 0
+	subl  $4,%esp	
+	pushl %edi
+	pushl %esi
+	pushl %ebx
 	movl ARGBASE+16(%esp),%eax	# sum
 	movl ARGBASE+12(%esp),%ecx	# len
 	movl ARGBASE+4(%esp),%esi	# src
@@ -439,6 +461,10 @@ DST(	movb %cl, (%edi)	)
 	CFI_ADJUST_CFA_OFFSET -4
 	ret	
 	CFI_ENDPROC
+	popl %esi
+	popl %edi
+	popl %ecx			# equivalent to addl $4,%esp
+	ret	
 ENDPROC(csum_partial_copy_generic)
 
 #else
@@ -468,6 +494,9 @@ ENTRY(csum_partial_copy_generic)
 	pushl %esi
 	CFI_ADJUST_CFA_OFFSET 4
 	CFI_REL_OFFSET esi, 0
+	pushl %ebx
+	pushl %edi
+	pushl %esi
 	movl ARGBASE+4(%esp),%esi	#src
 	movl ARGBASE+8(%esp),%edi	#dst	
 	movl ARGBASE+12(%esp),%ecx	#len
@@ -538,6 +567,9 @@ DST(	movb %dl, (%edi)         )
 	CFI_RESTORE ebx
 	ret
 	CFI_ENDPROC
+	popl %edi
+	popl %ebx
+	ret
 ENDPROC(csum_partial_copy_generic)
 				
 #undef ROUND

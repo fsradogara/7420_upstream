@@ -191,6 +191,9 @@ void afs_cache_permit(struct afs_vnode *vnode, struct key *key, long acl_order)
 
 	memcpy(permits->permits, xpermits->permits,
 	       count * sizeof(struct afs_permit));
+	if (xpermits)
+		memcpy(permits->permits, xpermits->permits,
+			count * sizeof(struct afs_permit));
 
 	_debug("key %x access %x",
 	       key_serial(key), vnode->status.caller_access);
@@ -291,6 +294,9 @@ int afs_permission(struct inode *inode, int mask)
 	struct key *key;
 	int ret;
 
+	if (mask & MAY_NOT_BLOCK)
+		return -ECHILD;
+
 	_enter("{{%x:%u},%lx},%x,",
 	       vnode->fid.vid, vnode->fid.vnode, vnode->flags, mask);
 
@@ -347,6 +353,7 @@ int afs_permission(struct inode *inode, int mask)
 
 	key_put(key);
 	ret = generic_permission(inode, mask, NULL);
+	ret = generic_permission(inode, mask);
 	_leave(" = %d", ret);
 	return ret;
 

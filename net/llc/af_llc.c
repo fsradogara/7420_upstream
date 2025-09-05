@@ -25,6 +25,7 @@
 #include <linux/module.h>
 #include <linux/rtnetlink.h>
 #include <linux/init.h>
+#include <linux/slab.h>
 #include <net/llc.h>
 #include <net/llc_sap.h>
 #include <net/llc_pdu.h>
@@ -47,6 +48,10 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, long timeout);
 #define dprintk(args...)
 #endif
 
+/* Maybe we'll add some more in the future. */
+#define LLC_CMSG_PKTINFO	1
+
+
 /**
  *	llc_ui_next_link_no - return the next unused link number for a sap
  *	@sap: Address of sap to get link number from.
@@ -68,6 +73,7 @@ static inline __be16 llc_proto_type(u16 arphrd)
 {
 	return arphrd == ARPHRD_IEEE802_TR ?
 			 htons(ETH_P_TR_802_2) : htons(ETH_P_802_2);
+	return htons(ETH_P_802_2);
 }
 
 /**
@@ -137,18 +143,25 @@ static struct proto llc_proto = {
 	.name	  = "LLC",
 	.owner	  = THIS_MODULE,
 	.obj_size = sizeof(struct llc_sock),
+	.slab_flags = SLAB_DESTROY_BY_RCU,
 };
 
 /**
  *	llc_ui_create - alloc and init a new llc_ui socket
  *	@sock: Socket to initialize and attach allocated sk to.
  *	@protocol: Unused.
+ *	@net: network namespace (must be default network)
+ *	@sock: Socket to initialize and attach allocated sk to.
+ *	@protocol: Unused.
+ *	@kern: on behalf of kernel or userspace
  *
  *	Allocate and initialize a new llc_ui socket, validate the user wants a
  *	socket type we have available.
  *	Returns 0 upon success, negative upon failure.
  */
 static int llc_ui_create(struct net *net, struct socket *sock, int protocol)
+static int llc_ui_create(struct net *net, struct socket *sock, int protocol,
+			 int kern)
 {
 	struct sock *sk;
 	int rc = -ESOCKTNOSUPPORT;
@@ -157,11 +170,16 @@ static int llc_ui_create(struct net *net, struct socket *sock, int protocol)
 		return -EPERM;
 
 	if (net != &init_net)
+	if (!ns_capable(net->user_ns, CAP_NET_RAW))
+		return -EPERM;
+
+	if (!net_eq(net, &init_net))
 		return -EAFNOSUPPORT;
 
 	if (likely(sock->type == SOCK_DGRAM || sock->type == SOCK_STREAM)) {
 		rc = -ENOMEM;
 		sk = llc_sk_alloc(net, PF_LLC, GFP_KERNEL, &llc_proto);
+		sk = llc_sk_alloc(net, PF_LLC, GFP_KERNEL, &llc_proto, kern);
 		if (sk) {
 			rc = 0;
 			llc_ui_sk_init(sock, sk);
@@ -194,6 +212,8 @@ static int llc_ui_release(struct socket *sock)
 		llc_sap_put(llc->sap);
 		llc_sap_remove_socket(llc->sap, sk);
 	}
+	if (!sock_flag(sk, SOCK_ZAPPED))
+		llc_sap_remove_socket(llc->sap, sk);
 	release_sock(sk);
 	if (llc->dev)
 		dev_put(llc->dev);
@@ -254,6 +274,14 @@ static int llc_ui_autobind(struct socket *sock, struct sockaddr_llc *addr)
 		goto out;
 	rc = -ENODEV;
 	llc->dev = dev_getfirstbyhwtype(&init_net, addr->sllc_arphrd);
+	if (sk->sk_bound_dev_if) {
+		llc->dev = dev_get_by_index(&init_net, sk->sk_bound_dev_if);
+		if (llc->dev && addr->sllc_arphrd != llc->dev->type) {
+			dev_put(llc->dev);
+			llc->dev = NULL;
+		}
+	} else
+		llc->dev = dev_getfirstbyhwtype(&init_net, addr->sllc_arphrd);
 	if (!llc->dev)
 		goto out;
 	rc = -EUSERS;
@@ -306,6 +334,28 @@ static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 	rtnl_lock();
 	llc->dev = dev_getbyhwaddr(&init_net, addr->sllc_arphrd, addr->sllc_mac);
 	rtnl_unlock();
+	rcu_read_lock();
+	if (sk->sk_bound_dev_if) {
+		llc->dev = dev_get_by_index_rcu(&init_net, sk->sk_bound_dev_if);
+		if (llc->dev) {
+			if (!addr->sllc_arphrd)
+				addr->sllc_arphrd = llc->dev->type;
+			if (is_zero_ether_addr(addr->sllc_mac))
+				memcpy(addr->sllc_mac, llc->dev->dev_addr,
+				       IFHWADDRLEN);
+			if (addr->sllc_arphrd != llc->dev->type ||
+			    !ether_addr_equal(addr->sllc_mac,
+					      llc->dev->dev_addr)) {
+				rc = -EINVAL;
+				llc->dev = NULL;
+			}
+		}
+	} else
+		llc->dev = dev_getbyhwaddr_rcu(&init_net, addr->sllc_arphrd,
+					   addr->sllc_mac);
+	if (llc->dev)
+		dev_hold(llc->dev);
+	rcu_read_unlock();
 	if (!llc->dev)
 		goto out;
 	if (!addr->sllc_sap) {
@@ -488,6 +538,7 @@ static int llc_ui_listen(struct socket *sock, int backlog)
 		goto out;
 	rc = 0;
 	if (!(unsigned)backlog)	/* BSDism */
+	if (!(unsigned int)backlog)	/* BSDism */
 		backlog = 1;
 	sk->sk_max_ack_backlog = backlog;
 	if (sk->sk_state != TCP_LISTEN) {
@@ -507,6 +558,7 @@ static int llc_ui_wait_for_disc(struct sock *sk, long timeout)
 
 	while (1) {
 		prepare_to_wait(sk->sk_sleep, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 		if (sk_wait_event(sk, &timeout, sk->sk_state == TCP_CLOSE))
 			break;
 		rc = -ERESTARTSYS;
@@ -518,6 +570,7 @@ static int llc_ui_wait_for_disc(struct sock *sk, long timeout)
 		rc = 0;
 	}
 	finish_wait(sk->sk_sleep, &wait);
+	finish_wait(sk_sleep(sk), &wait);
 	return rc;
 }
 
@@ -527,12 +580,14 @@ static int llc_ui_wait_for_conn(struct sock *sk, long timeout)
 
 	while (1) {
 		prepare_to_wait(sk->sk_sleep, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 		if (sk_wait_event(sk, &timeout, sk->sk_state != TCP_SYN_SENT))
 			break;
 		if (signal_pending(current) || !timeout)
 			break;
 	}
 	finish_wait(sk->sk_sleep, &wait);
+	finish_wait(sk_sleep(sk), &wait);
 	return timeout;
 }
 
@@ -544,6 +599,7 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, long timeout)
 
 	while (1) {
 		prepare_to_wait(sk->sk_sleep, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 		rc = 0;
 		if (sk_wait_event(sk, &timeout,
 				  (sk->sk_shutdown & RCV_SHUTDOWN) ||
@@ -559,6 +615,7 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, long timeout)
 			break;
 	}
 	finish_wait(sk->sk_sleep, &wait);
+	finish_wait(sk_sleep(sk), &wait);
 	return rc;
 }
 
@@ -584,9 +641,24 @@ static int llc_wait_data(struct sock *sk, long timeo)
 			break;
 		rc = 0;
 		if (sk_wait_data(sk, &timeo))
+		if (sk_wait_data(sk, &timeo, NULL))
 			break;
 	}
 	return rc;
+}
+
+static void llc_cmsg_rcv(struct msghdr *msg, struct sk_buff *skb)
+{
+	struct llc_sock *llc = llc_sk(skb->sk);
+
+	if (llc->cmsg_flags & LLC_CMSG_PKTINFO) {
+		struct llc_pktinfo info;
+
+		info.lpi_ifindex = llc_sk(skb->sk)->dev->ifindex;
+		llc_pdu_decode_dsap(skb, &info.lpi_sap);
+		llc_pdu_decode_da(skb, info.lpi_mac);
+		put_cmsg(msg, SOL_LLC, LLC_OPT_PKTINFO, sizeof(info), &info);
+	}
 }
 
 /**
@@ -664,6 +736,10 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			  struct msghdr *msg, size_t len, int flags)
 {
 	struct sockaddr_llc *uaddr = (struct sockaddr_llc *)msg->msg_name;
+static int llc_ui_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
+			  int flags)
+{
+	DECLARE_SOCKADDR(struct sockaddr_llc *, uaddr, msg->msg_name);
 	const int nonblock = flags & MSG_DONTWAIT;
 	struct sk_buff *skb = NULL;
 	struct sock *sk = sock->sk;
@@ -671,6 +747,10 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 	size_t copied = 0;
 	u32 peek_seq = 0;
 	u32 *seq;
+	unsigned long cpu_flags;
+	size_t copied = 0;
+	u32 peek_seq = 0;
+	u32 *seq, skb_len;
 	unsigned long used;
 	int target;	/* Read at least this many bytes */
 	long timeo;
@@ -764,10 +844,17 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 				printk(KERN_DEBUG "LLC(%s:%d): Application "
 						  "bug, race in MSG_PEEK.\n",
 				       current->comm, task_pid_nr(current));
+			sk_wait_data(sk, &timeo, NULL);
+
+		if ((flags & MSG_PEEK) && peek_seq != llc->copied_seq) {
+			net_dbg_ratelimited("LLC(%s:%d): Application bug, race in MSG_PEEK\n",
+					    current->comm,
+					    task_pid_nr(current));
 			peek_seq = llc->copied_seq;
 		}
 		continue;
 	found_ok_skb:
+		skb_len = skb->len;
 		/* Ok so how much can we use? */
 		used = skb->len - offset;
 		if (len < used)
@@ -776,6 +863,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 		if (!(flags & MSG_TRUNC)) {
 			int rc = skb_copy_datagram_iovec(skb, offset,
 							 msg->msg_iov, used);
+			int rc = skb_copy_datagram_msg(skb, offset, msg, used);
 			if (rc) {
 				/* Exception. Bailout! */
 				if (!copied)
@@ -799,6 +887,15 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 		/* Partial read */
 		if (used + offset < skb->len)
+		if (!(flags & MSG_PEEK)) {
+			spin_lock_irqsave(&sk->sk_receive_queue.lock, cpu_flags);
+			sk_eat_skb(sk, skb);
+			spin_unlock_irqrestore(&sk->sk_receive_queue.lock, cpu_flags);
+			*seq = 0;
+		}
+
+		/* Partial read */
+		if (used + offset < skb_len)
 			continue;
 	} while (len > 0);
 
@@ -810,6 +907,16 @@ copy_uaddr:
 		memcpy(uaddr, llc_ui_skb_cb(skb), sizeof(*uaddr));
 		msg->msg_namelen = sizeof(*uaddr);
 	}
+	if (llc_sk(sk)->cmsg_flags)
+		llc_cmsg_rcv(msg, skb);
+
+	if (!(flags & MSG_PEEK)) {
+		spin_lock_irqsave(&sk->sk_receive_queue.lock, cpu_flags);
+		sk_eat_skb(sk, skb);
+		spin_unlock_irqrestore(&sk->sk_receive_queue.lock, cpu_flags);
+		*seq = 0;
+	}
+
 	goto out;
 }
 
@@ -828,6 +935,11 @@ static int llc_ui_sendmsg(struct kiocb *iocb, struct socket *sock,
 	struct sock *sk = sock->sk;
 	struct llc_sock *llc = llc_sk(sk);
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)msg->msg_name;
+static int llc_ui_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+{
+	struct sock *sk = sock->sk;
+	struct llc_sock *llc = llc_sk(sk);
+	DECLARE_SOCKADDR(struct sockaddr_llc *, addr, msg->msg_name);
 	int flags = msg->msg_flags;
 	int noblock = flags & MSG_DONTWAIT;
 	struct sk_buff *skb;
@@ -866,6 +978,7 @@ static int llc_ui_sendmsg(struct kiocb *iocb, struct socket *sock,
 	skb->protocol = llc_proto_type(addr->sllc_arphrd);
 	skb_reserve(skb, hdrlen);
 	rc = memcpy_fromiovec(skb_put(skb, copied), msg->msg_iov, copied);
+	rc = memcpy_from_msg(skb_put(skb, copied), msg, copied);
 	if (rc)
 		goto out;
 	if (sk->sk_type == SOCK_DGRAM || addr->sllc_ua) {
@@ -915,6 +1028,9 @@ static int llc_ui_getname(struct socket *sock, struct sockaddr *uaddr,
 	struct llc_sock *llc = llc_sk(sk);
 	int rc = 0;
 
+	int rc = -EBADF;
+
+	memset(&sllc, 0, sizeof(sllc));
 	lock_sock(sk);
 	if (sock_flag(sk, SOCK_ZAPPED))
 		goto out;
@@ -937,6 +1053,7 @@ static int llc_ui_getname(struct socket *sock, struct sockaddr *uaddr,
 		if (llc->dev) {
 			sllc.sllc_arphrd = llc->dev->type;
 			memcpy(&sllc.sllc_mac, &llc->dev->dev_addr,
+			memcpy(&sllc.sllc_mac, llc->dev->dev_addr,
 			       IFHWADDRLEN);
 		}
 	}
@@ -968,6 +1085,7 @@ static int llc_ui_ioctl(struct socket *sock, unsigned int cmd,
  *	@level: Socket level user is requesting operations on.
  *	@optname: Operation name.
  *	@optval User provided operation data.
+ *	@optval: User provided operation data.
  *	@optlen: Length of optval.
  *
  *	Set various connection specific parameters.
@@ -978,6 +1096,12 @@ static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
 	struct sock *sk = sock->sk;
 	struct llc_sock *llc = llc_sk(sk);
 	int rc = -EINVAL, opt;
+			     char __user *optval, unsigned int optlen)
+{
+	struct sock *sk = sock->sk;
+	struct llc_sock *llc = llc_sk(sk);
+	unsigned int opt;
+	int rc = -EINVAL;
 
 	lock_sock(sk);
 	if (unlikely(level != SOL_LLC || optlen != sizeof(int)))
@@ -1026,6 +1150,12 @@ static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
 		if (opt > LLC_OPT_MAX_WIN)
 			goto out;
 		llc->rw = opt;
+		break;
+	case LLC_OPT_PKTINFO:
+		if (opt)
+			llc->cmsg_flags |= LLC_CMSG_PKTINFO;
+		else
+			llc->cmsg_flags &= ~LLC_CMSG_PKTINFO;
 		break;
 	default:
 		rc = -ENOPROTOOPT;
@@ -1080,6 +1210,9 @@ static int llc_ui_getsockopt(struct socket *sock, int level, int optname,
 		val = llc->k;				break;
 	case LLC_OPT_RX_WIN:
 		val = llc->rw;				break;
+	case LLC_OPT_PKTINFO:
+		val = (llc->cmsg_flags & LLC_CMSG_PKTINFO) != 0;
+		break;
 	default:
 		rc = -ENOPROTOOPT;
 		goto out;
@@ -1093,6 +1226,7 @@ out:
 }
 
 static struct net_proto_family llc_ui_family_ops = {
+static const struct net_proto_family llc_ui_family_ops = {
 	.family = PF_LLC,
 	.create = llc_ui_create,
 	.owner	= THIS_MODULE,
@@ -1124,6 +1258,11 @@ static char llc_proc_err_msg[] __initdata =
 static char llc_sysctl_err_msg[] __initdata =
 	KERN_CRIT "LLC: Unable to register the sysctl entries\n";
 static char llc_sock_err_msg[] __initdata =
+static const char llc_proc_err_msg[] __initconst =
+	KERN_CRIT "LLC: Unable to register the proc_fs entries\n";
+static const char llc_sysctl_err_msg[] __initconst =
+	KERN_CRIT "LLC: Unable to register the sysctl entries\n";
+static const char llc_sock_err_msg[] __initconst =
 	KERN_CRIT "LLC: Unable to register the network family\n";
 
 static int __init llc2_init(void)
@@ -1140,6 +1279,7 @@ static int __init llc2_init(void)
 	if (rc != 0) {
 		printk(llc_proc_err_msg);
 		goto out_unregister_llc_proto;
+		goto out_station;
 	}
 	rc = llc_sysctl_init();
 	if (rc) {
@@ -1160,6 +1300,8 @@ out_sysctl:
 out_proc:
 	llc_proc_exit();
 out_unregister_llc_proto:
+out_station:
+	llc_station_exit();
 	proto_unregister(&llc_proto);
 	goto out;
 }

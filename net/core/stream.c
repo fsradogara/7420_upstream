@@ -10,6 +10,7 @@
  *     Authors:        Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  *                     (from old tcp.c code)
  *                     Alan Cox <alan@redhat.com> (Borrowed comments 8-))
+ *                     Alan Cox <alan@lxorguk.ukuu.org.uk> (Borrowed comments 8-))
  */
 
 #include <linux/module.h>
@@ -39,6 +40,21 @@ void sk_stream_write_space(struct sock *sk)
 	}
 }
 
+	struct socket_wq *wq;
+
+	if (sk_stream_is_writeable(sk) && sock) {
+		clear_bit(SOCK_NOSPACE, &sock->flags);
+
+		rcu_read_lock();
+		wq = rcu_dereference(sk->sk_wq);
+		if (wq_has_sleeper(wq))
+			wake_up_interruptible_poll(&wq->wait, POLLOUT |
+						POLLWRNORM | POLLWRBAND);
+		if (wq && wq->fasync_list && !(sk->sk_shutdown & SEND_SHUTDOWN))
+			sock_wake_async(wq, SOCK_WAKE_SPACE, POLL_OUT);
+		rcu_read_unlock();
+	}
+}
 EXPORT_SYMBOL(sk_stream_write_space);
 
 /**
@@ -66,12 +82,14 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
 			return sock_intr_errno(*timeo_p);
 
 		prepare_to_wait(sk->sk_sleep, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 		sk->sk_write_pending++;
 		done = sk_wait_event(sk, timeo_p,
 				     !sk->sk_err &&
 				     !((1 << sk->sk_state) &
 				       ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT)));
 		finish_wait(sk->sk_sleep, &wait);
+		finish_wait(sk_sleep(sk), &wait);
 		sk->sk_write_pending--;
 	} while (!done);
 	return 0;
@@ -96,6 +114,7 @@ void sk_stream_wait_close(struct sock *sk, long timeout)
 
 		do {
 			prepare_to_wait(sk->sk_sleep, &wait,
+			prepare_to_wait(sk_sleep(sk), &wait,
 					TASK_INTERRUPTIBLE);
 			if (sk_wait_event(sk, &timeout, !sk_stream_closing(sk)))
 				break;
@@ -105,6 +124,9 @@ void sk_stream_wait_close(struct sock *sk, long timeout)
 	}
 }
 
+		finish_wait(sk_sleep(sk), &wait);
+	}
+}
 EXPORT_SYMBOL(sk_stream_wait_close);
 
 /**
@@ -134,6 +156,27 @@ int sk_stream_wait_memory(struct sock *sk, long *timeo_p)
 		if (signal_pending(current))
 			goto do_interrupted;
 		clear_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
+	bool noblock = (*timeo_p ? false : true);
+	DEFINE_WAIT(wait);
+
+	if (sk_stream_memory_free(sk))
+		current_timeo = vm_wait = (prandom_u32() % (HZ / 5)) + 2;
+
+	while (1) {
+		sk_set_bit(SOCKWQ_ASYNC_NOSPACE, sk);
+
+		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
+
+		if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
+			goto do_error;
+		if (!*timeo_p) {
+			if (noblock)
+				set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
+			goto do_nonblock;
+		}
+		if (signal_pending(current))
+			goto do_interrupted;
+		sk_clear_bit(SOCKWQ_ASYNC_NOSPACE, sk);
 		if (sk_stream_memory_free(sk) && !vm_wait)
 			break;
 
@@ -143,6 +186,10 @@ int sk_stream_wait_memory(struct sock *sk, long *timeo_p)
 						  !(sk->sk_shutdown & SEND_SHUTDOWN) &&
 						  sk_stream_memory_free(sk) &&
 						  vm_wait);
+		sk_wait_event(sk, &current_timeo, sk->sk_err ||
+						  (sk->sk_shutdown & SEND_SHUTDOWN) ||
+						  (sk_stream_memory_free(sk) &&
+						  !vm_wait));
 		sk->sk_write_pending--;
 
 		if (vm_wait) {
@@ -157,6 +204,7 @@ int sk_stream_wait_memory(struct sock *sk, long *timeo_p)
 	}
 out:
 	finish_wait(sk->sk_sleep, &wait);
+	finish_wait(sk_sleep(sk), &wait);
 	return err;
 
 do_error:

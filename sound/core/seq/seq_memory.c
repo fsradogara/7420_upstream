@@ -21,6 +21,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <sound/core.h>
@@ -87,6 +88,7 @@ int snd_seq_dump_var_event(const struct snd_seq_event *event,
 	if (event->data.ext.len & SNDRV_SEQ_EXT_USRPTR) {
 		char buf[32];
 		char __user *curptr = (char __user *)event->data.ext.ptr;
+		char __user *curptr = (char __force __user *)event->data.ext.ptr;
 		while (len > 0) {
 			int size = sizeof(buf);
 			if (len < size)
@@ -103,6 +105,9 @@ int snd_seq_dump_var_event(const struct snd_seq_event *event,
 	} if (! (event->data.ext.len & SNDRV_SEQ_EXT_CHAINED)) {
 		return func(private_data, event->data.ext.ptr, len);
 	}
+	}
+	if (!(event->data.ext.len & SNDRV_SEQ_EXT_CHAINED))
+		return func(private_data, event->data.ext.ptr, len);
 
 	cell = (struct snd_seq_event_cell *)event->data.ext.ptr;
 	for (; len > 0 && cell; cell = cell->next) {
@@ -158,6 +163,7 @@ int snd_seq_expand_var_event(const struct snd_seq_event *event, int count, char 
 		if (! in_kernel)
 			return -EINVAL;
 		if (copy_from_user(buf, (void __user *)event->data.ext.ptr, len))
+		if (copy_from_user(buf, (void __force __user *)event->data.ext.ptr, len))
 			return -EFAULT;
 		return newlen;
 	}
@@ -190,6 +196,11 @@ void snd_seq_cell_free(struct snd_seq_event_cell * cell)
 	snd_assert(cell != NULL, return);
 	pool = cell->pool;
 	snd_assert(pool != NULL, return);
+	if (snd_BUG_ON(!cell))
+		return;
+	pool = cell->pool;
+	if (snd_BUG_ON(!pool))
+		return;
 
 	spin_lock_irqsave(&pool->lock, flags);
 	free_cell(pool, cell);
@@ -234,6 +245,7 @@ static int snd_seq_cell_alloc(struct snd_seq_pool *pool,
 	spin_lock_irqsave(&pool->lock, flags);
 	if (pool->ptr == NULL) {	/* not initialized */
 		snd_printd("seq: pool is not initialized\n");
+		pr_debug("ALSA: seq: pool is not initialized\n");
 		err = -EINVAL;
 		goto __error;
 	}
@@ -342,6 +354,7 @@ int snd_seq_event_dup(struct snd_seq_pool *pool, struct snd_seq_event *event,
 				src = src->next;
 			} else if (is_usrptr) {
 				if (copy_from_user(&tmp->event, (char __user *)buf, size)) {
+				if (copy_from_user(&tmp->event, (char __force __user *)buf, size)) {
 					err = -EFAULT;
 					goto __error;
 				}
@@ -379,6 +392,8 @@ int snd_seq_pool_init(struct snd_seq_pool *pool)
 	unsigned long flags;
 
 	snd_assert(pool != NULL, return -EINVAL);
+	if (snd_BUG_ON(!pool))
+		return -EINVAL;
 	if (pool->ptr)			/* should be atomic? */
 		return 0;
 
@@ -387,6 +402,8 @@ int snd_seq_pool_init(struct snd_seq_pool *pool)
 		snd_printd("seq: malloc for sequencer events failed\n");
 		return -ENOMEM;
 	}
+	if (!pool->ptr)
+		return -ENOMEM;
 
 	/* add new cells to the free cell list */
 	spin_lock_irqsave(&pool->lock, flags);
@@ -415,6 +432,8 @@ int snd_seq_pool_done(struct snd_seq_pool *pool)
 	int max_count = 5 * HZ;
 
 	snd_assert(pool != NULL, return -EINVAL);
+	if (snd_BUG_ON(!pool))
+		return -EINVAL;
 
 	/* wait for closing all threads */
 	spin_lock_irqsave(&pool->lock, flags);
@@ -427,6 +446,7 @@ int snd_seq_pool_done(struct snd_seq_pool *pool)
 	while (atomic_read(&pool->counter) > 0) {
 		if (max_count == 0) {
 			snd_printk(KERN_WARNING "snd_seq_pool_done timeout: %d cells remain\n", atomic_read(&pool->counter));
+			pr_warn("ALSA: snd_seq_pool_done timeout: %d cells remain\n", atomic_read(&pool->counter));
 			break;
 		}
 		schedule_timeout_uninterruptible(1);
@@ -462,6 +482,8 @@ struct snd_seq_pool *snd_seq_pool_new(int poolsize)
 		snd_printd("seq: malloc failed for pool\n");
 		return NULL;
 	}
+	if (!pool)
+		return NULL;
 	spin_lock_init(&pool->lock);
 	pool->ptr = NULL;
 	pool->free = NULL;

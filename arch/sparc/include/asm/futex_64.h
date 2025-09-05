@@ -31,6 +31,7 @@
 	: "memory")
 
 static inline int futex_atomic_op_inuser(int encoded_op, int __user *uaddr)
+static inline int futex_atomic_op_inuser(int encoded_op, u32 __user *uaddr)
 {
 	int op = (encoded_op >> 28) & 7;
 	int cmp = (encoded_op >> 24) & 15;
@@ -39,6 +40,7 @@ static inline int futex_atomic_op_inuser(int encoded_op, int __user *uaddr)
 	int oldval = 0, ret, tem;
 
 	if (unlikely(!access_ok(VERIFY_WRITE, uaddr, sizeof(int))))
+	if (unlikely(!access_ok(VERIFY_WRITE, uaddr, sizeof(u32))))
 		return -EFAULT;
 	if (unlikely((((unsigned long) uaddr) & 0x3UL)))
 		return -EINVAL;
@@ -89,12 +91,20 @@ futex_atomic_cmpxchg_inatomic(int __user *uaddr, int oldval, int newval)
 {
 	__asm__ __volatile__(
 	"\n1:	casa	[%3] %%asi, %2, %0\n"
+futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
+			      u32 oldval, u32 newval)
+{
+	int ret = 0;
+
+	__asm__ __volatile__(
+	"\n1:	casa	[%4] %%asi, %3, %1\n"
 	"2:\n"
 	"	.section .fixup,#alloc,#execinstr\n"
 	"	.align	4\n"
 	"3:	sethi	%%hi(2b), %0\n"
 	"	jmpl	%0 + %%lo(2b), %%g0\n"
 	"	 mov	%4, %0\n"
+	"	mov	%5, %0\n"
 	"	.previous\n"
 	"	.section __ex_table,\"a\"\n"
 	"	.align	4\n"
@@ -105,6 +115,12 @@ futex_atomic_cmpxchg_inatomic(int __user *uaddr, int oldval, int newval)
 	: "memory");
 
 	return newval;
+	: "+r" (ret), "=r" (newval)
+	: "1" (newval), "r" (oldval), "r" (uaddr), "i" (-EFAULT)
+	: "memory");
+
+	*uval = newval;
+	return ret;
 }
 
 #endif /* !(_SPARC64_FUTEX_H) */

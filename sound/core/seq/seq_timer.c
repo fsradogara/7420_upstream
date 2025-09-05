@@ -49,6 +49,21 @@ static void snd_seq_timer_set_tick_resolution(struct snd_seq_timer_tick *tick,
 	if (tick->resolution <= 0)
 		tick->resolution = 1;
 	snd_seq_timer_update_tick(tick, 0);
+static void snd_seq_timer_set_tick_resolution(struct snd_seq_timer *tmr)
+{
+	if (tmr->tempo < 1000000)
+		tmr->tick.resolution = (tmr->tempo * 1000) / tmr->ppq;
+	else {
+		/* might overflow.. */
+		unsigned int s;
+		s = tmr->tempo % tmr->ppq;
+		s = (s * 1000) / tmr->ppq;
+		tmr->tick.resolution = (tmr->tempo / tmr->ppq) * 1000;
+		tmr->tick.resolution += s;
+	}
+	if (tmr->tick.resolution <= 0)
+		tmr->tick.resolution = 1;
+	snd_seq_timer_update_tick(&tmr->tick, 0);
 }
 
 /* create new timer (constructor) */
@@ -61,6 +76,8 @@ struct snd_seq_timer *snd_seq_timer_new(void)
 		snd_printd("malloc failed for snd_seq_timer_new() \n");
 		return NULL;
 	}
+	if (!tmr)
+		return NULL;
 	spin_lock_init(&tmr->lock);
 
 	/* reset setup to defaults */
@@ -80,6 +97,7 @@ void snd_seq_timer_delete(struct snd_seq_timer **tmr)
 
 	if (t == NULL) {
 		snd_printd("oops: snd_seq_timer_delete() called with NULL timer\n");
+		pr_debug("ALSA: seq: snd_seq_timer_delete() called with NULL timer\n");
 		return;
 	}
 	t->running = 0;
@@ -97,6 +115,7 @@ void snd_seq_timer_defaults(struct snd_seq_timer * tmr)
 	tmr->ppq = 96;		/* 96 PPQ */
 	tmr->tempo = 500000;	/* 120 BPM */
 	snd_seq_timer_set_tick_resolution(&tmr->tick, tmr->tempo, tmr->ppq);
+	snd_seq_timer_set_tick_resolution(tmr);
 	tmr->running = 0;
 
 	tmr->type = SNDRV_SEQ_TIMER_ALSA;
@@ -174,12 +193,15 @@ int snd_seq_timer_set_tempo(struct snd_seq_timer * tmr, int tempo)
 	unsigned long flags;
 
 	snd_assert(tmr, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 	if (tempo <= 0)
 		return -EINVAL;
 	spin_lock_irqsave(&tmr->lock, flags);
 	if ((unsigned int)tempo != tmr->tempo) {
 		tmr->tempo = tempo;
 		snd_seq_timer_set_tick_resolution(&tmr->tick, tmr->tempo, tmr->ppq);
+		snd_seq_timer_set_tick_resolution(tmr);
 	}
 	spin_unlock_irqrestore(&tmr->lock, flags);
 	return 0;
@@ -191,6 +213,8 @@ int snd_seq_timer_set_ppq(struct snd_seq_timer * tmr, int ppq)
 	unsigned long flags;
 
 	snd_assert(tmr, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 	if (ppq <= 0)
 		return -EINVAL;
 	spin_lock_irqsave(&tmr->lock, flags);
@@ -199,11 +223,13 @@ int snd_seq_timer_set_ppq(struct snd_seq_timer * tmr, int ppq)
 		/* because it will upset the song position (ticks) */
 		spin_unlock_irqrestore(&tmr->lock, flags);
 		snd_printd("seq: cannot change ppq of a running timer\n");
+		pr_debug("ALSA: seq: cannot change ppq of a running timer\n");
 		return -EBUSY;
 	}
 
 	tmr->ppq = ppq;
 	snd_seq_timer_set_tick_resolution(&tmr->tick, tmr->tempo, tmr->ppq);
+	snd_seq_timer_set_tick_resolution(tmr);
 	spin_unlock_irqrestore(&tmr->lock, flags);
 	return 0;
 }
@@ -215,6 +241,8 @@ int snd_seq_timer_set_position_tick(struct snd_seq_timer *tmr,
 	unsigned long flags;
 
 	snd_assert(tmr, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 
 	spin_lock_irqsave(&tmr->lock, flags);
 	tmr->tick.cur_tick = position;
@@ -230,6 +258,8 @@ int snd_seq_timer_set_position_time(struct snd_seq_timer *tmr,
 	unsigned long flags;
 
 	snd_assert(tmr, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 
 	snd_seq_sanity_real_time(&position);
 	spin_lock_irqsave(&tmr->lock, flags);
@@ -249,6 +279,12 @@ int snd_seq_timer_set_skew(struct snd_seq_timer *tmr, unsigned int skew,
 	/* FIXME */
 	if (base != SKEW_BASE) {
 		snd_printd("invalid skew base 0x%x\n", base);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
+
+	/* FIXME */
+	if (base != SKEW_BASE) {
+		pr_debug("ALSA: seq: invalid skew base 0x%x\n", base);
 		return -EINVAL;
 	}
 	spin_lock_irqsave(&tmr->lock, flags);
@@ -266,6 +302,8 @@ int snd_seq_timer_open(struct snd_seq_queue *q)
 
 	tmr = q->timer;
 	snd_assert(tmr != NULL, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 	if (tmr->timeri)
 		return -EBUSY;
 	sprintf(str, "sequencer queue %i", q->queue);
@@ -290,6 +328,10 @@ int snd_seq_timer_open(struct snd_seq_queue *q)
 			return err;
 		}
 	}
+	if (err < 0) {
+		pr_err("ALSA: seq fatal error: cannot create timer (%i)\n", err);
+		return err;
+	}
 	t->callback = snd_seq_timer_interrupt;
 	t->callback_data = q;
 	t->flags |= SNDRV_TIMER_IFLG_AUTO;
@@ -303,6 +345,8 @@ int snd_seq_timer_close(struct snd_seq_queue *q)
 	
 	tmr = q->timer;
 	snd_assert(tmr != NULL, return -EINVAL);
+	if (snd_BUG_ON(!tmr))
+		return -EINVAL;
 	if (tmr->timeri) {
 		snd_timer_stop(tmr->timeri);
 		snd_timer_close(tmr->timeri);
@@ -329,6 +373,8 @@ static int initialize_timer(struct snd_seq_timer *tmr)
 
 	t = tmr->timeri->timer;
 	snd_assert(t, return -EINVAL);
+	if (snd_BUG_ON(!t))
+		return -EINVAL;
 
 	freq = tmr->preferred_resolution;
 	if (!freq)
@@ -418,6 +464,7 @@ snd_seq_tick_time_t snd_seq_timer_get_cur_tick(struct snd_seq_timer *tmr)
 
 
 #ifdef CONFIG_PROC_FS
+#ifdef CONFIG_SND_PROC_FS
 /* exported to seq_info.c */
 void snd_seq_info_timer_read(struct snd_info_entry *entry,
 			     struct snd_info_buffer *buffer)
@@ -445,4 +492,5 @@ void snd_seq_info_timer_read(struct snd_info_entry *entry,
  	}
 }
 #endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_SND_PROC_FS */
 

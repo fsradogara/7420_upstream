@@ -22,6 +22,7 @@
 
 #include <sound/core.h>
 #include <linux/slab.h>
+#include <linux/module.h>
 #include "seq_system.h"
 #include "seq_ports.h"
 #include "seq_clientmgr.h"
@@ -134,6 +135,11 @@ struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
 
 	if (client->num_ports >= SNDRV_SEQ_MAX_PORTS - 1) {
 		snd_printk(KERN_WARNING "too many ports for client %d\n", client->number);
+	if (snd_BUG_ON(!client))
+		return NULL;
+
+	if (client->num_ports >= SNDRV_SEQ_MAX_PORTS) {
+		pr_warn("ALSA: seq: too many ports for client %d\n", client->number);
 		return NULL;
 	}
 
@@ -143,6 +149,8 @@ struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
 		snd_printd("malloc failed for registering client port\n");
 		return NULL;	/* failure, out of memory */
 	}
+	if (!new_port)
+		return NULL;	/* failure, out of memory */
 	/* init port data */
 	new_port->addr.client = client->number;
 	new_port->addr.port = -1;
@@ -270,6 +278,8 @@ static int port_delete(struct snd_seq_client *client,
 
 	snd_assert(port->c_src.count == 0,);
 	snd_assert(port->c_dest.count == 0,);
+	snd_BUG_ON(port->c_src.count != 0);
+	snd_BUG_ON(port->c_dest.count != 0);
 
 	kfree(port);
 	return 0;
@@ -337,6 +347,8 @@ int snd_seq_set_port_info(struct snd_seq_client_port * port,
 			  struct snd_seq_port_info * info)
 {
 	snd_assert(port && info, return -EINVAL);
+	if (snd_BUG_ON(!port || !info))
+		return -EINVAL;
 
 	/* set port name */
 	if (info->name[0])
@@ -366,6 +378,8 @@ int snd_seq_get_port_info(struct snd_seq_client_port * port,
 			  struct snd_seq_port_info * info)
 {
 	snd_assert(port && info, return -EINVAL);
+	if (snd_BUG_ON(!port || !info))
+		return -EINVAL;
 
 	/* get port name */
 	strlcpy(info->name, port->name, sizeof(info->name));
@@ -424,6 +438,7 @@ static int subscribe_port(struct snd_seq_client *client,
 		return -EFAULT;
 	grp->count++;
 	if (grp->open && (port->callback_all || grp->count == 1)) {
+	if (grp->open && grp->count == 1) {
 		err = grp->open(port->private_data, info);
 		if (err < 0) {
 			module_put(port->owner);
@@ -449,6 +464,7 @@ static int unsubscribe_port(struct snd_seq_client *client,
 		return -EINVAL;
 	grp->count--;
 	if (grp->close && (port->callback_all || grp->count == 0))
+	if (grp->close && grp->count == 0)
 		err = grp->close(port->private_data, info);
 	if (send_ack && client->type == USER_CLIENT)
 		snd_seq_client_notify_subscription(port->addr.client, port->addr.port,

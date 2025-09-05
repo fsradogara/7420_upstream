@@ -6,6 +6,19 @@
 #include "cpu.h"
 
 static void __cpuinit init_transmeta(struct cpuinfo_x86 *c)
+static void early_init_transmeta(struct cpuinfo_x86 *c)
+{
+	u32 xlvl;
+
+	/* Transmeta-defined flags: level 0x80860001 */
+	xlvl = cpuid_eax(0x80860000);
+	if ((xlvl & 0xffff0000) == 0x80860000) {
+		if (xlvl >= 0x80860001)
+			c->x86_capability[2] = cpuid_edx(0x80860001);
+	}
+}
+
+static void init_transmeta(struct cpuinfo_x86 *c)
 {
 	unsigned int cap_mask, uk, max, dummy;
 	unsigned int cms_rev1, cms_rev2;
@@ -14,6 +27,9 @@ static void __cpuinit init_transmeta(struct cpuinfo_x86 *c)
 
 	get_model_name(c);	/* Same as AMD/Cyrix */
 	display_cacheinfo(c);
+	early_init_transmeta(c);
+
+	cpu_detect_cache_sizes(c);
 
 	/* Print CMS and CPU revision */
 	max = cpuid_eax(0x80860000);
@@ -105,3 +121,12 @@ static struct cpu_dev transmeta_cpu_dev __cpuinitdata = {
 };
 
 cpu_vendor_dev_register(X86_VENDOR_TRANSMETA, &transmeta_cpu_dev);
+static const struct cpu_dev transmeta_cpu_dev = {
+	.c_vendor	= "Transmeta",
+	.c_ident	= { "GenuineTMx86", "TransmetaCPU" },
+	.c_early_init	= early_init_transmeta,
+	.c_init		= init_transmeta,
+	.c_x86_vendor	= X86_VENDOR_TRANSMETA,
+};
+
+cpu_dev_register(transmeta_cpu_dev);

@@ -28,12 +28,21 @@
 
 #undef	elfhdr
 #undef	elf_phdr
+#undef	elf_shdr
 #undef	elf_note
 #undef	elf_addr_t
 #define elfhdr		elf32_hdr
 #define elf_phdr	elf32_phdr
+#define elf_shdr	elf32_shdr
 #define elf_note	elf32_note
 #define elf_addr_t	Elf32_Addr
+
+/*
+ * Some data types as stored in coredump.
+ */
+#define user_long_t		compat_long_t
+#define user_siginfo_t		compat_siginfo_t
+#define copy_siginfo_to_user	copy_siginfo_to_user32
 
 /*
  * The machine-dependent core note format types are defined in elfcore-compat.h,
@@ -77,6 +86,11 @@ static void cputime_to_compat_timeval(const cputime_t cputime,
 #ifdef	COMPAT_ELF_HWCAP
 #undef	ELF_HWCAP
 #define	ELF_HWCAP		COMPAT_ELF_HWCAP
+#endif
+
+#ifdef	COMPAT_ELF_HWCAP2
+#undef	ELF_HWCAP2
+#define	ELF_HWCAP2		COMPAT_ELF_HWCAP2
 #endif
 
 #ifdef	COMPAT_ARCH_DLINFO

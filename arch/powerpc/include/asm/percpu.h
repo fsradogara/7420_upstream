@@ -15,6 +15,7 @@
 #define __per_cpu_offset(cpu) (paca[cpu].data_offset)
 #define __my_cpu_offset local_paca->data_offset
 #define per_cpu_offset(x) (__per_cpu_offset(x))
+#define __my_cpu_offset local_paca->data_offset
 
 #endif /* CONFIG_SMP */
 #endif /* __powerpc64__ */

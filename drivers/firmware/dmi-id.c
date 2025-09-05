@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/dmi.h>
 #include <linux/device.h>
+#include <linux/slab.h>
 
 struct dmi_device_attribute{
 	struct device_attribute dev_attr;
@@ -140,6 +141,7 @@ static struct attribute_group sys_dmi_attribute_group = {
 };
 
 static struct attribute_group* sys_dmi_attribute_groups[] = {
+static const struct attribute_group* sys_dmi_attribute_groups[] = {
 	&sys_dmi_attribute_group,
 	NULL
 };
@@ -224,6 +226,7 @@ static int __init dmi_id_init(void)
 
 	dmi_dev->class = &dmi_class;
 	strcpy(dmi_dev->bus_id, "id");
+	dev_set_name(dmi_dev, "id");
 	dmi_dev->groups = sys_dmi_attribute_groups;
 
 	ret = device_register(dmi_dev);
@@ -232,6 +235,12 @@ static int __init dmi_id_init(void)
 
 	return 0;
 
+		goto fail_free_dmi_dev;
+
+	return 0;
+
+fail_free_dmi_dev:
+	kfree(dmi_dev);
 fail_class_unregister:
 
 	class_unregister(&dmi_class);

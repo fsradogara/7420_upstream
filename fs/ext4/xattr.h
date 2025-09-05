@@ -21,6 +21,9 @@
 #define EXT4_XATTR_INDEX_TRUSTED		4
 #define	EXT4_XATTR_INDEX_LUSTRE			5
 #define EXT4_XATTR_INDEX_SECURITY	        6
+#define EXT4_XATTR_INDEX_SYSTEM			7
+#define EXT4_XATTR_INDEX_RICHACL		8
+#define EXT4_XATTR_INDEX_ENCRYPTION		9
 
 struct ext4_xattr_header {
 	__le32	h_magic;	/* magic number for identification */
@@ -28,6 +31,9 @@ struct ext4_xattr_header {
 	__le32	h_blocks;	/* number of disk blocks used */
 	__le32	h_hash;		/* hash value of all attributes */
 	__u32	h_reserved[4];	/* zero right now */
+	__le32	h_checksum;	/* crc32c(uuid+id+xattrblock) */
+				/* id = inum if refcount=1, blknum otherwise */
+	__u32	h_reserved[3];	/* zero right now */
 };
 
 struct ext4_xattr_ibody_header {
@@ -53,6 +59,8 @@ struct ext4_xattr_entry {
 #define EXT4_XATTR_NEXT(entry) \
 	( (struct ext4_xattr_entry *)( \
 	  (char *)(entry) + EXT4_XATTR_LEN((entry)->e_name_len)) )
+	((struct ext4_xattr_entry *)( \
+	 (char *)(entry) + EXT4_XATTR_LEN((entry)->e_name_len)))
 #define EXT4_XATTR_SIZE(size) \
 	(((size) + EXT4_XATTR_ROUND) & ~EXT4_XATTR_ROUND)
 
@@ -70,6 +78,38 @@ extern struct xattr_handler ext4_xattr_trusted_handler;
 extern struct xattr_handler ext4_xattr_acl_access_handler;
 extern struct xattr_handler ext4_xattr_acl_default_handler;
 extern struct xattr_handler ext4_xattr_security_handler;
+#define BHDR(bh) ((struct ext4_xattr_header *)((bh)->b_data))
+#define ENTRY(ptr) ((struct ext4_xattr_entry *)(ptr))
+#define BFIRST(bh) ENTRY(BHDR(bh)+1)
+#define IS_LAST_ENTRY(entry) (*(__u32 *)(entry) == 0)
+
+#define EXT4_ZERO_XATTR_VALUE ((void *)-1)
+
+struct ext4_xattr_info {
+	int name_index;
+	const char *name;
+	const void *value;
+	size_t value_len;
+};
+
+struct ext4_xattr_search {
+	struct ext4_xattr_entry *first;
+	void *base;
+	void *end;
+	struct ext4_xattr_entry *here;
+	int not_found;
+};
+
+struct ext4_xattr_ibody_find {
+	struct ext4_xattr_search s;
+	struct ext4_iloc iloc;
+};
+
+extern const struct xattr_handler ext4_xattr_user_handler;
+extern const struct xattr_handler ext4_xattr_trusted_handler;
+extern const struct xattr_handler ext4_xattr_security_handler;
+
+#define EXT4_XATTR_NAME_ENCRYPTION_CONTEXT "c"
 
 extern ssize_t ext4_listxattr(struct dentry *, char *, size_t);
 
@@ -149,6 +189,26 @@ extern int ext4_init_security(handle_t *handle, struct inode *inode,
 #else
 static inline int ext4_init_security(handle_t *handle, struct inode *inode,
 				struct inode *dir)
+extern const struct xattr_handler *ext4_xattr_handlers[];
+
+extern int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
+				 struct ext4_xattr_ibody_find *is);
+extern int ext4_xattr_ibody_get(struct inode *inode, int name_index,
+				const char *name,
+				void *buffer, size_t buffer_size);
+extern int ext4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
+				       struct ext4_xattr_info *i,
+				       struct ext4_xattr_ibody_find *is);
+
+extern struct mb_cache *ext4_xattr_create_cache(char *name);
+extern void ext4_xattr_destroy_cache(struct mb_cache *);
+
+#ifdef CONFIG_EXT4_FS_SECURITY
+extern int ext4_init_security(handle_t *handle, struct inode *inode,
+			      struct inode *dir, const struct qstr *qstr);
+#else
+static inline int ext4_init_security(handle_t *handle, struct inode *inode,
+				     struct inode *dir, const struct qstr *qstr)
 {
 	return 0;
 }

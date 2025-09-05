@@ -61,6 +61,13 @@
 #ifndef ASM_OFFSETS_C
 #include <asm/asm-offsets.h>
 #endif
+#ifndef _ASM_IA64_PTRACE_H
+#define _ASM_IA64_PTRACE_H
+
+#ifndef ASM_OFFSETS_C
+#include <asm/asm-offsets.h>
+#endif
+#include <uapi/asm/ptrace.h>
 
 /*
  * Base-2 logarithm of number of pages to allocate per task structure
@@ -230,6 +237,8 @@ struct switch_stack {
 
 #ifdef __KERNEL__
 
+#ifndef __ASSEMBLY__
+
 #include <asm/current.h>
 #include <asm/page.h>
 
@@ -241,6 +250,24 @@ struct switch_stack {
 # define instruction_pointer(regs) ((regs)->cr_iip + ia64_psr(regs)->ri)
 
 #define regs_return_value(regs) ((regs)->r8)
+static inline unsigned long user_stack_pointer(struct pt_regs *regs)
+{
+	/* FIXME: should this be bspstore + nr_dirty regs? */
+	return regs->ar_bspstore;
+}
+
+static inline int is_syscall_success(struct pt_regs *regs)
+{
+	return regs->r10 != -1;
+}
+
+static inline long regs_return_value(struct pt_regs *regs)
+{
+	if (is_syscall_success(regs))
+		return regs->r8;
+	else
+		return -regs->r8;
+}
 
 /* Conserve space in histogram by encoding slot bits in address
  * bits 2 and 3 rather than bits 0 and 1.
@@ -250,6 +277,11 @@ struct switch_stack {
 	unsigned long __ip = instruction_pointer(regs);			\
 	(__ip & ~3UL) + ((__ip & 3UL) << 2);				\
 })
+/*
+ * Why not default?  Because user_stack_pointer() on ia64 gives register
+ * stack backing store instead...
+ */
+#define current_user_stack_pointer() (current_pt_regs()->r12)
 
   /* given a pointer to a task_struct, return the user's pt_regs */
 # define task_pt_regs(t)		(((struct pt_regs *) ((char *) (t) + IA64_STK_OFFSET)) - 1)
@@ -361,4 +393,7 @@ struct pt_all_user_regs {
 
 #define PTRACE_OLDSETOPTIONS	21
 
+  #define arch_has_block_step()   (1)
+
+#endif /* !__ASSEMBLY__ */
 #endif /* _ASM_IA64_PTRACE_H */

@@ -10,6 +10,7 @@
 #include <asm/addrspace.h>
 #include <asm/byteorder.h>
 #include <linux/sched.h>
+#include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/io.h>
@@ -22,6 +23,12 @@ static inline void remap_area_pte(pte_t * pte, unsigned long address,
 	unsigned long pfn;
 	pgprot_t pgprot = __pgprot(_PAGE_GLOBAL | _PAGE_PRESENT | __READABLE
 	                           | __WRITEABLE | flags);
+	phys_addr_t size, phys_addr_t phys_addr, unsigned long flags)
+{
+	phys_addr_t end;
+	unsigned long pfn;
+	pgprot_t pgprot = __pgprot(_PAGE_GLOBAL | _PAGE_PRESENT | __READABLE
+				   | __WRITEABLE | flags);
 
 	address &= ~PMD_MASK;
 	end = address + size;
@@ -29,6 +36,7 @@ static inline void remap_area_pte(pte_t * pte, unsigned long address,
 		end = PMD_SIZE;
 	if (address >= end)
 		BUG();
+	BUG_ON(address >= end);
 	pfn = phys_addr >> PAGE_SHIFT;
 	do {
 		if (!pte_none(*pte)) {
@@ -46,6 +54,9 @@ static inline int remap_area_pmd(pmd_t * pmd, unsigned long address,
 	phys_t size, phys_t phys_addr, unsigned long flags)
 {
 	phys_t end;
+	phys_addr_t size, phys_addr_t phys_addr, unsigned long flags)
+{
+	phys_addr_t end;
 
 	address &= ~PGDIR_MASK;
 	end = address + size;
@@ -54,6 +65,7 @@ static inline int remap_area_pmd(pmd_t * pmd, unsigned long address,
 	phys_addr -= address;
 	if (address >= end)
 		BUG();
+	BUG_ON(address >= end);
 	do {
 		pte_t * pte = pte_alloc_kernel(pmd, address);
 		if (!pte)
@@ -67,6 +79,8 @@ static inline int remap_area_pmd(pmd_t * pmd, unsigned long address,
 
 static int remap_area_pages(unsigned long address, phys_t phys_addr,
 	phys_t size, unsigned long flags)
+static int remap_area_pages(unsigned long address, phys_addr_t phys_addr,
+	phys_addr_t size, unsigned long flags)
 {
 	int error;
 	pgd_t * dir;
@@ -77,6 +91,7 @@ static int remap_area_pages(unsigned long address, phys_t phys_addr,
 	flush_cache_all();
 	if (address >= end)
 		BUG();
+	BUG_ON(address >= end);
 	do {
 		pud_t *pud;
 		pmd_t *pmd;
@@ -120,6 +135,13 @@ void __iomem * __ioremap(phys_t phys_addr, phys_t size, unsigned long flags)
 	struct vm_struct * area;
 	unsigned long offset;
 	phys_t last_addr;
+#define IS_LOW512(addr) (!((phys_addr_t)(addr) & (phys_addr_t) ~0x1fffffffULL))
+
+void __iomem * __ioremap(phys_addr_t phys_addr, phys_addr_t size, unsigned long flags)
+{
+	struct vm_struct * area;
+	unsigned long offset;
+	phys_addr_t last_addr;
 	void * addr;
 
 	phys_addr = fixup_bigphys_addr(phys_addr, size);
@@ -188,6 +210,7 @@ void __iounmap(const volatile void __iomem *addr)
 		printk(KERN_ERR "iounmap: bad address %p\n", addr);
 
         kfree(p);
+	kfree(p);
 }
 
 EXPORT_SYMBOL(__ioremap);

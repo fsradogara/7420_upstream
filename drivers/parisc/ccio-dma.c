@@ -44,6 +44,7 @@
 #include <linux/seq_file.h>
 #include <linux/scatterlist.h>
 #include <linux/iommu-helper.h>
+#include <linux/export.h>
 
 #include <asm/byteorder.h>
 #include <asm/cache.h>		/* for L1_CACHE_BYTES */
@@ -78,6 +79,10 @@
 #endif
 
 #include <linux/proc_fs.h>
+/* depends on proc fs support. But costs CPU performance. */
+#undef CCIO_COLLECT_STATS
+#endif
+
 #include <asm/runway.h>		/* for proc_runway_root */
 
 #ifdef DEBUG_CCIO_INIT
@@ -245,6 +250,10 @@ struct ioc {
 	unsigned long avg_idx;		  /* current index into avg_search */
 #endif
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
+#define CCIO_SEARCH_SAMPLE 0x100
+	unsigned long avg_search[CCIO_SEARCH_SAMPLE];
+	unsigned long avg_idx;		  /* current index into avg_search */
 	unsigned long used_pages;
 	unsigned long msingle_calls;
 	unsigned long msingle_pages;
@@ -352,6 +361,7 @@ ccio_alloc_range(struct ioc *ioc, struct device *dev, size_t size)
 	unsigned int res_idx;
 	unsigned long boundary_size;
 #ifdef CCIO_SEARCH_TIME
+#ifdef CCIO_COLLECT_STATS
 	unsigned long cr_start = mfctl(16);
 #endif
 	
@@ -407,6 +417,7 @@ resource_found:
 		__func__, res_idx, ioc->res_hint);
 
 #ifdef CCIO_SEARCH_TIME
+#ifdef CCIO_COLLECT_STATS
 	{
 		unsigned long cr_end = mfctl(16);
 		unsigned long tmp = cr_end - cr_start;
@@ -453,6 +464,7 @@ ccio_free_range(struct ioc *ioc, dma_addr_t iova, unsigned long pages_mapped)
 		__func__, res_idx, pages_mapped);
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 	ioc->used_pages -= pages_mapped;
 #endif
 
@@ -466,6 +478,10 @@ ccio_free_range(struct ioc *ioc, dma_addr_t iova, unsigned long pages_mapped)
 #endif
 	} else if(pages_mapped <= 16) {
 		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffff, 16);
+		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffUL, 8);
+#endif
+	} else if(pages_mapped <= 16) {
+		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffffUL, 16);
 	} else if(pages_mapped <= 32) {
 		CCIO_FREE_MAPPINGS(ioc, res_idx, ~(unsigned int)0, 32);
 #ifdef __LP64__
@@ -565,6 +581,7 @@ static u32 hint_lookup[] = {
  * index are bits 12:19 of the value returned by LCI.
  */ 
 void CCIO_INLINE
+static void CCIO_INLINE
 ccio_io_pdir_entry(u64 *pdir_ptr, space_t sid, unsigned long vba,
 		   unsigned long hints)
 {
@@ -663,6 +680,7 @@ ccio_clear_io_tlb(struct ioc *ioc, dma_addr_t iovp, size_t byte_cnt)
  * TLB entries.
  *
  * FIXME: at some threshhold it might be "cheaper" to just blow
+ * FIXME: at some threshold it might be "cheaper" to just blow
  *        away the entire I/O TLB instead of individual entries.
  *
  * FIXME: Uturn has 256 TLB entries. We don't need to purge every
@@ -765,6 +783,7 @@ ccio_map_single(struct device *dev, void *addr, size_t size,
 	spin_lock_irqsave(&ioc->res_lock, flags);
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 	ioc->msingle_calls++;
 	ioc->msingle_pages += size >> IOVP_SHIFT;
 #endif
@@ -829,6 +848,7 @@ ccio_unmap_single(struct device *dev, dma_addr_t iova, size_t size,
 	spin_lock_irqsave(&ioc->res_lock, flags);
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 	ioc->usingle_calls++;
 	ioc->usingle_pages += size >> IOVP_SHIFT;
 #endif
@@ -895,6 +915,7 @@ ccio_free_consistent(struct device *dev, size_t size, void *cpu_addr,
 #define PIDE_FLAG 0x80000000UL
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 #define IOMMU_MAP_STATS
 #endif
 #include "iommu-helpers.h"
@@ -928,6 +949,7 @@ ccio_map_sg(struct device *dev, struct scatterlist *sglist, int nents,
 	if (nents == 1) {
 		sg_dma_address(sglist) = ccio_map_single(dev,
 				(void *)sg_virt_addr(sglist), sglist->length,
+				sg_virt(sglist), sglist->length,
 				direction);
 		sg_dma_len(sglist) = sglist->length;
 		return 1;
@@ -939,6 +961,7 @@ ccio_map_sg(struct device *dev, struct scatterlist *sglist, int nents,
 	spin_lock_irqsave(&ioc->res_lock, flags);
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 	ioc->msg_calls++;
 #endif
 
@@ -998,12 +1021,17 @@ ccio_unmap_sg(struct device *dev, struct scatterlist *sglist, int nents,
 		__func__, nents, sg_virt_addr(sglist), sglist->length);
 
 #ifdef CCIO_MAP_STATS
+	DBG_RUN_SG("%s() START %d entries, %p,%x\n",
+		__func__, nents, sg_virt(sglist), sglist->length);
+
+#ifdef CCIO_COLLECT_STATS
 	ioc->usg_calls++;
 #endif
 
 	while(sg_dma_len(sglist) && nents--) {
 
 #ifdef CCIO_MAP_STATS
+#ifdef CCIO_COLLECT_STATS
 		ioc->usg_pages += sg_dma_len(sglist) >> PAGE_SHIFT;
 #endif
 		ccio_unmap_single(dev, sg_dma_address(sglist),
@@ -1058,6 +1086,29 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 				  ioc->res_size, total_pages);
 
 #ifdef CCIO_SEARCH_TIME
+#ifdef CCIO_COLLECT_STATS
+		unsigned long avg = 0, min, max;
+		int j;
+#endif
+
+		seq_printf(m, "%s\n", ioc->name);
+		
+		seq_printf(m, "Cujo 2.0 bug    : %s\n",
+			   (ioc->cujo20_bug ? "yes" : "no"));
+		
+		seq_printf(m, "IO PDIR size    : %d bytes (%d entries)\n",
+			   total_pages * 8, total_pages);
+
+#ifdef CCIO_COLLECT_STATS
+		seq_printf(m, "IO PDIR entries : %ld free  %ld used (%d%%)\n",
+			   total_pages - ioc->used_pages, ioc->used_pages,
+			   (int)(ioc->used_pages * 100 / total_pages));
+#endif
+
+		seq_printf(m, "Resource bitmap : %d bytes (%d pages)\n",
+			   ioc->res_size, total_pages);
+
+#ifdef CCIO_COLLECT_STATS
 		min = max = ioc->avg_search[0];
 		for(j = 0; j < CCIO_SEARCH_SAMPLE; ++j) {
 			avg += ioc->avg_search[j];
@@ -1074,6 +1125,12 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 		len += seq_printf(m, "pci_map_single(): %8ld calls  %8ld pages (avg %d/1000)\n",
 				  ioc->msingle_calls, ioc->msingle_pages,
 				  (int)((ioc->msingle_pages * 1000)/ioc->msingle_calls));
+		seq_printf(m, "  Bitmap search : %ld/%ld/%ld (min/avg/max CPU Cycles)\n",
+			   min, avg, max);
+
+		seq_printf(m, "pci_map_single(): %8ld calls  %8ld pages (avg %d/1000)\n",
+			   ioc->msingle_calls, ioc->msingle_pages,
+			   (int)((ioc->msingle_pages * 1000)/ioc->msingle_calls));
 
 		/* KLUGE - unmap_sg calls unmap_single for each mapped page */
 		min = ioc->usingle_calls - ioc->usg_calls;
@@ -1089,6 +1146,17 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 				  ioc->usg_calls, ioc->usg_pages,
 				  (int)((ioc->usg_pages * 1000)/ioc->usg_calls));
 #endif	/* CCIO_MAP_STATS */
+		seq_printf(m, "pci_unmap_single: %8ld calls  %8ld pages (avg %d/1000)\n",
+			   min, max, (int)((max * 1000)/min));
+ 
+		seq_printf(m, "pci_map_sg()    : %8ld calls  %8ld pages (avg %d/1000)\n",
+			   ioc->msg_calls, ioc->msg_pages,
+			   (int)((ioc->msg_pages * 1000)/ioc->msg_calls));
+
+		seq_printf(m, "pci_unmap_sg()  : %8ld calls  %8ld pages (avg %d/1000)\n\n\n",
+			   ioc->usg_calls, ioc->usg_pages,
+			   (int)((ioc->usg_pages * 1000)/ioc->usg_calls));
+#endif	/* CCIO_COLLECT_STATS */
 
 		ioc = ioc->next;
 	}
@@ -1125,6 +1193,12 @@ static int ccio_proc_bitmap_info(struct seq_file *m, void *p)
 			res_ptr++;
 		}
 		len += seq_puts(m, "\n\n");
+	struct ioc *ioc = ioc_list;
+
+	while (ioc != NULL) {
+		seq_hex_dump(m, "   ", DUMP_PREFIX_NONE, 32, 4, ioc->res_map,
+			     ioc->res_size, false);
+		seq_putc(m, '\n');
 		ioc = ioc->next;
 		break; /* XXX - remove me */
 	}
@@ -1145,6 +1219,7 @@ static const struct file_operations ccio_proc_bitmap_fops = {
 	.release = single_release,
 };
 #endif
+#endif /* CONFIG_PROC_FS */
 
 /**
  * ccio_find_ioc - Find the ioc in the ioc_list
@@ -1256,6 +1331,10 @@ static struct parisc_driver ccio_driver = {
  * @ioc: The I/O Controller.
  *
  * Initalize the I/O Controller which includes setting up the
+ * ccio_ioc_init - Initialize the I/O Controller
+ * @ioc: The I/O Controller.
+ *
+ * Initialize the I/O Controller which includes setting up the
  * I/O Page Directory, the resource map, and initalizing the
  * U2/Uturn chip into virtual mode.
  */
@@ -1278,6 +1357,7 @@ ccio_ioc_init(struct ioc *ioc)
 	*/
 
 	iova_space_size = (u32) (num_physpages / count_parisc_driver(&ccio_driver));
+	iova_space_size = (u32) (totalram_pages / count_parisc_driver(&ccio_driver));
 
 	/* limit IOVA space size to 1MB-1GB */
 
@@ -1317,6 +1397,7 @@ ccio_ioc_init(struct ioc *ioc)
 	DBG_INIT("%s() hpa 0x%p mem %luMB IOV %dMB (%d bits)\n",
 			__func__, ioc->ioc_regs,
 			(unsigned long) num_physpages >> (20 - PAGE_SHIFT),
+			(unsigned long) totalram_pages >> (20 - PAGE_SHIFT),
 			iova_space_size>>20,
 			iov_order + PAGE_SHIFT);
 
@@ -1410,6 +1491,7 @@ ccio_init_resource(struct resource *res, char *name, void __iomem *ioaddr)
 	if (result < 0) {
 		printk(KERN_ERR "%s() failed to claim CCIO bus address space (%08lx,%08lx)\n", 
 			__func__, res->start, res->end);
+			__func__, (unsigned long)res->start, (unsigned long)res->end);
 	}
 }
 
@@ -1561,6 +1643,8 @@ static int __init ccio_probe(struct parisc_device *dev)
 	ioc->name = dev->id.hversion == U2_IOA_RUNWAY ? "U2" : "UTurn";
 
 	printk(KERN_INFO "Found %s at 0x%lx\n", ioc->name, dev->hpa.start);
+	printk(KERN_INFO "Found %s at 0x%lx\n", ioc->name,
+		(unsigned long)dev->hpa.start);
 
 	for (i = 0; i < ioc_count; i++) {
 		ioc_p = &(*ioc_p)->next;
@@ -1578,6 +1662,8 @@ static int __init ccio_probe(struct parisc_device *dev)
 	BUG_ON(dev->dev.platform_data == NULL);
 	HBA_DATA(dev->dev.platform_data)->iommu = ioc;
 	
+
+#ifdef CONFIG_PROC_FS
 	if (ioc_count == 0) {
 		proc_create(MODULE_NAME, 0, proc_runway_root,
 			    &ccio_proc_info_fops);
@@ -1589,6 +1675,9 @@ static int __init ccio_probe(struct parisc_device *dev)
 
 	parisc_vmerge_boundary = IOVP_SIZE;
 	parisc_vmerge_max_size = BITS_PER_LONG * IOVP_SIZE;
+#endif
+	ioc_count++;
+
 	parisc_has_iommu();
 	return 0;
 }

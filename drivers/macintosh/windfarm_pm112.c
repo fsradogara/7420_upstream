@@ -657,6 +657,7 @@ static int wf_pm112_probe(struct platform_device *dev)
 }
 
 static int __devexit wf_pm112_remove(struct platform_device *dev)
+static int wf_pm112_remove(struct platform_device *dev)
 {
 	wf_unregister_client(&pm112_events);
 	/* should release all sensors and controls */
@@ -666,6 +667,7 @@ static int __devexit wf_pm112_remove(struct platform_device *dev)
 static struct platform_driver wf_pm112_driver = {
 	.probe = wf_pm112_probe,
 	.remove = __devexit_p(wf_pm112_remove),
+	.remove = wf_pm112_remove,
 	.driver = {
 		.name = "windfarm",
 		.owner	= THIS_MODULE,
@@ -677,11 +679,13 @@ static int __init wf_pm112_init(void)
 	struct device_node *cpu;
 
 	if (!machine_is_compatible("PowerMac11,2"))
+	if (!of_machine_is_compatible("PowerMac11,2"))
 		return -ENODEV;
 
 	/* Count the number of CPU cores */
 	nr_cores = 0;
 	for (cpu = NULL; (cpu = of_find_node_by_type(cpu, "cpu")) != NULL; )
+	for_each_node_by_type(cpu, "cpu")
 		++nr_cores;
 
 	printk(KERN_INFO "windfarm: initializing for dual-core desktop G5\n");

@@ -16,6 +16,7 @@
 #include <linux/string.h>
 #include <linux/sockios.h>
 #include <linux/net.h>
+#include <linux/slab.h>
 #include <net/ax25.h>
 #include <linux/inet.h>
 #include <linux/netdevice.h>
@@ -49,6 +50,9 @@
 int ax25_hard_header(struct sk_buff *skb, struct net_device *dev,
 		     unsigned short type, const void *daddr,
 		     const void *saddr, unsigned len)
+static int ax25_hard_header(struct sk_buff *skb, struct net_device *dev,
+			    unsigned short type, const void *daddr,
+			    const void *saddr, unsigned int len)
 {
 	unsigned char *buff;
 
@@ -101,6 +105,7 @@ int ax25_hard_header(struct sk_buff *skb, struct net_device *dev,
 }
 
 int ax25_rebuild_header(struct sk_buff *skb)
+netdev_tx_t ax25_ip_xmit(struct sk_buff *skb)
 {
 	struct sk_buff *ourskb;
 	unsigned char *bp  = skb->data;
@@ -129,6 +134,7 @@ int ax25_rebuild_header(struct sk_buff *skb)
 		dev = skb->dev;
 
 	if ((ax25_dev = ax25_dev_ax25dev(dev)) == NULL) {
+		kfree_skb(skb);
 		goto put;
 	}
 
@@ -213,6 +219,7 @@ put:
 		ax25_put_route(route);
 
 	return 1;
+	return NETDEV_TX_OK;
 }
 
 #else	/* INET */
@@ -220,6 +227,9 @@ put:
 int ax25_hard_header(struct sk_buff *skb, struct net_device *dev,
 		     unsigned short type, const void *daddr,
 		     const void *saddr, unsigned len)
+static int ax25_hard_header(struct sk_buff *skb, struct net_device *dev,
+			    unsigned short type, const void *daddr,
+			    const void *saddr, unsigned int len)
 {
 	return -AX25_HEADER_LEN;
 }
@@ -229,6 +239,11 @@ int ax25_rebuild_header(struct sk_buff *skb)
 	return 1;
 }
 
+netdev_tx_t ax25_ip_xmit(struct sk_buff *skb)
+{
+	kfree_skb(skb);
+	return NETDEV_TX_OK;
+}
 #endif
 
 const struct header_ops ax25_header_ops = {
@@ -239,4 +254,8 @@ const struct header_ops ax25_header_ops = {
 EXPORT_SYMBOL(ax25_hard_header);
 EXPORT_SYMBOL(ax25_rebuild_header);
 EXPORT_SYMBOL(ax25_header_ops);
+};
+
+EXPORT_SYMBOL(ax25_header_ops);
+EXPORT_SYMBOL(ax25_ip_xmit);
 

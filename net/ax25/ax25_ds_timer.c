@@ -83,6 +83,7 @@ static void ax25_ds_timeout(unsigned long arg)
 
 	spin_lock(&ax25_list_lock);
 	ax25_for_each(ax25, node, &ax25_list) {
+	ax25_for_each(ax25, &ax25_list) {
 		if (ax25->ax25_dev != ax25_dev || !(ax25->condition & AX25_COND_DAMA_MODE))
 			continue;
 
@@ -114,6 +115,8 @@ void ax25_ds_heartbeat_expiry(ax25_cb *ax25)
 				ax25_destroy_socket(ax25);
 				sock_put(sk);
 				bh_unlock_sock(sk);
+				bh_unlock_sock(sk);
+				sock_put(sk);
 			} else
 				ax25_destroy_socket(ax25);
 			return;

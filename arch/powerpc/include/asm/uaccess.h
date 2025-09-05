@@ -40,6 +40,8 @@
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
+#define user_addr_max()	(get_fs().seg)
+
 #ifdef __powerpc64__
 /*
  * This check is sufficient because there is a large enough
@@ -188,6 +190,7 @@ do {								\
 	__typeof__(*(ptr)) __user *__pu_addr = (ptr);		\
 	if (!is_kernel_addr((unsigned long)__pu_addr))		\
 		might_sleep();					\
+		might_fault();					\
 	__chk_user_ptr(ptr);					\
 	__put_user_size((x), __pu_addr, (size), __pu_err);	\
 	__pu_err;						\
@@ -198,6 +201,7 @@ do {								\
 	long __pu_err = -EFAULT;					\
 	__typeof__(*(ptr)) __user *__pu_addr = (ptr);			\
 	might_sleep();							\
+	might_fault();							\
 	if (access_ok(VERIFY_WRITE, __pu_addr, size))			\
 		__put_user_size((x), __pu_addr, (size), __pu_err);	\
 	__pu_err;							\
@@ -278,6 +282,10 @@ do {								\
 	__chk_user_ptr(ptr);					\
 	if (!is_kernel_addr((unsigned long)__gu_addr))		\
 		might_sleep();					\
+	__typeof__(*(ptr)) __user *__gu_addr = (ptr);	\
+	__chk_user_ptr(ptr);					\
+	if (!is_kernel_addr((unsigned long)__gu_addr))		\
+		might_fault();					\
 	__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
 	(x) = (__typeof__(*(ptr)))__gu_val;			\
 	__gu_err;						\
@@ -294,6 +302,12 @@ do {								\
 		might_sleep();					\
 	__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
 	(x) = (__typeof__(*(ptr)))__gu_val;			\
+	__typeof__(*(ptr)) __user *__gu_addr = (ptr);	\
+	__chk_user_ptr(ptr);					\
+	if (!is_kernel_addr((unsigned long)__gu_addr))		\
+		might_fault();					\
+	__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
+	(x) = (__force __typeof__(*(ptr)))__gu_val;			\
 	__gu_err;						\
 })
 #endif /* __powerpc64__ */
@@ -307,6 +321,11 @@ do {								\
 	if (access_ok(VERIFY_READ, __gu_addr, (size)))			\
 		__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
 	(x) = (__typeof__(*(ptr)))__gu_val;				\
+	__typeof__(*(ptr)) __user *__gu_addr = (ptr);		\
+	might_fault();							\
+	if (access_ok(VERIFY_READ, __gu_addr, (size)))			\
+		__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
+	(x) = (__force __typeof__(*(ptr)))__gu_val;				\
 	__gu_err;							\
 })
 
@@ -318,6 +337,10 @@ do {								\
 	__chk_user_ptr(ptr);					\
 	__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
 	(x) = (__typeof__(*(ptr)))__gu_val;			\
+	__typeof__(*(ptr)) __user *__gu_addr = (ptr);	\
+	__chk_user_ptr(ptr);					\
+	__get_user_size(__gu_val, __gu_addr, (size), __gu_err);	\
+	(x) = (__force __typeof__(*(ptr)))__gu_val;			\
 	__gu_err;						\
 })
 
@@ -429,6 +452,7 @@ static inline unsigned long __copy_from_user(void *to,
 		const void __user *from, unsigned long size)
 {
 	might_sleep();
+	might_fault();
 	return __copy_from_user_inatomic(to, from, size);
 }
 
@@ -436,6 +460,7 @@ static inline unsigned long __copy_to_user(void __user *to,
 		const void *from, unsigned long size)
 {
 	might_sleep();
+	might_fault();
 	return __copy_to_user_inatomic(to, from, size);
 }
 
@@ -444,6 +469,7 @@ extern unsigned long __clear_user(void __user *addr, unsigned long size);
 static inline unsigned long clear_user(void __user *addr, unsigned long size)
 {
 	might_sleep();
+	might_fault();
 	if (likely(access_ok(VERIFY_WRITE, addr, size)))
 		return __clear_user(addr, size);
 	if ((unsigned long)addr < TASK_SIZE) {
@@ -489,6 +515,9 @@ static inline int strnlen_user(const char __user *str, long len)
 }
 
 #define strlen_user(str)	strnlen_user((str), 0x7ffffffe)
+extern long strncpy_from_user(char *dst, const char __user *src, long count);
+extern __must_check long strlen_user(const char __user *str);
+extern __must_check long strnlen_user(const char __user *str, long n);
 
 #endif  /* __ASSEMBLY__ */
 #endif /* __KERNEL__ */

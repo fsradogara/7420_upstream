@@ -21,6 +21,7 @@
 /* this file included from control.c */
 
 #include <linux/compat.h>
+#include <linux/slab.h>
 
 struct snd_ctl_elem_list32 {
 	u32 offset;
@@ -82,6 +83,8 @@ struct snd_ctl_elem_info32 {
 			u32 items;
 			u32 item;
 			char name[64];
+			u64 names_ptr;
+			u32 names_length;
 		} enumerated;
 		unsigned char reserved[128];
 	} value;
@@ -245,6 +248,7 @@ static int copy_ctl_value_from_user(struct snd_card *card,
 		size = get_elem_size(type, count);
 		if (size < 0) {
 			printk(KERN_ERR "snd_ioctl32_ctl_elem_value: unknown type %d\n", type);
+			dev_err(card->dev, "snd_ioctl32_ctl_elem_value: unknown type %d\n", type);
 			return -EINVAL;
 		}
 		if (copy_from_user(data->value.bytes.data,
@@ -371,6 +375,8 @@ static int snd_ctl_elem_add_compat(struct snd_ctl_file *file,
 				   &data32->value.enumerated,
 				   sizeof(data->value.enumerated)))
 			goto error;
+		data->value.enumerated.names_ptr =
+			(uintptr_t)compat_ptr(data->value.enumerated.names_ptr);
 		break;
 	default:
 		break;
@@ -399,6 +405,8 @@ static inline long snd_ctl_ioctl_compat(struct file *file, unsigned int cmd, uns
 
 	ctl = file->private_data;
 	snd_assert(ctl && ctl->card, return -ENXIO);
+	if (snd_BUG_ON(!ctl || !ctl->card))
+		return -ENXIO;
 
 	switch (cmd) {
 	case SNDRV_CTL_IOCTL_PVERSION:

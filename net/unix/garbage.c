@@ -80,6 +80,7 @@
 #include <linux/file.h>
 #include <linux/proc_fs.h>
 #include <linux/mutex.h>
+#include <linux/wait.h>
 
 #include <net/sock.h>
 #include <net/af_unix.h>
@@ -110,6 +111,21 @@ static struct sock *unix_get_socket(struct file *filp)
 		/*
 		 *	PF_UNIX ?
 		 */
+static DECLARE_WAIT_QUEUE_HEAD(unix_gc_wait);
+
+unsigned int unix_tot_inflight;
+
+struct sock *unix_get_socket(struct file *filp)
+{
+	struct sock *u_sock = NULL;
+	struct inode *inode = file_inode(filp);
+
+	/* Socket ? */
+	if (S_ISSOCK(inode->i_mode) && !(filp->f_mode & FMODE_PATH)) {
+		struct socket *sock = SOCKET_I(inode);
+		struct sock *s = sock->sk;
+
+		/* PF_UNIX ? */
 		if (s && sock->ops && sock->ops->family == PF_UNIX)
 			u_sock = s;
 	}
@@ -119,6 +135,8 @@ static struct sock *unix_get_socket(struct file *filp)
 /*
  *	Keep the number of times in flight count for the file
  *	descriptor if it is for an AF_UNIX socket.
+/* Keep the number of times in flight count for the file
+ * descriptor if it is for an AF_UNIX socket.
  */
 
 void unix_inflight(struct file *fp)
@@ -127,6 +145,12 @@ void unix_inflight(struct file *fp)
 	if(s) {
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
+
+	if (s) {
+		struct unix_sock *u = unix_sk(s);
+
+		spin_lock(&unix_gc_lock);
+
 		if (atomic_long_inc_return(&u->inflight) == 1) {
 			BUG_ON(!list_empty(&u->link));
 			list_add_tail(&u->link, &gc_inflight_list);
@@ -145,6 +169,13 @@ void unix_notinflight(struct file *fp)
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
 		BUG_ON(list_empty(&u->link));
+
+	if (s) {
+		struct unix_sock *u = unix_sk(s);
+
+		spin_lock(&unix_gc_lock);
+		BUG_ON(list_empty(&u->link));
+
 		if (atomic_long_dec_and_test(&u->inflight))
 			list_del_init(&u->link);
 		unix_tot_inflight--;
@@ -188,6 +219,30 @@ static void scan_inflight(struct sock *x, void (*func)(struct unix_sock *),
 				if (sk) {
 					hit = true;
 					func(unix_sk(sk));
+	skb_queue_walk_safe(&x->sk_receive_queue, skb, next) {
+		/* Do we have file descriptors ? */
+		if (UNIXCB(skb).fp) {
+			bool hit = false;
+			/* Process the descriptors of this socket */
+			int nfd = UNIXCB(skb).fp->count;
+			struct file **fp = UNIXCB(skb).fp->fp;
+
+			while (nfd--) {
+				/* Get the socket the fd matches if it indeed does so */
+				struct sock *sk = unix_get_socket(*fp++);
+
+				if (sk) {
+					struct unix_sock *u = unix_sk(sk);
+
+					/* Ignore non-candidates, they could
+					 * have been added to the queues after
+					 * starting the garbage collection
+					 */
+					if (test_bit(UNIX_GC_CANDIDATE, &u->gc_flags)) {
+						hit = true;
+
+						func(u);
+					}
 				}
 			}
 			if (hit && hitlist != NULL) {
@@ -205,6 +260,9 @@ static void scan_children(struct sock *x, void (*func)(struct unix_sock *),
 	if (x->sk_state != TCP_LISTEN)
 		scan_inflight(x, func, hitlist);
 	else {
+	if (x->sk_state != TCP_LISTEN) {
+		scan_inflight(x, func, hitlist);
+	} else {
 		struct sk_buff *skb;
 		struct sk_buff *next;
 		struct unix_sock *u;
@@ -220,6 +278,14 @@ static void scan_children(struct sock *x, void (*func)(struct unix_sock *),
 
 			/*
 			 * An embryo cannot be in-flight, so it's safe
+		/* For a listening socket collect the queued embryos
+		 * and perform a scan on them as well.
+		 */
+		spin_lock(&x->sk_receive_queue.lock);
+		skb_queue_walk_safe(&x->sk_receive_queue, skb, next) {
+			u = unix_sk(skb->sk);
+
+			/* An embryo cannot be in-flight, so it's safe
 			 * to use the list link.
 			 */
 			BUG_ON(!list_empty(&u->link));
@@ -263,10 +329,35 @@ void unix_gc(void)
 {
 	static bool gc_in_progress = false;
 
+	/* If this still might be part of a cycle, move it to the end
+	 * of the list, so that it's checked even if it was already
+	 * passed over
+	 */
+	if (test_bit(UNIX_GC_MAYBE_CYCLE, &u->gc_flags))
+		list_move_tail(&u->link, &gc_candidates);
+}
+
+static bool gc_in_progress;
+#define UNIX_INFLIGHT_TRIGGER_GC 16000
+
+void wait_for_unix_gc(void)
+{
+	/* If number of inflight sockets is insane,
+	 * force a garbage collect right now.
+	 */
+	if (unix_tot_inflight > UNIX_INFLIGHT_TRIGGER_GC && !gc_in_progress)
+		unix_gc();
+	wait_event(unix_gc_wait, gc_in_progress == false);
+}
+
+/* The external entry point: unix_gc() */
+void unix_gc(void)
+{
 	struct unix_sock *u;
 	struct unix_sock *next;
 	struct sk_buff_head hitlist;
 	struct list_head cursor;
+	LIST_HEAD(not_cycle_list);
 
 	spin_lock(&unix_gc_lock);
 
@@ -277,6 +368,7 @@ void unix_gc(void)
 	gc_in_progress = true;
 	/*
 	 * First, select candidates for garbage collection.  Only
+	/* First, select candidates for garbage collection.  Only
 	 * in-flight sockets are considered, and from those only ones
 	 * which don't have any external reference.
 	 *
@@ -286,6 +378,14 @@ void unix_gc(void)
 	 * possible receivers, the receive queues of these sockets are
 	 * static during the GC, even though the dequeue is done
 	 * before the detach without atomicity guarantees.
+	 * reference.  Since there are no possible receivers, all
+	 * buffers currently on the candidates' queues stay there
+	 * during the garbage collection.
+	 *
+	 * We also know that no new candidate can be added onto the
+	 * receive queues.  Other, non candidate sockets _can_ be
+	 * added to queue, so we must make sure only to touch
+	 * candidates.
 	 */
 	list_for_each_entry_safe(u, next, &gc_inflight_list, link) {
 		long total_refs;
@@ -304,6 +404,12 @@ void unix_gc(void)
 
 	/*
 	 * Now remove all internal in-flight reference to children of
+			__set_bit(UNIX_GC_CANDIDATE, &u->gc_flags);
+			__set_bit(UNIX_GC_MAYBE_CYCLE, &u->gc_flags);
+		}
+	}
+
+	/* Now remove all internal in-flight reference to children of
 	 * the candidates.
 	 */
 	list_for_each_entry(u, &gc_candidates, link)
@@ -311,6 +417,7 @@ void unix_gc(void)
 
 	/*
 	 * Restore the references for children of all candidates,
+	/* Restore the references for children of all candidates,
 	 * which have remaining references.  Do this recursively, so
 	 * only those remain, which form cyclic references.
 	 *
@@ -327,6 +434,8 @@ void unix_gc(void)
 		if (atomic_long_read(&u->inflight) > 0) {
 			list_move_tail(&u->link, &gc_inflight_list);
 			u->gc_candidate = 0;
+			list_move_tail(&u->link, &not_cycle_list);
+			__clear_bit(UNIX_GC_MAYBE_CYCLE, &u->gc_flags);
 			scan_children(&u->sk, inc_inflight_move_tail, NULL);
 		}
 	}
@@ -334,12 +443,23 @@ void unix_gc(void)
 
 	/*
 	 * Now gc_candidates contains only garbage.  Restore original
+	/* not_cycle_list contains those sockets which do not make up a
+	 * cycle.  Restore these to the inflight list.
+	 */
+	while (!list_empty(&not_cycle_list)) {
+		u = list_entry(not_cycle_list.next, struct unix_sock, link);
+		__clear_bit(UNIX_GC_CANDIDATE, &u->gc_flags);
+		list_move_tail(&u->link, &gc_inflight_list);
+	}
+
+	/* Now gc_candidates contains only garbage.  Restore original
 	 * inflight counters for these as well, and remove the skbuffs
 	 * which are creating the cycle(s).
 	 */
 	skb_queue_head_init(&hitlist);
 	list_for_each_entry(u, &gc_candidates, link)
 		scan_children(&u->sk, inc_inflight, &hitlist);
+	scan_children(&u->sk, inc_inflight, &hitlist);
 
 	spin_unlock(&unix_gc_lock);
 
@@ -351,6 +471,7 @@ void unix_gc(void)
 	/* All candidates should have been detached by now. */
 	BUG_ON(!list_empty(&gc_candidates));
 	gc_in_progress = false;
+	wake_up(&unix_gc_wait);
 
  out:
 	spin_unlock(&unix_gc_lock);

@@ -23,6 +23,12 @@
 #include <sound/asound_fm.h>
 
 #if defined(CONFIG_SND_SEQUENCER) || defined(CONFIG_SND_SEQUENCER_MODULE)
+#include <linux/slab.h>
+#include <linux/export.h>
+#include <sound/opl3.h>
+#include <sound/asound_fm.h>
+
+#if IS_ENABLED(CONFIG_SND_SEQUENCER)
 #define OPL3_SUPPORT_SYNTH
 #endif
 
@@ -93,6 +99,8 @@ int snd_opl3_ioctl(struct snd_hwdep * hw, struct file *file,
 	void __user *argp = (void __user *)arg;
 
 	snd_assert(opl3 != NULL, return -EINVAL);
+	if (snd_BUG_ON(!opl3))
+		return -EINVAL;
 
 	switch (cmd) {
 		/* get information */
@@ -168,6 +176,7 @@ int snd_opl3_ioctl(struct snd_hwdep * hw, struct file *file,
 #ifdef CONFIG_SND_DEBUG
 	default:
 		snd_printk("unknown IOCTL: 0x%x\n", cmd);
+		snd_printk(KERN_WARNING "unknown IOCTL: 0x%x\n", cmd);
 #endif
 	}
 	return -ENOTTY;

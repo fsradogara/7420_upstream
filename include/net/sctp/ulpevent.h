@@ -35,6 +35,12 @@
  *
  * Or submit a bug report through the following website:
  *    http://www.sf.net/projects/lksctp
+ * along with GNU CC; see the file COPYING.  If not, see
+ * <http://www.gnu.org/licenses/>.
+ *
+ * Please send any bug reports or fixes you make to the
+ * email address(es):
+ *    lksctp developers <linux-sctp@vger.kernel.org>
  *
  * Written or modified by:
  *   Jon Grimm             <jgrimm@us.ibm.com>
@@ -81,6 +87,7 @@ static inline struct sctp_ulpevent *sctp_skb2event(struct sk_buff *skb)
 void sctp_ulpevent_free(struct sctp_ulpevent *);
 int sctp_ulpevent_is_notification(const struct sctp_ulpevent *);
 void sctp_queue_purge_ulpevents(struct sk_buff_head *list);
+unsigned int sctp_queue_purge_ulpevents(struct sk_buff_head *list);
 
 struct sctp_ulpevent *sctp_ulpevent_make_assoc_change(
 	const struct sctp_association *asoc,
@@ -134,6 +141,16 @@ struct sctp_ulpevent *sctp_ulpevent_make_authkey(
 
 void sctp_ulpevent_read_sndrcvinfo(const struct sctp_ulpevent *event,
 	struct msghdr *);
+struct sctp_ulpevent *sctp_ulpevent_make_sender_dry_event(
+	const struct sctp_association *asoc, gfp_t gfp);
+
+void sctp_ulpevent_read_sndrcvinfo(const struct sctp_ulpevent *event,
+				   struct msghdr *);
+void sctp_ulpevent_read_rcvinfo(const struct sctp_ulpevent *event,
+				struct msghdr *);
+void sctp_ulpevent_read_nxtinfo(const struct sctp_ulpevent *event,
+				struct msghdr *, struct sock *sk);
+
 __u16 sctp_ulpevent_get_notification_type(const struct sctp_ulpevent *event);
 
 /* Is this event type enabled? */
