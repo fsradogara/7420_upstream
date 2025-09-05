@@ -23,6 +23,7 @@
 typedef void (*print_fn_t)(struct seq_file *m, unsigned int *classes);
 
 DECLARE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases);
+#include <linux/nmi.h>
 
 #include <asm/uaccess.h>
 
@@ -120,6 +121,9 @@ next_one:
 	spin_lock_irqsave(&base->cpu_base->lock, flags);
 
 	curr = base->first;
+
+	touch_nmi_watchdog();
+
 	raw_spin_lock_irqsave(&base->cpu_base->lock, flags);
 
 	curr = timerqueue_getnext(&base->active);
@@ -255,6 +259,8 @@ print_tickdevice(struct seq_file *m, struct tick_device *td)
 print_tickdevice(struct seq_file *m, struct tick_device *td, int cpu)
 {
 	struct clock_event_device *dev = td->evtdev;
+
+	touch_nmi_watchdog();
 
 	SEQ_printf(m, "Tick Device: mode:     %d\n", td->mode);
 	if (cpu < 0)

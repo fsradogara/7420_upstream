@@ -168,7 +168,8 @@ struct kvm_s390_sie_block {
 	__u16	ipa;			/* 0x0056 */
 	__u32	ipb;			/* 0x0058 */
 	__u32	scaoh;			/* 0x005c */
-	__u8	reserved60;		/* 0x0060 */
+#define FPF_BPBC 	0x20
+	__u8	fpf;			/* 0x0060 */
 	__u8	ecb;			/* 0x0061 */
 	__u8	reserved62[2];		/* 0x0062 */
 	__u32	scaol;			/* 0x0064 */

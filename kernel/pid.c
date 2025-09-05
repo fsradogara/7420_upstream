@@ -394,8 +394,10 @@ struct pid *alloc_pid(struct pid_namespace *ns)
 	get_pid_ns(ns);
 	pid->level = ns->level;
 	if (unlikely(is_child_reaper(pid))) {
-		if (pid_ns_prepare_proc(ns))
+		if (pid_ns_prepare_proc(ns)) {
+			disable_pid_allocation(ns);
 			goto out_free;
+		}
 	}
 
 	get_pid_ns(ns);

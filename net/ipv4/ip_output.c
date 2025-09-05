@@ -1489,6 +1489,8 @@ alloc_new_skb:
 
 		if (!(rt->u.dst.dev->features&NETIF_F_SG)) {
 		if (!(rt->dst.dev->features&NETIF_F_SG)) {
+		if (!(rt->dst.dev->features&NETIF_F_SG) &&
+		    skb_tailroom(skb) >= copy) {
 			unsigned int off;
 
 			off = skb->len;

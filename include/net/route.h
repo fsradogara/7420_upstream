@@ -106,6 +106,8 @@ struct rtable {
 struct ip_rt_acct
 {
 	u32			rt_pmtu;
+	u32			rt_mtu_locked:1,
+				rt_pmtu:31;
 
 	u32			rt_table_id;
 

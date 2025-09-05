@@ -920,6 +920,7 @@ static int reiserfs_create(struct inode *dir, struct dentry *dentry, umode_t mod
 		reiserfs_write_unlock_xattrs(dir->i_sb);
 	unlock_new_inode(inode);
 	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	retval = journal_end(&th);
 
 out_failed:
@@ -1040,6 +1041,7 @@ static int reiserfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode
 		reiserfs_write_unlock_xattrs(dir->i_sb);
 	unlock_new_inode(inode);
 	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	retval = journal_end(&th);
 
 out_failed:
@@ -1182,8 +1184,7 @@ static int reiserfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	/* the above add_entry did not update dir's stat data */
 	reiserfs_update_sd(&th, dir);
 
-	unlock_new_inode(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	retval = journal_end(&th);
 out_failed:
 	reiserfs_write_unlock(dir->i_sb);
@@ -1568,6 +1569,7 @@ static int reiserfs_symlink(struct inode *parent_dir,
       out_failed:
 	unlock_new_inode(inode);
 	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	retval = journal_end(&th);
 out_failed:
 	reiserfs_write_unlock(parent_dir->i_sb);

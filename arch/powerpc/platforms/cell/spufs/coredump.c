@@ -279,6 +279,8 @@ int spufs_coredump_extra_notes_write(struct file *file, loff_t *foffset)
 	if (!dump_skip(cprm,
 		       roundup(cprm->written - total + sz, 4) - cprm->written))
 		goto Eio;
+
+	rc = 0;
 out:
 	free_page((unsigned long)buf);
 	return rc;

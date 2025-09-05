@@ -149,6 +149,8 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 				      const struct pci_device_id *ent)
 static int esb2rom_init_one(struct pci_dev *pdev,
 			    const struct pci_device_id *ent)
+static int __init esb2rom_init_one(struct pci_dev *pdev,
+				   const struct pci_device_id *ent)
 {
 	static char *rom_probe_types[] = { "cfi_probe", "jedec_probe", NULL };
 	struct esb2rom_window *window = &esb2rom_window;

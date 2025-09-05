@@ -8,6 +8,7 @@
  *  for High-Speed Networks"
  * http://www.ews.uiuc.edu/~shaoliu/papersandslides/liubassri06perf.pdf
  * http://www.ifp.illinois.edu/~srikant/Papers/liubassri06perf.pdf
+ * http://tamerbasar.csl.illinois.edu/LiuBasarSrikantPerfEvalArtJun2008.pdf
  *
  * Implemented from description in paper and ns-2 simulation.
  * Copyright (C) 2007 Stephen Hemminger <shemminger@linux-foundation.org>

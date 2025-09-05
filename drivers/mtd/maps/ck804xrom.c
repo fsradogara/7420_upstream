@@ -117,6 +117,8 @@ static int __devinit ck804xrom_init_one (struct pci_dev *pdev,
 					 const struct pci_device_id *ent)
 static int ck804xrom_init_one(struct pci_dev *pdev,
 			      const struct pci_device_id *ent)
+static int __init ck804xrom_init_one(struct pci_dev *pdev,
+				     const struct pci_device_id *ent)
 {
 	static char *rom_probe_types[] = { "cfi_probe", "jedec_probe", NULL };
 	u8 byte;

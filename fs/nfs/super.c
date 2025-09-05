@@ -3514,6 +3514,8 @@ struct dentry *nfs_fs_mount_common(struct nfs_server *server,
 	error = security_sb_set_mnt_opts(s, &data->lsm_opts);
 		mount_info->fill_super(s, mount_info);
 		nfs_get_cache_cookie(s, mount_info->parsed, mount_info->cloned);
+		if (!(server->flags & NFS_MOUNT_UNSHARED))
+			s->s_iflags |= SB_I_MULTIROOT;
 	}
 
 	mntroot = nfs_get_root(s, mount_info->mntfh, dev_name);

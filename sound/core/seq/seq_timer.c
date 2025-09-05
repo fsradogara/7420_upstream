@@ -397,6 +397,7 @@ static int initialize_timer(struct snd_seq_timer *tmr)
 	t = tmr->timeri->timer;
 	snd_assert(t, return -EINVAL);
 	if (snd_BUG_ON(!t))
+	if (!t)
 		return -EINVAL;
 
 	freq = tmr->preferred_resolution;

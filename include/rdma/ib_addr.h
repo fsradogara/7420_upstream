@@ -136,6 +136,8 @@ static inline int ip_addr_size(struct sockaddr *addr)
 	       sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 }
 int rdma_addr_size(struct sockaddr *addr);
+int rdma_addr_size_in6(struct sockaddr_in6 *addr);
+int rdma_addr_size_kss(struct __kernel_sockaddr_storage *addr);
 
 int rdma_addr_find_smac_by_sgid(union ib_gid *sgid, u8 *smac, u16 *vlan_id);
 int rdma_addr_find_dmac_by_grh(const union ib_gid *sgid, const union ib_gid *dgid,

@@ -12,6 +12,7 @@
 
 unsigned int hweight32(unsigned int w)
 {
+#ifndef __HAVE_ARCH_SW_HWEIGHT
 unsigned int __sw_hweight32(unsigned int w)
 {
 #ifdef CONFIG_ARCH_HAS_FAST_MULTIPLIER
@@ -32,6 +33,7 @@ unsigned int hweight16(unsigned int w)
 #endif
 }
 EXPORT_SYMBOL(__sw_hweight32);
+#endif
 
 unsigned int __sw_hweight16(unsigned int w)
 {
@@ -61,6 +63,7 @@ unsigned long hweight64(__u64 w)
 #ifdef ARCH_HAS_FAST_MULTIPLIER
 EXPORT_SYMBOL(__sw_hweight8);
 
+#ifndef __HAVE_ARCH_SW_HWEIGHT
 unsigned long __sw_hweight64(__u64 w)
 {
 #if BITS_PER_LONG == 32
@@ -84,3 +87,4 @@ unsigned long __sw_hweight64(__u64 w)
 }
 EXPORT_SYMBOL(hweight64);
 EXPORT_SYMBOL(__sw_hweight64);
+#endif

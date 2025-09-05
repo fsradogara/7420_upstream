@@ -296,10 +296,14 @@ extern pgprot_t protection_map[16];
  * pgoff should be used in favour of virtual_address, if possible. If pgoff
  * is used, one may set VM_CAN_NONLINEAR in the vma->vm_flags to get nonlinear
  * mapping support.
+ * MM layer fills up gfp_mask for page allocations but fault handler might
+ * alter it if its implementation requires a different allocation context.
+ *
  * pgoff should be used in favour of virtual_address, if possible.
  */
 struct vm_fault {
 	unsigned int flags;		/* FAULT_FLAG_xxx flags */
+	gfp_t gfp_mask;			/* gfp mask to be used for allocations */
 	pgoff_t pgoff;			/* Logical page offset based on vma */
 	void __user *virtual_address;	/* Faulting virtual address */
 

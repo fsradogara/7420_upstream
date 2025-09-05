@@ -152,7 +152,7 @@ static int via_rng_init(struct hwrng *rng)
 	 * RNG configuration like it used to be the case in this
 	 * register */
 	if ((c->x86 == 6) && (c->x86_model >= 0x0f)) {
-		if (!cpu_has_xstore_enabled) {
+		if (!boot_cpu_has(X86_FEATURE_XSTORE_EN)) {
 			pr_err(PFX "can't enable hardware RNG "
 				"if XSTORE is not enabled\n");
 			return -ENODEV;
@@ -213,12 +213,13 @@ static int __init mod_init(void)
 {
 	int err;
 
-	if (!cpu_has_xstore)
+	if (!boot_cpu_has(X86_FEATURE_XSTORE))
 		return -ENODEV;
 	printk(KERN_INFO "VIA RNG detected\n");
 	err = hwrng_register(&via_rng);
 	if (err) {
 		printk(KERN_ERR PFX "RNG registering failed (%d)\n",
+
 	pr_info("VIA RNG detected\n");
 	err = hwrng_register(&via_rng);
 	if (err) {
