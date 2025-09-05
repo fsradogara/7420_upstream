@@ -610,6 +610,7 @@
 
 #define INIT_TEXT							\
 	*(.init.text)							\
+	*(.text.startup)						\
 	MEM_DISCARD(init.text)
 
 #define EXIT_DATA							\
@@ -618,6 +619,8 @@
 	DEV_DISCARD(exit.rodata)					\
 	CPU_DISCARD(exit.data)						\
 	CPU_DISCARD(exit.rodata)					\
+	*(.fini_array)							\
+	*(.dtors)							\
 	MEM_DISCARD(exit.data)						\
 	MEM_DISCARD(exit.rodata)
 
@@ -630,6 +633,7 @@
 		/* DWARF debug sections.
 		Symbols in the DWARF debugging sections are relative to
 		the beginning of the section so we begin them at 0.  */
+	*(.text.exit)							\
 	MEM_DISCARD(exit.text)
 
 #define EXIT_CALL							\

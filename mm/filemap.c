@@ -235,6 +235,51 @@ static int sync_page_killable(void *word)
  *   ->tasklist_lock            (memory_failure, collect_procs_ao)
  */
 
+static int page_cache_tree_insert(struct address_space *mapping,
+				  struct page *page, void **shadowp)
+{
+	struct radix_tree_node *node;
+	void **slot;
+	int error;
+
+	error = __radix_tree_create(&mapping->page_tree, page->index,
+				    &node, &slot);
+	if (error)
+		return error;
+	if (*slot) {
+		void *p;
+
+		p = radix_tree_deref_slot_protected(slot, &mapping->tree_lock);
+		if (!radix_tree_exceptional_entry(p))
+			return -EEXIST;
+		if (shadowp)
+			*shadowp = p;
+		mapping->nrshadows--;
+		if (node)
+			workingset_node_shadows_dec(node);
+	}
+	radix_tree_replace_slot(slot, page);
+	mapping->nrpages++;
+	if (node) {
+		workingset_node_pages_inc(node);
+		/*
+		 * Don't track node that contains actual pages.
+		 *
+		 * Avoid acquiring the list_lru lock if already
+		 * untracked.  The list_empty() test is safe as
+		 * node->private_list is protected by
+		 * mapping->tree_lock.
+		 */
+		if (!list_empty(&node->private_list)) {
+			local_lock(workingset_shadow_lock);
+			list_lru_del(&__workingset_shadow_nodes,
+				     &node->private_list);
+			local_unlock(workingset_shadow_lock);
+		}
+	}
+	return 0;
+}
+
 static void page_cache_tree_delete(struct address_space *mapping,
 				   struct page *page, void *shadow)
 {
@@ -247,6 +292,14 @@ static void page_cache_tree_delete(struct address_space *mapping,
 	VM_BUG_ON(!PageLocked(page));
 
 	__radix_tree_lookup(&mapping->page_tree, page->index, &node, &slot);
+
+	if (!node) {
+		/*
+		 * We need a node to properly account shadow
+		 * entries. Don't plant any without. XXX
+		 */
+		shadow = NULL;
+	}
 
 	if (shadow) {
 		mapping->nrshadows++;
@@ -294,7 +347,9 @@ static void page_cache_tree_delete(struct address_space *mapping,
 	if (!workingset_node_pages(node) &&
 	    list_empty(&node->private_list)) {
 		node->private_data = mapping;
-		list_lru_add(&workingset_shadow_nodes, &node->private_list);
+		local_lock(workingset_shadow_lock);
+		list_lru_add(&__workingset_shadow_nodes, &node->private_list);
+		local_unlock(workingset_shadow_lock);
 	}
 }
 
@@ -770,9 +825,8 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 		memcg = mem_cgroup_begin_page_stat(old);
 		spin_lock_irqsave(&mapping->tree_lock, flags);
 		__delete_from_page_cache(old, NULL, memcg);
-		error = radix_tree_insert(&mapping->page_tree, offset, new);
+		error = page_cache_tree_insert(mapping, new, NULL);
 		BUG_ON(error);
-		mapping->nrpages++;
 
 		/*
 		 * hugetlb pages do not participate in page cache accounting.
@@ -793,48 +847,6 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 	return error;
 }
 EXPORT_SYMBOL_GPL(replace_page_cache_page);
-
-static int page_cache_tree_insert(struct address_space *mapping,
-				  struct page *page, void **shadowp)
-{
-	struct radix_tree_node *node;
-	void **slot;
-	int error;
-
-	error = __radix_tree_create(&mapping->page_tree, page->index,
-				    &node, &slot);
-	if (error)
-		return error;
-	if (*slot) {
-		void *p;
-
-		p = radix_tree_deref_slot_protected(slot, &mapping->tree_lock);
-		if (!radix_tree_exceptional_entry(p))
-			return -EEXIST;
-		if (shadowp)
-			*shadowp = p;
-		mapping->nrshadows--;
-		if (node)
-			workingset_node_shadows_dec(node);
-	}
-	radix_tree_replace_slot(slot, page);
-	mapping->nrpages++;
-	if (node) {
-		workingset_node_pages_inc(node);
-		/*
-		 * Don't track node that contains actual pages.
-		 *
-		 * Avoid acquiring the list_lru lock if already
-		 * untracked.  The list_empty() test is safe as
-		 * node->private_list is protected by
-		 * mapping->tree_lock.
-		 */
-		if (!list_empty(&node->private_list))
-			list_lru_del(&workingset_shadow_nodes,
-				     &node->private_list);
-	}
-	return 0;
-}
 
 static int __add_to_page_cache_locked(struct page *page,
 				      struct address_space *mapping,

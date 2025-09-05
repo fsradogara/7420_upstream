@@ -465,7 +465,6 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 {
 	const unsigned long mask = L_PTE_EXEC | L_PTE_WRITE | L_PTE_USER;
 #define pmd_none(pmd)		(!pmd_val(pmd))
-#define pmd_present(pmd)	(pmd_val(pmd))
 
 static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 {

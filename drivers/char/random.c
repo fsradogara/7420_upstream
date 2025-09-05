@@ -925,15 +925,18 @@ retry:
 	}
 }
 
-static void credit_entropy_bits_safe(struct entropy_store *r, int nbits)
+static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 {
 	const int nbits_max = (int)(~0U >> (ENTROPY_SHIFT + 1));
 
+	if (nbits < 0)
+		return -EINVAL;
+
 	/* Cap the value to avoid overflows */
 	nbits = min(nbits,  nbits_max);
-	nbits = max(nbits, -nbits_max);
 
 	credit_entropy_bits(r, nbits);
+	return 0;
 }
 
 /*********************************************************************
@@ -1059,7 +1062,6 @@ static void add_timer_randomness(struct timer_rand_state *state, unsigned num)
 out:
 		credit_entropy_bits(r, min_t(int, fls(delta>>1), 11));
 	}
-	preempt_enable();
 }
 
 void add_input_randomness(unsigned int type, unsigned int code,
@@ -1126,28 +1128,27 @@ static __u32 get_reg(struct fast_pool *f, struct pt_regs *regs)
 	return *(ptr + f->reg_idx++);
 }
 
-void add_interrupt_randomness(int irq, int irq_flags)
+void add_interrupt_randomness(int irq, int irq_flags, __u64 ip)
 {
 	struct entropy_store	*r;
 	struct fast_pool	*fast_pool = this_cpu_ptr(&irq_randomness);
-	struct pt_regs		*regs = get_irq_regs();
 	unsigned long		now = jiffies;
 	cycles_t		cycles = random_get_entropy();
 	__u32			c_high, j_high;
-	__u64			ip;
 	unsigned long		seed;
 	int			credit = 0;
 
 	if (cycles == 0)
-		cycles = get_reg(fast_pool, regs);
+		cycles = get_reg(fast_pool, NULL);
 	c_high = (sizeof(cycles) > 4) ? cycles >> 32 : 0;
 	j_high = (sizeof(now) > 4) ? now >> 32 : 0;
 	fast_pool->pool[0] ^= cycles ^ j_high ^ irq;
 	fast_pool->pool[1] ^= now ^ c_high;
-	ip = regs ? instruction_pointer(regs) : _RET_IP_;
+	if (!ip)
+		ip = _RET_IP_;
 	fast_pool->pool[2] ^= ip;
 	fast_pool->pool[3] ^= (sizeof(ip) > 4) ? ip >> 32 :
-		get_reg(fast_pool, regs);
+		get_reg(fast_pool, NULL);
 
 	fast_mix(fast_pool);
 	add_interrupt_bench(cycles);
@@ -1180,6 +1181,7 @@ void add_interrupt_randomness(int irq, int irq_flags)
 	/* award one bit for the contents of the fast pool */
 	credit_entropy_bits(r, credit + 1);
 }
+EXPORT_SYMBOL_GPL(add_interrupt_randomness);
 
 #ifdef CONFIG_BLOCK
 void add_disk_randomness(struct gendisk *disk)
@@ -1911,12 +1913,16 @@ static ssize_t
 urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 {
 	return extract_entropy_user(&nonblocking_pool, buf, nbytes);
+	static int maxwarn = 10;
 	int ret;
 
-	if (unlikely(nonblocking_pool.initialized == 0))
-		printk_once(KERN_NOTICE "random: %s urandom read "
-			    "with %d bits of entropy available\n",
-			    current->comm, nonblocking_pool.entropy_total);
+	if (unlikely(nonblocking_pool.initialized == 0) &&
+	    maxwarn > 0) {
+		maxwarn--;
+		printk(KERN_NOTICE "random: %s: uninitialized urandom read "
+		       "(%zd bytes read, %d bits of entropy available)\n",
+		       current->comm, nbytes, nonblocking_pool.entropy_total);
+	}
 
 	nbytes = min_t(size_t, nbytes, INT_MAX >> (ENTROPY_SHIFT + 3));
 	ret = extract_entropy_user(&nonblocking_pool, buf, nbytes);
@@ -2006,6 +2012,7 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		credit_entropy_bits(&input_pool, ent_count);
 		credit_entropy_bits_safe(&input_pool, ent_count);
 		return 0;
+		return credit_entropy_bits_safe(&input_pool, ent_count);
 	case RNDADDENTROPY:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
@@ -2029,6 +2036,7 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		rand_initialize();
 		credit_entropy_bits_safe(&input_pool, ent_count);
 		return 0;
+		return credit_entropy_bits_safe(&input_pool, ent_count);
 	case RNDZAPENTCNT:
 	case RNDCLEARPOOL:
 		/*
@@ -2764,12 +2772,18 @@ void add_hwgenerator_randomness(const char *buffer, size_t count,
 {
 	struct entropy_store *poolp = &input_pool;
 
-	/* Suspend writing if we're above the trickle threshold.
-	 * We'll be woken up again once below random_write_wakeup_thresh,
-	 * or when the calling thread is about to terminate.
-	 */
-	wait_event_interruptible(random_write_wait, kthread_should_stop() ||
+	if (unlikely(nonblocking_pool.initialized == 0))
+		poolp = &nonblocking_pool;
+	else {
+		/* Suspend writing if we're above the trickle
+		 * threshold.  We'll be woken up again once below
+		 * random_write_wakeup_thresh, or when the calling
+		 * thread is about to terminate.
+		 */
+		wait_event_interruptible(random_write_wait,
+					 kthread_should_stop() ||
 			ENTROPY_BITS(&input_pool) <= random_write_wakeup_bits);
+	}
 	mix_pool_bytes(poolp, buffer, count);
 	credit_entropy_bits(poolp, entropy);
 }

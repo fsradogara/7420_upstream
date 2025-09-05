@@ -1801,24 +1801,31 @@ static int bcm_connect(struct socket *sock, struct sockaddr *uaddr, int len,
 	struct sockaddr_can *addr = (struct sockaddr_can *)uaddr;
 	struct sock *sk = sock->sk;
 	struct bcm_sock *bo = bcm_sk(sk);
+	int ret = 0;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
 
-	if (bo->bound)
-		return -EISCONN;
+	lock_sock(sk);
+
+	if (bo->bound) {
+		ret = -EISCONN;
+		goto fail;
+	}
 
 	/* bind a device to this socket */
 	if (addr->can_ifindex) {
 		struct net_device *dev;
 
 		dev = dev_get_by_index(&init_net, addr->can_ifindex);
-		if (!dev)
-			return -ENODEV;
-
+		if (!dev) {
+			ret = -ENODEV;
+			goto fail;
+		}
 		if (dev->type != ARPHRD_CAN) {
 			dev_put(dev);
-			return -ENODEV;
+			ret = -ENODEV;
+			goto fail;
 		}
 
 		bo->ifindex = dev->ifindex;
@@ -1828,8 +1835,6 @@ static int bcm_connect(struct socket *sock, struct sockaddr *uaddr, int len,
 		/* no interface reference for ifindex = 0 ('any' CAN device) */
 		bo->ifindex = 0;
 	}
-
-	bo->bound = 1;
 
 	if (proc_dir) {
 		/* unique socket address as filename */
@@ -1841,9 +1846,18 @@ static int bcm_connect(struct socket *sock, struct sockaddr *uaddr, int len,
 		bo->bcm_proc_read = proc_create_data(bo->procname, 0644,
 						     proc_dir,
 						     &bcm_proc_fops, sk);
+		if (!bo->bcm_proc_read) {
+			ret = -ENOMEM;
+			goto fail;
+		}
 	}
 
-	return 0;
+	bo->bound = 1;
+
+fail:
+	release_sock(sk);
+
+	return ret;
 }
 
 static int bcm_recvmsg(struct kiocb *iocb, struct socket *sock,

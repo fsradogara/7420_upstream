@@ -660,12 +660,12 @@ static void ep_unregister_pollwait(struct eventpoll *ep, struct epitem *epi)
  */
 static void ep_poll_safewake(wait_queue_head_t *wq)
 {
-	int this_cpu = get_cpu();
+	int this_cpu = get_cpu_light();
 
 	ep_call_nested(&poll_safewake_ncalls, EP_MAX_NESTS,
 		       ep_poll_wakeup_proc, NULL, wq, (void *) (long) this_cpu);
 
-	put_cpu();
+	put_cpu_light();
 }
 
 static void ep_remove_wait_queue(struct eppoll_entry *pwq)

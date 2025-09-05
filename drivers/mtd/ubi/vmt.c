@@ -673,6 +673,24 @@ int ubi_resize_volume(struct ubi_volume_desc *desc, int reserved_pebs)
 		spin_unlock(&ubi->volumes_lock);
 	}
 
+	/*
+	 * When we shrink a volume we have to flush all pending (erase) work.
+	 * Otherwise it can happen that upon next attach UBI finds a LEB with
+	 * lnum > highest_lnum and refuses to attach.
+	 */
+	if (pebs < 0) {
+		err = ubi_wl_flush(ubi, vol_id, UBI_ALL);
+		if (err)
+			goto out_acc;
+	}
+
+	/* Change volume table record */
+	vtbl_rec = ubi->vtbl[vol_id];
+	vtbl_rec.reserved_pebs = cpu_to_be32(reserved_pebs);
+	err = ubi_change_vtbl_record(ubi, vol_id, &vtbl_rec);
+	if (err)
+		goto out_acc;
+
 	vol->reserved_pebs = reserved_pebs;
 	if (vol->vol_type == UBI_DYNAMIC_VOLUME) {
 		vol->used_ebs = reserved_pebs;

@@ -650,7 +650,6 @@ static int xs_sendpages(struct socket *sock, struct sockaddr *addr, int addrlen,
 	if (unlikely(!sock))
 		return -ENOTSOCK;
 
-	clear_bit(SOCKWQ_ASYNC_NOSPACE, &sock->flags);
 	if (base != 0) {
 		addr = NULL;
 		addrlen = 0;
@@ -753,13 +752,25 @@ static int xs_nospace(struct rpc_task *task)
 
 	spin_unlock_bh(&xprt->transport_lock);
 		clear_bit(SOCKWQ_ASYNC_NOSPACE, &transport->sock->flags);
+		/* wait for more buffer space */
+		sk->sk_write_pending++;
+		xprt_wait_for_buffer_space(task, xs_nospace_callback);
+	} else
 		ret = -ENOTCONN;
-	}
 
 	spin_unlock_bh(&xprt->transport_lock);
 
 	/* Race breaker in case memory is freed before above code is called */
-	sk->sk_write_space(sk);
+	if (ret == -EAGAIN) {
+		struct socket_wq *wq;
+
+		rcu_read_lock();
+		wq = rcu_dereference(sk->sk_wq);
+		set_bit(SOCKWQ_ASYNC_NOSPACE, &wq->flags);
+		rcu_read_unlock();
+
+		sk->sk_write_space(sk);
+	}
 	return ret;
 }
 
@@ -913,9 +924,6 @@ process_status:
 	case -EAGAIN:
 		status = xs_nospace(task);
 		break;
-	default:
-		dprintk("RPC:       sendmsg returned unrecognized error %d\n",
-			-status);
 	case -ENETUNREACH:
 	case -ENOBUFS:
 	case -EPIPE:
@@ -923,7 +931,10 @@ process_status:
 	case -EPERM:
 		/* When the server has died, an ICMP port unreachable message
 		 * prompts ECONNREFUSED. */
-		clear_bit(SOCKWQ_ASYNC_NOSPACE, &transport->sock->flags);
+		break;
+	default:
+		dprintk("RPC:       sendmsg returned unrecognized error %d\n",
+			-status);
 	}
 
 	return status;
@@ -1066,7 +1077,10 @@ static int xs_tcp_send_request(struct rpc_task *task)
 	case -EADDRINUSE:
 	case -ENOBUFS:
 	case -EPIPE:
-		clear_bit(SOCKWQ_ASYNC_NOSPACE, &transport->sock->flags);
+		break;
+	default:
+		dprintk("RPC:       sendmsg returned unrecognized error %d\n",
+			-status);
 	}
 
 	return status;
@@ -2157,19 +2171,23 @@ static void xs_tcp_state_change(struct sock *sk)
 
 static void xs_write_space(struct sock *sk)
 {
-	struct socket *sock;
+	struct socket_wq *wq;
 	struct rpc_xprt *xprt;
 
-	if (unlikely(!(sock = sk->sk_socket)))
+	if (!sk->sk_socket)
 		return;
-	clear_bit(SOCK_NOSPACE, &sock->flags);
+	clear_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
 
 	if (unlikely(!(xprt = xprt_from_sock(sk))))
 		return;
-	if (test_and_clear_bit(SOCKWQ_ASYNC_NOSPACE, &sock->flags) == 0)
-		return;
+	rcu_read_lock();
+	wq = rcu_dereference(sk->sk_wq);
+	if (!wq || test_and_clear_bit(SOCKWQ_ASYNC_NOSPACE, &wq->flags) == 0)
+		goto out;
 
 	xprt_write_space(xprt);
+out:
+	rcu_read_unlock();
 }
 
 /**
@@ -3249,6 +3267,10 @@ static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 		/* SYN_SENT! */
 		if (xprt->reestablish_timeout < XS_TCP_INIT_REEST_TO)
 			xprt->reestablish_timeout = XS_TCP_INIT_REEST_TO;
+		break;
+	case -EADDRNOTAVAIL:
+		/* Source port number is unavailable. Try a new one! */
+		transport->srcport = 0;
 	}
 out:
 	return ret;

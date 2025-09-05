@@ -1630,6 +1630,7 @@ static int mos7720_write(struct tty_struct *tty, struct usb_serial_port *port,
 			err("%s no more kernel memory...", __func__);
 			goto exit;
 		}
+					       GFP_ATOMIC);
 		if (!urb->transfer_buffer)
 			goto exit;
 	}
@@ -2847,6 +2848,7 @@ static void mos7720_release(struct usb_serial *serial)
 				    urblist_entry)
 			usb_unlink_urb(urbtrack->urb);
 		spin_unlock_irqrestore(&mos_parport->listlock, flags);
+		parport_del_port(mos_parport->pp);
 
 		kref_put(&mos_parport->ref_count, destroy_mos_parport);
 	}

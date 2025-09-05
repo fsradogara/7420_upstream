@@ -452,17 +452,22 @@ __copy_tofrom_user(void *to, const void *from, long len, const void __user *vali
 #define __copy_to_user_inatomic __copy_to_user
 #define __copy_from_user_inatomic __copy_from_user
 
-
 extern inline long
 copy_to_user(void __user *to, const void *from, long n)
 {
-	return __copy_tofrom_user((__force void *)to, from, n, to);
+	if (likely(__access_ok((unsigned long)to, n, get_fs())))
+		n = __copy_tofrom_user_nocheck((__force void *)to, from, n);
+	return n;
 }
 
 extern inline long
 copy_from_user(void *to, const void __user *from, long n)
 {
-	return __copy_tofrom_user(to, (__force void *)from, n, from);
+	if (likely(__access_ok((unsigned long)from, n, get_fs())))
+		n = __copy_tofrom_user_nocheck(to, (__force void *)from, n);
+	else
+		memset(to, 0, n);
+	return n;
 }
 
 extern void __do_clear_user(void);

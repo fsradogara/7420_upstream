@@ -111,6 +111,7 @@ static inline void amd_iso_dev_put(void)
 #endif
 
 #define	IO_WATCHDOG_DELAY	msecs_to_jiffies(250)
+#define	IO_WATCHDOG_DELAY	msecs_to_jiffies(275)
 
 #include "ohci.h"
 #include "pci-quirks.h"

@@ -66,8 +66,7 @@ static void init_fp_ctx(struct task_struct *target)
 	/* Begin with data registers set to all 1s... */
 	memset(&target->thread.fpu.fpr, ~0, sizeof(target->thread.fpu.fpr));
 
-	/* ...and FCSR zeroed */
-	target->thread.fpu.fcr31 = 0;
+	/* FCSR has been preset by `mips_set_personality_nan'.  */
 
 	/*
 	 * Record that the target has "used" math, such that the context
@@ -95,6 +94,22 @@ void ptrace_disable(struct task_struct *child)
 int ptrace_getregs(struct task_struct *child, __s64 __user *data)
 	/* Don't load the watchpoint registers for the ex-child. */
 	clear_tsk_thread_flag(child, TIF_LOAD_WATCH);
+}
+
+/*
+ * Poke at FCSR according to its mask.  Don't set the cause bits as
+ * this is currently not handled correctly in FP context restoration
+ * and will cause an oops if a corresponding enable bit is set.
+ */
+static void ptrace_setfcr31(struct task_struct *child, u32 value)
+{
+	u32 fcr31;
+	u32 mask;
+
+	value &= ~FPU_CSR_ALL_X;
+	fcr31 = child->thread.fpu.fcr31;
+	mask = boot_cpu_data.fpu_msk31;
+	child->thread.fpu.fcr31 = (value & ~mask) | (fcr31 & mask);
 }
 
 /*
@@ -217,9 +232,7 @@ int ptrace_setfpregs(struct task_struct *child, __u32 __user *data)
 	fpureg_t *fregs;
 	union fpureg *fregs;
 	u64 fpr_val;
-	u32 fcr31;
 	u32 value;
-	u32 mask;
 	int i;
 
 	if (!access_ok(VERIFY_READ, data, 33 * 8))
@@ -240,9 +253,7 @@ int ptrace_setfpregs(struct task_struct *child, __u32 __user *data)
 	}
 
 	__get_user(value, data + 64);
-	fcr31 = child->thread.fpu.fcr31;
-	mask = boot_cpu_data.fpu_msk31;
-	child->thread.fpu.fcr31 = (value & ~mask) | (fcr31 & mask);
+	ptrace_setfcr31(child, value);
 
 	/* FIR may not be written.  */
 
@@ -956,6 +967,7 @@ long arch_ptrace(struct task_struct *child, long request,
 		case FPC_CSR:
 			child->thread.fpu.fcr31 = data;
 			child->thread.fpu.fcr31 = data & ~FPU_CSR_ALL_X;
+			ptrace_setfcr31(child, data);
 			break;
 		case DSP_BASE ... DSP_BASE + 5: {
 			dspreg_t *dregs;

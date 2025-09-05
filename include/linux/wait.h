@@ -58,6 +58,7 @@ struct __wait_queue_head {
 #include <linux/spinlock.h>
 #include <asm/current.h>
 #include <uapi/linux/wait.h>
+#include <linux/atomic.h>
 
 typedef struct __wait_queue wait_queue_t;
 typedef int (*wait_queue_func_t)(wait_queue_t *wait, unsigned mode, int flags, void *key);

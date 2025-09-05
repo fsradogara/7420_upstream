@@ -2382,6 +2382,9 @@ static int raid10_add_disk(struct mddev *mddev, struct md_rdev *rdev)
 	if (rdev->saved_raid_disk < 0 && !_enough(conf, 1, -1))
 		return -EINVAL;
 
+	if (md_integrity_add_rdev(rdev, mddev))
+		return -ENXIO;
+
 	if (rdev->raid_disk >= 0)
 		first = last = rdev->raid_disk;
 
@@ -2445,9 +2448,6 @@ static int raid10_add_disk(struct mddev *mddev, struct md_rdev *rdev)
 		rcu_assign_pointer(p->rdev, rdev);
 		break;
 	}
-	mddev_suspend(mddev);
-	md_integrity_add_rdev(rdev, mddev);
-	mddev_resume(mddev);
 	if (mddev->queue && blk_queue_discard(bdev_get_queue(rdev->bdev)))
 		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, mddev->queue);
 
@@ -3618,6 +3618,7 @@ static void handle_write_completed(struct r10conf *conf, struct r10bio *r10_bio)
 		if (fail) {
 			spin_lock_irq(&conf->device_lock);
 			list_add(&r10_bio->retry_list, &conf->bio_end_io_list);
+			conf->nr_queued++;
 			spin_unlock_irq(&conf->device_lock);
 			md_wakeup_thread(conf->mddev->thread);
 		} else {
@@ -3645,8 +3646,10 @@ static void raid10d(struct md_thread *thread)
 		LIST_HEAD(tmp);
 		spin_lock_irqsave(&conf->device_lock, flags);
 		if (!test_bit(MD_CHANGE_PENDING, &mddev->flags)) {
-			list_add(&tmp, &conf->bio_end_io_list);
-			list_del_init(&conf->bio_end_io_list);
+			while (!list_empty(&conf->bio_end_io_list)) {
+				list_move(conf->bio_end_io_list.prev, &tmp);
+				conf->nr_queued--;
+			}
 		}
 		spin_unlock_irqrestore(&conf->device_lock, flags);
 		while (!list_empty(&tmp)) {

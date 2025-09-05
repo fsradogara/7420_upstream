@@ -1351,7 +1351,7 @@ static int register_root_hub(struct usb_hcd *hcd)
 		retval = usb_get_bos_descriptor(usb_dev);
 		if (!retval) {
 			usb_dev->lpm_capable = usb_device_supports_lpm(usb_dev);
-		} else if (usb_dev->speed == USB_SPEED_SUPER) {
+		} else if (usb_dev->speed >= USB_SPEED_SUPER) {
 			mutex_unlock(&usb_bus_list_lock);
 			dev_dbg(parent_dev, "can't read %s bos descriptor %d\n",
 					dev_name(&usb_dev->dev), retval);
@@ -2150,9 +2150,9 @@ static void __usb_hcd_giveback_urb(struct urb *urb)
 	 * and no one may trigger the above deadlock situation when
 	 * running complete() in tasklet.
 	 */
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	urb->complete(urb);
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 
 	usb_anchor_resume_wakeups(anchor);
 	atomic_dec(&urb->use_count);
@@ -2547,7 +2547,7 @@ int usb_alloc_streams(struct usb_interface *interface,
 	hcd = bus_to_hcd(dev->bus);
 	if (!hcd->driver->alloc_streams || !hcd->driver->free_streams)
 		return -EINVAL;
-	if (dev->speed != USB_SPEED_SUPER)
+	if (dev->speed < USB_SPEED_SUPER)
 		return -EINVAL;
 	if (dev->state < USB_STATE_CONFIGURED)
 		return -ENODEV;
@@ -2595,7 +2595,7 @@ int usb_free_streams(struct usb_interface *interface,
 
 	dev = interface_to_usbdev(interface);
 	hcd = bus_to_hcd(dev->bus);
-	if (dev->speed != USB_SPEED_SUPER)
+	if (dev->speed < USB_SPEED_SUPER)
 		return -EINVAL;
 
 	/* Double-free is not allowed */

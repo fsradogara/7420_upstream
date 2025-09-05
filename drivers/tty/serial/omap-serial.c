@@ -1257,13 +1257,10 @@ serial_omap_console_write(struct console *co, const char *s,
 
 	pm_runtime_get_sync(up->dev);
 
-	local_irq_save(flags);
-	if (up->port.sysrq)
-		locked = 0;
-	else if (oops_in_progress)
-		locked = spin_trylock(&up->port.lock);
+	if (up->port.sysrq || oops_in_progress)
+		locked = spin_trylock_irqsave(&up->port.lock, flags);
 	else
-		spin_lock(&up->port.lock);
+		spin_lock_irqsave(&up->port.lock, flags);
 
 	/*
 	 * First save the IER then disable the interrupts
@@ -1292,8 +1289,7 @@ serial_omap_console_write(struct console *co, const char *s,
 	pm_runtime_mark_last_busy(up->dev);
 	pm_runtime_put_autosuspend(up->dev);
 	if (locked)
-		spin_unlock(&up->port.lock);
-	local_irq_restore(flags);
+		spin_unlock_irqrestore(&up->port.lock, flags);
 }
 
 static int __init
@@ -1343,7 +1339,7 @@ static inline void serial_omap_add_console_port(struct uart_omap_port *up)
 
 /* Enable or disable the rs485 support */
 static int
-serial_omap_config_rs485(struct uart_port *port, struct serial_rs485 *rs485conf)
+serial_omap_config_rs485(struct uart_port *port, struct serial_rs485 *rs485)
 {
 	struct uart_omap_port *up = to_uart_omap_port(port);
 	unsigned int mode;
@@ -1356,8 +1352,12 @@ serial_omap_config_rs485(struct uart_port *port, struct serial_rs485 *rs485conf)
 	up->ier = 0;
 	serial_out(up, UART_IER, 0);
 
+	/* Clamp the delays to [0, 100ms] */
+	rs485->delay_rts_before_send = min(rs485->delay_rts_before_send, 100U);
+	rs485->delay_rts_after_send  = min(rs485->delay_rts_after_send, 100U);
+
 	/* store new config */
-	port->rs485 = *rs485conf;
+	port->rs485 = *rs485;
 
 	/*
 	 * Just as a precaution, only allow rs485

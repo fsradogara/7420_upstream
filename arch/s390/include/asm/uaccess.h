@@ -266,6 +266,7 @@ int __put_user_bad(void) __attribute__((noreturn));
 		unsigned char __x;				\
 		__gu_err = __get_user_fn(sizeof (*(ptr)),	\
 					 ptr, &__x);		\
+		unsigned char __x = 0;				\
 		__gu_err = __get_user_fn(&__x, ptr,		\
 					 sizeof(*(ptr)));	\
 		(x) = *(__force __typeof__(*(ptr)) *) &__x;	\
@@ -275,6 +276,7 @@ int __put_user_bad(void) __attribute__((noreturn));
 		unsigned short __x;				\
 		__gu_err = __get_user_fn(sizeof (*(ptr)),	\
 					 ptr, &__x);		\
+		unsigned short __x = 0;				\
 		__gu_err = __get_user_fn(&__x, ptr,		\
 					 sizeof(*(ptr)));	\
 		(x) = *(__force __typeof__(*(ptr)) *) &__x;	\
@@ -284,6 +286,7 @@ int __put_user_bad(void) __attribute__((noreturn));
 		unsigned int __x;				\
 		__gu_err = __get_user_fn(sizeof (*(ptr)),	\
 					 ptr, &__x);		\
+		unsigned int __x = 0;				\
 		__gu_err = __get_user_fn(&__x, ptr,		\
 					 sizeof(*(ptr)));	\
 		(x) = *(__force __typeof__(*(ptr)) *) &__x;	\
@@ -293,6 +296,7 @@ int __put_user_bad(void) __attribute__((noreturn));
 		unsigned long long __x;				\
 		__gu_err = __get_user_fn(sizeof (*(ptr)),	\
 					 ptr, &__x);		\
+		unsigned long long __x = 0;			\
 		__gu_err = __get_user_fn(&__x, ptr,		\
 					 sizeof(*(ptr)));	\
 		(x) = *(__force __typeof__(*(ptr)) *) &__x;	\

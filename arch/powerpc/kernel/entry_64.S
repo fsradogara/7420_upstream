@@ -468,13 +468,13 @@ syscall_exit_work:
 tabort_syscall:
 	/* Firstly we need to enable TM in the kernel */
 	mfmsr	r10
-	li	r13, 1
-	rldimi	r10, r13, MSR_TM_LG, 63-MSR_TM_LG
+	li	r9, 1
+	rldimi	r10, r9, MSR_TM_LG, 63-MSR_TM_LG
 	mtmsrd	r10, 0
 
 	/* tabort, this dooms the transaction, nothing else */
-	li	r13, (TM_CAUSE_SYSCALL|TM_CAUSE_PERSISTENT)
-	TABORT(R13)
+	li	r9, (TM_CAUSE_SYSCALL|TM_CAUSE_PERSISTENT)
+	TABORT(R9)
 
 	/*
 	 * Return directly to userspace. We have corrupted user register state,
@@ -482,8 +482,8 @@ tabort_syscall:
 	 * resume after the tbegin of the aborted transaction with the
 	 * checkpointed register state.
 	 */
-	li	r13, MSR_RI
-	andc	r10, r10, r13
+	li	r9, MSR_RI
+	andc	r10, r10, r9
 	mtmsrd	r10, 1
 	mtspr	SPRN_SRR0, r11
 	mtspr	SPRN_SRR1, r12
@@ -930,7 +930,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_ISERIES)
 #else
 	beq	restore
 #endif
-1:	andi.	r0,r4,_TIF_NEED_RESCHED
+1:	andi.	r0,r4,_TIF_NEED_RESCHED_MASK
 	beq	2f
 	bl	restore_interrupts
 	SCHEDULE_USER
@@ -992,10 +992,18 @@ resume_kernel:
 
 #ifdef CONFIG_PREEMPT
 	/* Check if we need to preempt */
-	andi.	r0,r4,_TIF_NEED_RESCHED
-	beq+	restore
-	/* Check that preempt_count() == 0 and interrupts are enabled */
 	lwz	r8,TI_PREEMPT(r9)
+	cmpwi	0,r8,0		/* if non-zero, just restore regs and return */
+	bne	restore
+	andi.	r0,r4,_TIF_NEED_RESCHED
+	bne+	check_count
+
+	andi.	r0,r4,_TIF_NEED_RESCHED_LAZY
+	beq+	restore
+	lwz	r8,TI_PREEMPT_LAZY(r9)
+
+	/* Check that preempt_count() == 0 and interrupts are enabled */
+check_count:
 	cmpwi	cr1,r8,0
 	ld	r0,SOFTE(r1)
 	cmpdi	r0,0
@@ -1012,7 +1020,7 @@ resume_kernel:
 	/* Re-test flags and eventually loop */
 	CURRENT_THREAD_INFO(r9, r1)
 	ld	r4,TI_FLAGS(r9)
-	andi.	r0,r4,_TIF_NEED_RESCHED
+	andi.	r0,r4,_TIF_NEED_RESCHED_MASK
 	bne	1b
 
 	/*

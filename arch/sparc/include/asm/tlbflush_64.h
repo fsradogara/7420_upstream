@@ -45,6 +45,7 @@ do {	flush_tsb_kernel_range(start,end); \
 #define TLB_BATCH_NR	192
 
 struct tlb_batch {
+	bool huge;
 	struct mm_struct *mm;
 	unsigned long tlb_nr;
 	unsigned long active;
@@ -53,7 +54,7 @@ struct tlb_batch {
 
 void flush_tsb_kernel_range(unsigned long start, unsigned long end);
 void flush_tsb_user(struct tlb_batch *tb);
-void flush_tsb_user_page(struct mm_struct *mm, unsigned long vaddr);
+void flush_tsb_user_page(struct mm_struct *mm, unsigned long vaddr, bool huge);
 
 /* TLB flush operations. */
 

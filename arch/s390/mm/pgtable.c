@@ -121,7 +121,7 @@ static void __crst_table_upgrade(void *arg)
 	__tlb_flush_local();
 }
 
-int crst_table_upgrade(struct mm_struct *mm, unsigned long limit)
+int crst_table_upgrade(struct mm_struct *mm)
 {
 	unsigned long *table, *pgd;
 	unsigned long entry;
@@ -134,12 +134,13 @@ repeat:
 	spin_lock(&mm->page_table_lock);
 	int flush;
 
-	BUG_ON(limit > (1UL << 53));
-	flush = 0;
-repeat:
+	/* upgrade should only happen from 3 to 4 levels */
+	BUG_ON(mm->context.asce_limit != (1UL << 42));
+
 	table = crst_table_alloc(mm);
 	if (!table)
 		return -ENOMEM;
+
 	spin_lock_bh(&mm->page_table_lock);
 	if (mm->context.asce_limit < limit) {
 		pgd = (unsigned long *) mm->pgd;
@@ -174,16 +175,30 @@ repeat:
 	update_mm(mm, current);
 	if (flush)
 		on_each_cpu(__crst_table_upgrade, mm, 0);
+	pgd = (unsigned long *) mm->pgd;
+	crst_table_init(table, _REGION2_ENTRY_EMPTY);
+	pgd_populate(mm, (pgd_t *) table, (pud_t *) pgd);
+	mm->pgd = (pgd_t *) table;
+	mm->context.asce_limit = 1UL << 53;
+	mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+			   _ASCE_USER_BITS | _ASCE_TYPE_REGION2;
+	mm->task_size = mm->context.asce_limit;
+	spin_unlock_bh(&mm->page_table_lock);
+
+	on_each_cpu(__crst_table_upgrade, mm, 0);
 	return 0;
 }
 
-void crst_table_downgrade(struct mm_struct *mm, unsigned long limit)
+void crst_table_downgrade(struct mm_struct *mm)
 {
 	pgd_t *pgd;
 
 	if (mm->context.asce_limit <= limit)
 		return;
 	__tlb_flush_mm(mm);
+	/* downgrade should only happen from 3 to 2 levels (compat only) */
+	BUG_ON(mm->context.asce_limit != (1UL << 42));
+
 	if (current->active_mm == mm) {
 		clear_user_asce();
 		__tlb_flush_mm(mm);
@@ -215,6 +230,15 @@ void crst_table_downgrade(struct mm_struct *mm, unsigned long limit)
 		mm->task_size = mm->context.asce_limit;
 		crst_table_free(mm, (unsigned long *) pgd);
 	}
+
+	pgd = mm->pgd;
+	mm->pgd = (pgd_t *) (pgd_val(*pgd) & _REGION_ENTRY_ORIGIN);
+	mm->context.asce_limit = 1UL << 31;
+	mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+			   _ASCE_USER_BITS | _ASCE_TYPE_SEGMENT;
+	mm->task_size = mm->context.asce_limit;
+	crst_table_free(mm, (unsigned long *) pgd);
+
 	if (current->active_mm == mm)
 		set_user_asce(mm);
 }
@@ -286,7 +310,7 @@ EXPORT_SYMBOL_GPL(gmap_alloc);
 static void gmap_flush_tlb(struct gmap *gmap)
 {
 	if (MACHINE_HAS_IDTE)
-		__tlb_flush_asce(gmap->mm, gmap->asce);
+		__tlb_flush_idte(gmap->asce);
 	else
 		__tlb_flush_global();
 }
@@ -325,7 +349,7 @@ void gmap_free(struct gmap *gmap)
 
 	/* Flush tlb. */
 	if (MACHINE_HAS_IDTE)
-		__tlb_flush_asce(gmap->mm, gmap->asce);
+		__tlb_flush_idte(gmap->asce);
 	else
 		__tlb_flush_global();
 

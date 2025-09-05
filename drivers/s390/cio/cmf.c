@@ -829,6 +829,15 @@ static void reset_cmb(struct ccw_device *cdev)
 static void * align_cmb(void *area)
 {
 	return area;
+static int cmf_enabled(struct ccw_device *cdev)
+{
+	int enabled;
+
+	spin_lock_irq(cdev->ccwlock);
+	enabled = !!cdev->private->cmb;
+	spin_unlock_irq(cdev->ccwlock);
+
+	return enabled;
 }
 
 static struct attribute_group cmf_attr_group;
@@ -1307,13 +1316,8 @@ static ssize_t cmb_enable_show(struct device *dev,
 {
 	return sprintf(buf, "%d\n", to_ccwdev(dev)->private->cmb ? 1 : 0);
 	struct ccw_device *cdev = to_ccwdev(dev);
-	int enabled;
 
-	spin_lock_irq(cdev->ccwlock);
-	enabled = !!cdev->private->cmb;
-	spin_unlock_irq(cdev->ccwlock);
-
-	return sprintf(buf, "%d\n", enabled);
+	return sprintf(buf, "%d\n", cmf_enabled(cdev));
 }
 
 static ssize_t cmb_enable_store(struct device *dev,
@@ -1369,13 +1373,14 @@ int ccw_set_cmf(struct ccw_device *cdev, int enable)
  *  @cdev:	The ccw device to be enabled
  *
  *  Returns %0 for success or a negative error value.
- *
+ *  Note: If this is called on a device for which channel measurement is already
+ *	  enabled a reset of the measurement data is triggered.
  *  Context:
  *    non-atomic
  */
 int enable_cmf(struct ccw_device *cdev)
 {
-	int ret;
+	int ret = 0;
 
 	ret = cmbops->alloc(cdev);
 	cmbops->reset(cdev);
@@ -1392,6 +1397,10 @@ int enable_cmf(struct ccw_device *cdev)
 	cmbops->set(cdev, 0);  //FIXME: this can fail
 	cmbops->free(cdev);
 	device_lock(&cdev->dev);
+	if (cmf_enabled(cdev)) {
+		cmbops->reset(cdev);
+		goto out_unlock;
+	}
 	get_device(&cdev->dev);
 	ret = cmbops->alloc(cdev);
 	if (ret)
@@ -1410,7 +1419,7 @@ int enable_cmf(struct ccw_device *cdev)
 out:
 	if (ret)
 		put_device(&cdev->dev);
-
+out_unlock:
 	device_unlock(&cdev->dev);
 	return ret;
 }

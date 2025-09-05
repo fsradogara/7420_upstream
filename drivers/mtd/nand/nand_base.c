@@ -3397,7 +3397,7 @@ static int nand_do_write_ops(struct mtd_info *mtd, loff_t to,
 		int cached = writelen > bytes && page != blockmask;
 		uint8_t *wbuf = buf;
 		int use_bufpoi;
-		int part_pagewr = (column || writelen < (mtd->writesize - 1));
+		int part_pagewr = (column || writelen < mtd->writesize);
 
 		if (part_pagewr)
 			use_bufpoi = 1;
@@ -5195,7 +5195,6 @@ static int nand_dt_init(struct mtd_info *mtd, struct nand_chip *chip,
  * This is the first phase of the normal nand_scan() function. It reads the
  * flash ID and sets up MTD fields accordingly.
  *
- * The mtd->owner field must be set to the module of the caller.
  */
 int nand_scan_ident(struct mtd_info *mtd, int maxchips,
 		    struct nand_flash_dev *table)
@@ -5210,6 +5209,9 @@ int nand_scan_ident(struct mtd_info *mtd, int maxchips,
 		if (ret)
 			return ret;
 	}
+
+	if (!mtd->name && mtd->dev.parent)
+		mtd->name = dev_name(mtd->dev.parent);
 
 	/* Set the default functions */
 	nand_set_defaults(chip, chip->options & NAND_BUSWIDTH_16);
@@ -5800,8 +5802,7 @@ EXPORT_SYMBOL(nand_scan_tail);
  *
  * This fills out all the uninitialized function pointers with the defaults.
  * The flash ID is read and the mtd/chip structures are filled with the
- * appropriate values. The mtd->owner field must be set to the module of the
- * caller.
+ * appropriate values.
  */
 int nand_scan(struct mtd_info *mtd, int maxchips)
 {

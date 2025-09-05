@@ -97,16 +97,16 @@ trace_find_event_field(struct trace_event_call *call, char *name)
 	struct ftrace_event_field *field;
 	struct list_head *head;
 
+	head = trace_get_fields(call);
+	field = __find_event_field(head, name);
+	if (field)
+		return field;
+
 	field = __find_event_field(&ftrace_generic_fields, name);
 	if (field)
 		return field;
 
-	field = __find_event_field(&ftrace_common_fields, name);
-	if (field)
-		return field;
-
-	head = trace_get_fields(call);
-	return __find_event_field(head, name);
+	return __find_event_field(&ftrace_common_fields, name);
 }
 
 static int __trace_define_field(struct list_head *head, const char *type,
@@ -171,8 +171,10 @@ static int trace_define_generic_fields(void)
 {
 	int ret;
 
-	__generic_field(int, cpu, FILTER_OTHER);
-	__generic_field(char *, comm, FILTER_PTR_STRING);
+	__generic_field(int, CPU, FILTER_CPU);
+	__generic_field(int, cpu, FILTER_CPU);
+	__generic_field(char *, COMM, FILTER_COMM);
+	__generic_field(char *, comm, FILTER_COMM);
 
 	return ret;
 }
@@ -186,6 +188,8 @@ static int trace_define_common_fields(void)
 	__common_field(unsigned char, flags);
 	__common_field(unsigned char, preempt_count);
 	__common_field(int, pid);
+	__common_field(unsigned short, migrate_disable);
+	__common_field(unsigned short, padding);
 
 	return ret;
 }
@@ -242,6 +246,14 @@ void *trace_event_buffer_reserve(struct trace_event_buffer *fbuffer,
 
 	local_save_flags(fbuffer->flags);
 	fbuffer->pc = preempt_count();
+	/*
+	 * If CONFIG_PREEMPT is enabled, then the tracepoint itself disables
+	 * preemption (adding one to the preempt_count). Since we are
+	 * interested in the preempt_count at the time the tracepoint was
+	 * hit, we need to subtract one to offset the increment.
+	 */
+	if (IS_ENABLED(CONFIG_PREEMPT))
+		fbuffer->pc--;
 	fbuffer->trace_file = trace_file;
 
 	fbuffer->event =
@@ -869,7 +881,8 @@ t_next(struct seq_file *m, void *v, loff_t *pos)
 		 * The ftrace subsystem is for showing formats only.
 		 * They can not be enabled or disabled via the event files.
 		 */
-		if (call->class && call->class->reg)
+		if (call->class && call->class->reg &&
+		    !(call->flags & TRACE_EVENT_FL_IGNORE_ENABLE))
 			return file;
 	}
 
@@ -2104,8 +2117,13 @@ event_create_dir(struct dentry *parent, struct trace_event_file *file)
 	trace_create_file("filter", 0644, file->dir, file,
 			  &ftrace_event_filter_fops);
 
-	trace_create_file("trigger", 0644, file->dir, file,
-			  &event_trigger_fops);
+	/*
+	 * Only event directories that can be enabled should have
+	 * triggers.
+	 */
+	if (!(call->flags & TRACE_EVENT_FL_IGNORE_ENABLE))
+		trace_create_file("trigger", 0644, file->dir, file,
+				  &event_trigger_fops);
 
 	trace_create_file("format", 0444, file->dir, call,
 			  &ftrace_event_format_fops);

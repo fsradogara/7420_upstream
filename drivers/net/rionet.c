@@ -212,11 +212,7 @@ static int rionet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	unsigned long flags;
 	int add_num = 1;
 
-	local_irq_save(flags);
-	if (!spin_trylock(&rnet->tx_lock)) {
-		local_irq_restore(flags);
-		return NETDEV_TX_LOCKED;
-	}
+	spin_lock_irqsave(&rnet->tx_lock, flags);
 
 	if ((rnet->tx_cnt + 1) > RIONET_TX_RING_SIZE) {
 	if (is_multicast_ether_addr(eth->h_dest))
@@ -338,7 +334,7 @@ static void rionet_outb_msg_event(struct rio_mport *mport, void *dev_id, int mbo
 	struct rionet_private *rnet = ndev->priv;
 	struct rionet_private *rnet = netdev_priv(ndev);
 
-	spin_lock(&rnet->lock);
+	spin_lock(&rnet->tx_lock);
 
 	if (netif_msg_intr(rnet))
 		printk(KERN_INFO
@@ -357,7 +353,7 @@ static void rionet_outb_msg_event(struct rio_mport *mport, void *dev_id, int mbo
 	if (rnet->tx_cnt < RIONET_TX_RING_SIZE)
 		netif_wake_queue(ndev);
 
-	spin_unlock(&rnet->lock);
+	spin_unlock(&rnet->tx_lock);
 }
 
 static int rionet_open(struct net_device *ndev)

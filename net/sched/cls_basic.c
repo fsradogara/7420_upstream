@@ -164,7 +164,6 @@ static bool basic_destroy(struct tcf_proto *tp, bool force)
 		tcf_unbind_filter(tp, &f->res);
 		call_rcu(&f->rcu, basic_delete_filter);
 	}
-	RCU_INIT_POINTER(tp->root, NULL);
 	kfree_rcu(head, rcu);
 	return true;
 }

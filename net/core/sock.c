@@ -881,7 +881,7 @@ set_sndbuf:
 		val = min_t(u32, val, sysctl_wmem_max);
 set_sndbuf:
 		sk->sk_userlocks |= SOCK_SNDBUF_LOCK;
-		sk->sk_sndbuf = max_t(u32, val * 2, SOCK_MIN_SNDBUF);
+		sk->sk_sndbuf = max_t(int, val * 2, SOCK_MIN_SNDBUF);
 		/* Wake up sending tasks if we upped the value. */
 		sk->sk_write_space(sk);
 		break;
@@ -928,6 +928,7 @@ set_rcvbuf:
 		else
 			sk->sk_rcvbuf = val * 2;
 		sk->sk_rcvbuf = max_t(u32, val * 2, SOCK_MIN_RCVBUF);
+		sk->sk_rcvbuf = max_t(int, val * 2, SOCK_MIN_RCVBUF);
 		break;
 
 	case SO_RCVBUFFORCE:
@@ -1832,6 +1833,7 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		}
 
 		newsk->sk_err	   = 0;
+		newsk->sk_err_soft = 0;
 		newsk->sk_priority = 0;
 		newsk->sk_incoming_cpu = raw_smp_processor_id();
 		atomic64_set(&newsk->sk_cookie, 0);
@@ -2992,12 +2994,11 @@ void lock_sock_nested(struct sock *sk, int subclass)
 	if (sk->sk_lock.owned)
 		__lock_sock(sk);
 	sk->sk_lock.owned = 1;
-	spin_unlock(&sk->sk_lock.slock);
+	spin_unlock_bh(&sk->sk_lock.slock);
 	/*
 	 * The sk_lock has mutex_lock() semantics here:
 	 */
 	mutex_acquire(&sk->sk_lock.dep_map, subclass, 0, _RET_IP_);
-	local_bh_enable();
 }
 
 EXPORT_SYMBOL(lock_sock_nested);

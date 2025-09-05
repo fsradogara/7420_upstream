@@ -172,6 +172,7 @@ void __show_regs(struct pt_regs * regs)
 #include <asm/syscalls.h>
 #include <asm/debugreg.h>
 #include <asm/switch_to.h>
+#include <asm/xen/hypervisor.h>
 
 asmlinkage extern void ret_from_fork(void);
 
@@ -950,6 +951,16 @@ long sys_execve(char __user *name, char __user * __user *argv,
 	putname(filename);
 	return error;
 }
+#ifdef CONFIG_XEN
+	/*
+	 * On Xen PV, IOPL bits in pt_regs->flags have no effect, and
+	 * current_pt_regs()->flags may not match the current task's
+	 * intended IOPL.  We need to switch it manually.
+	 */
+	if (unlikely(static_cpu_has(X86_FEATURE_XENPV) &&
+		     prev->iopl != next->iopl))
+		xen_set_iopl_mask(next->iopl);
+#endif
 
 	if (static_cpu_has_bug(X86_BUG_SYSRET_SS_ATTRS)) {
 		/*

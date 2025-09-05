@@ -73,7 +73,6 @@ struct cgroup_subsys cpuset_subsys;
 struct cpuset;
 #include <linux/atomic.h>
 #include <linux/mutex.h>
-#include <linux/workqueue.h>
 #include <linux/cgroup.h>
 #include <linux/wait.h>
 
@@ -394,6 +393,8 @@ static DEFINE_MUTEX(callback_mutex);
 static DEFINE_MUTEX(cpuset_mutex);
 static DEFINE_SPINLOCK(callback_lock);
 
+static struct workqueue_struct *cpuset_migrate_mm_wq;
+
 /*
  * CPU / memory hotplug is handled asynchronously.
  */
@@ -465,8 +466,7 @@ static void guarantee_online_cpus(const struct cpuset *cs, cpumask_t *pmask)
 /*
  * Return in pmask the portion of a cpusets's cpus_allowed that
  * are online.  If none are online, walk up the cpuset hierarchy
- * until we find one that does have some online cpus.  The top
- * cpuset always has some cpus online.
+ * until we find one that does have some online cpus.
  *
  * One way or another, we guarantee to return some non-empty subset
  * of cpu_online_mask.
@@ -475,8 +475,20 @@ static void guarantee_online_cpus(const struct cpuset *cs, cpumask_t *pmask)
  */
 static void guarantee_online_cpus(struct cpuset *cs, struct cpumask *pmask)
 {
-	while (!cpumask_intersects(cs->effective_cpus, cpu_online_mask))
+	while (!cpumask_intersects(cs->effective_cpus, cpu_online_mask)) {
 		cs = parent_cs(cs);
+		if (unlikely(!cs)) {
+			/*
+			 * The top cpuset doesn't have any online cpu as a
+			 * consequence of a race between cpuset_hotplug_work
+			 * and cpu hotplug notifier.  But we know the top
+			 * cpuset's effective_cpus is on its way to to be
+			 * identical to cpu_online_mask.
+			 */
+			cpumask_copy(pmask, cpu_online_mask);
+			return;
+		}
+	}
 	cpumask_and(pmask, cs->effective_cpus, cpu_online_mask);
 }
 
@@ -1545,12 +1557,35 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
  *    won't see any mismatch of our cpuset and task mems_generation
  *    values, so won't overwrite our hacked tasks mems_allowed
  *    nodemask.
+ * Migrate memory region from one set of nodes to another.  This is
+ * performed asynchronously as it can be called from process migration path
+ * holding locks involved in process management.  All mm migrations are
+ * performed in the queued order and can be waited for by flushing
+ * cpuset_migrate_mm_wq.
  */
+
+struct cpuset_migrate_mm_work {
+	struct work_struct	work;
+	struct mm_struct	*mm;
+	nodemask_t		from;
+	nodemask_t		to;
+};
+
+static void cpuset_migrate_mm_workfn(struct work_struct *work)
+{
+	struct cpuset_migrate_mm_work *mwork =
+		container_of(work, struct cpuset_migrate_mm_work, work);
+
+	/* on a wq worker, no need to worry about %current's mems_allowed */
+	do_migrate_pages(mwork->mm, &mwork->from, &mwork->to, MPOL_MF_MOVE_ALL);
+	mmput(mwork->mm);
+	kfree(mwork);
+}
 
 static void cpuset_migrate_mm(struct mm_struct *mm, const nodemask_t *from,
 							const nodemask_t *to)
 {
-	struct task_struct *tsk = current;
+	struct cpuset_migrate_mm_work *mwork;
 
 	cpuset_update_task_memory_state();
 
@@ -1564,12 +1599,21 @@ static void cpuset_migrate_mm(struct mm_struct *mm, const nodemask_t *from,
 	guarantee_online_mems(task_cs(tsk),&tsk->mems_allowed);
 	mutex_unlock(&callback_mutex);
 	tsk->mems_allowed = *to;
+	mwork = kzalloc(sizeof(*mwork), GFP_KERNEL);
+	if (mwork) {
+		mwork->mm = mm;
+		mwork->from = *from;
+		mwork->to = *to;
+		INIT_WORK(&mwork->work, cpuset_migrate_mm_workfn);
+		queue_work(cpuset_migrate_mm_wq, &mwork->work);
+	} else {
+		mmput(mm);
+	}
+}
 
-	do_migrate_pages(mm, from, to, MPOL_MF_MOVE_ALL);
-
-	rcu_read_lock();
-	guarantee_online_mems(task_cs(tsk), &tsk->mems_allowed);
-	rcu_read_unlock();
+static void cpuset_post_attach(void)
+{
+	flush_workqueue(cpuset_migrate_mm_wq);
 }
 
 /*
@@ -1760,7 +1804,8 @@ static void update_tasks_nodemask(struct cpuset *cs)
 		mpol_rebind_mm(mm, &cs->mems_allowed);
 		if (migrate)
 			cpuset_migrate_mm(mm, &cs->old_mems_allowed, &newmems);
-		mmput(mm);
+		else
+			mmput(mm);
 	}
 	css_task_iter_end(&it);
 
@@ -2334,11 +2379,11 @@ static void cpuset_attach(struct cgroup_taskset *tset)
 			 * @old_mems_allowed is the right nodesets that we
 			 * migrate mm from.
 			 */
-			if (is_memory_migrate(cs)) {
+			if (is_memory_migrate(cs))
 				cpuset_migrate_mm(mm, &oldcs->old_mems_allowed,
 						  &cpuset_attach_nodemask_to);
-			}
-			mmput(mm);
+			else
+				mmput(mm);
 		}
 	}
 
@@ -2550,6 +2595,7 @@ out_unlock:
 	mutex_unlock(&cpuset_mutex);
 	kernfs_unbreak_active_protection(of->kn);
 	css_put(&cs->css);
+	flush_workqueue(cpuset_migrate_mm_wq);
 	return retval ?: nbytes;
 }
 
@@ -3097,6 +3143,20 @@ static void cpuset_bind(struct cgroup_subsys_state *root_css)
 	mutex_unlock(&cpuset_mutex);
 }
 
+/*
+ * Make sure the new task conform to the current state of its parent,
+ * which could have been changed by cpuset just after it inherits the
+ * state from the parent and before it sits on the cgroup's task list.
+ */
+void cpuset_fork(struct task_struct *task, void *priv)
+{
+	if (task_css_is_root(task, cpuset_cgrp_id))
+		return;
+
+	set_cpus_allowed_ptr(task, &current->cpus_allowed);
+	task->mems_allowed = current->mems_allowed;
+}
+
 struct cgroup_subsys cpuset_cgrp_subsys = {
 	.css_alloc	= cpuset_css_alloc,
 	.css_online	= cpuset_css_online,
@@ -3105,7 +3165,9 @@ struct cgroup_subsys cpuset_cgrp_subsys = {
 	.can_attach	= cpuset_can_attach,
 	.cancel_attach	= cpuset_cancel_attach,
 	.attach		= cpuset_attach,
+	.post_attach	= cpuset_post_attach,
 	.bind		= cpuset_bind,
+	.fork		= cpuset_fork,
 	.legacy_cftypes	= files,
 	.early_init	= 1,
 };
@@ -3597,6 +3659,9 @@ void __init cpuset_init_smp(void)
 	top_cpuset.effective_mems = node_states[N_MEMORY];
 
 	register_hotmemory_notifier(&cpuset_track_online_nodes_nb);
+
+	cpuset_migrate_mm_wq = alloc_ordered_workqueue("cpuset_migrate_mm", 0);
+	BUG_ON(!cpuset_migrate_mm_wq);
 }
 
 /**

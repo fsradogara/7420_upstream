@@ -33,7 +33,9 @@ security_set(struct inode *inode, const char *name, const void *buffer,
 	if (IS_PRIVATE(d_inode(dentry)))
 		return -EPERM;
 
-	return reiserfs_xattr_get(d_inode(dentry), name, buffer, size);
+	return reiserfs_xattr_get(d_inode(dentry),
+				  xattr_full_name(handler, name),
+				  buffer, size);
 }
 
 static int
@@ -73,7 +75,9 @@ security_list(struct inode *inode, const char *name, int namelen, char *out)
 	if (IS_PRIVATE(d_inode(dentry)))
 		return -EPERM;
 
-	return reiserfs_xattr_set(d_inode(dentry), name, buffer, size, flags);
+	return reiserfs_xattr_set(d_inode(dentry),
+				  xattr_full_name(handler, name),
+				  buffer, size, flags);
 }
 
 static size_t security_list(const struct xattr_handler *handler,

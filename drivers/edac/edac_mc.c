@@ -713,7 +713,7 @@ static void edac_mc_workq_setup(struct mem_ctl_info *mci, unsigned msec,
  */
 static void edac_mc_workq_teardown(struct mem_ctl_info *mci)
 {
-	int status;
+	mci->op_state = OP_OFFLINE;
 
 	status = cancel_delayed_work(&mci->work);
 	if (status == 0) {
@@ -729,6 +729,8 @@ static void edac_mc_workq_teardown(struct mem_ctl_info *mci)
 		/* workq instance might be running, wait for it */
 		flush_workqueue(edac_workqueue);
 	}
+	cancel_delayed_work_sync(&mci->work);
+	flush_workqueue(edac_workqueue);
 }
 
 /*
@@ -1251,7 +1253,7 @@ static void edac_inc_ue_error(struct mem_ctl_info *mci,
 	mci->ue_mc += count;
 
 	if (!enable_per_layer_report) {
-		mci->ce_noinfo_count += count;
+		mci->ue_noinfo_count += count;
 		return;
 	}
 

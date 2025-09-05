@@ -314,6 +314,15 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	memcpy(gebase + offset, mips32_GuestException,
 	       mips32_GuestExceptionEnd - mips32_GuestException);
 
+#ifdef MODULE
+	offset += mips32_GuestExceptionEnd - mips32_GuestException;
+	memcpy(gebase + offset, (char *)__kvm_mips_vcpu_run,
+	       __kvm_mips_vcpu_run_end - (char *)__kvm_mips_vcpu_run);
+	vcpu->arch.vcpu_run = gebase + offset;
+#else
+	vcpu->arch.vcpu_run = __kvm_mips_vcpu_run;
+#endif
+
 	/* Invalidate the icache for these ranges */
 	local_flush_icache_range((unsigned long)gebase,
 				(unsigned long)gebase + ALIGN(size, PAGE_SIZE));
@@ -403,7 +412,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	/* Disable hardware page table walking while in guest */
 	htw_stop();
 
-	r = __kvm_mips_vcpu_run(run, vcpu);
+	r = vcpu->arch.vcpu_run(run, vcpu);
 
 	/* Re-enable HTW before enabling interrupts */
 	htw_start();
@@ -445,8 +454,8 @@ int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 
 	dvcpu->arch.wait = 0;
 
-	if (waitqueue_active(&dvcpu->wq))
-		wake_up_interruptible(&dvcpu->wq);
+	if (swait_active(&dvcpu->wq))
+		swake_up(&dvcpu->wq);
 
 	return 0;
 }
@@ -702,7 +711,7 @@ static int kvm_mips_get_reg(struct kvm_vcpu *vcpu,
 	} else if ((reg->id & KVM_REG_SIZE_MASK) == KVM_REG_SIZE_U128) {
 		void __user *uaddr = (void __user *)(long)reg->addr;
 
-		return copy_to_user(uaddr, vs, 16);
+		return copy_to_user(uaddr, vs, 16) ? -EFAULT : 0;
 	} else {
 		return -EINVAL;
 	}
@@ -732,7 +741,7 @@ static int kvm_mips_set_reg(struct kvm_vcpu *vcpu,
 	} else if ((reg->id & KVM_REG_SIZE_MASK) == KVM_REG_SIZE_U128) {
 		void __user *uaddr = (void __user *)(long)reg->addr;
 
-		return copy_from_user(vs, uaddr, 16);
+		return copy_from_user(vs, uaddr, 16) ? -EFAULT : 0;
 	} else {
 		return -EINVAL;
 	}
@@ -1174,8 +1183,8 @@ static void kvm_mips_comparecount_func(unsigned long data)
 	kvm_mips_callbacks->queue_timer_int(vcpu);
 
 	vcpu->arch.wait = 0;
-	if (waitqueue_active(&vcpu->wq))
-		wake_up_interruptible(&vcpu->wq);
+	if (swait_active(&vcpu->wq))
+		swake_up(&vcpu->wq);
 }
 
 /* low level hrtimer wake routine */

@@ -48,7 +48,7 @@ struct crypto_larval {
 
 extern struct list_head crypto_alg_list;
 extern struct rw_semaphore crypto_alg_sem;
-extern struct blocking_notifier_head crypto_chain;
+extern struct srcu_notifier_head crypto_chain;
 
 #ifdef CONFIG_PROC_FS
 void __init crypto_init_proc(void);
@@ -184,7 +184,7 @@ static inline int crypto_notify(unsigned long val, void *v)
 	return blocking_notifier_call_chain(&crypto_chain, val, v);
 static inline void crypto_notify(unsigned long val, void *v)
 {
-	blocking_notifier_call_chain(&crypto_chain, val, v);
+	srcu_notifier_call_chain(&crypto_chain, val, v);
 }
 
 #endif	/* _CRYPTO_INTERNAL_H */

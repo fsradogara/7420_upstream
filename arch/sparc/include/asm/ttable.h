@@ -595,8 +595,8 @@ user_rtt_fill_64bit:					\
 	 restored;					\
 	nop; nop; nop; nop; nop; nop;			\
 	nop; nop; nop; nop; nop;			\
-	ba,a,pt	%xcc, user_rtt_fill_fixup;		\
-	ba,a,pt	%xcc, user_rtt_fill_fixup;		\
+	ba,a,pt	%xcc, user_rtt_fill_fixup_dax;		\
+	ba,a,pt	%xcc, user_rtt_fill_fixup_mna;		\
 	ba,a,pt	%xcc, user_rtt_fill_fixup;
 
 
@@ -662,8 +662,8 @@ user_rtt_fill_32bit:					\
 	nop; nop; nop; nop; nop;			\
 	nop; nop; nop; nop; nop;			\
 	nop; nop; nop;					\
-	ba,a,pt	%xcc, user_rtt_fill_fixup;		\
-	ba,a,pt	%xcc, user_rtt_fill_fixup;		\
+	ba,a,pt	%xcc, user_rtt_fill_fixup_dax;		\
+	ba,a,pt	%xcc, user_rtt_fill_fixup_mna;		\
 	ba,a,pt	%xcc, user_rtt_fill_fixup;
 
 

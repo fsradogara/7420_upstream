@@ -1470,6 +1470,9 @@ scsi_sense_key_string(unsigned char key) {
 		return snstext[key];
 #endif
 	if (key <= 0xE)
+scsi_sense_key_string(unsigned char key)
+{
+	if (key < ARRAY_SIZE(snstext))
 		return snstext[key];
 	return NULL;
 }

@@ -35,7 +35,9 @@ trusted_set(struct inode *inode, const char *name, const void *buffer,
 	if (!capable(CAP_SYS_ADMIN) || IS_PRIVATE(d_inode(dentry)))
 		return -EPERM;
 
-	return reiserfs_xattr_get(d_inode(dentry), name, buffer, size);
+	return reiserfs_xattr_get(d_inode(dentry),
+				  xattr_full_name(handler, name),
+				  buffer, size);
 }
 
 static int
@@ -93,7 +95,9 @@ struct reiserfs_xattr_handler trusted_handler = {
 	if (!capable(CAP_SYS_ADMIN) || IS_PRIVATE(d_inode(dentry)))
 		return -EPERM;
 
-	return reiserfs_xattr_set(d_inode(dentry), name, buffer, size, flags);
+	return reiserfs_xattr_set(d_inode(dentry),
+				  xattr_full_name(handler, name),
+				  buffer, size, flags);
 }
 
 static size_t trusted_list(const struct xattr_handler *handler,

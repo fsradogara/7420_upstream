@@ -128,7 +128,8 @@ static inline void __tlb_flush_full(struct mm_struct *mm)
 }
 
 /*
- * Flush TLB entries for a specific ASCE on all CPUs.
+ * Flush TLB entries for a specific ASCE on all CPUs. Should never be used
+ * when more than one asce (e.g. gmap) ran on this mm.
  */
 static inline void __tlb_flush_asce(struct mm_struct *mm, unsigned long asce)
 {
@@ -157,8 +158,7 @@ static inline void __tlb_flush_asce(struct mm_struct *mm, unsigned long asce)
 static inline void __tlb_flush_kernel(void)
 {
 	if (MACHINE_HAS_IDTE)
-		__tlb_flush_idte((unsigned long) init_mm.pgd |
-				 init_mm.context.asce_bits);
+		__tlb_flush_idte(init_mm.context.asce);
 	else
 		__tlb_flush_global();
 }
@@ -180,8 +180,7 @@ static inline void __tlb_flush_asce(struct mm_struct *mm, unsigned long asce)
 static inline void __tlb_flush_kernel(void)
 {
 	if (MACHINE_HAS_TLB_LC)
-		__tlb_flush_idte_local((unsigned long) init_mm.pgd |
-				       init_mm.context.asce_bits);
+		__tlb_flush_idte_local(init_mm.context.asce);
 	else
 		__tlb_flush_local();
 }
@@ -211,8 +210,7 @@ static inline void __tlb_flush_mm_cond(struct mm_struct * mm)
 	if (atomic_read(&mm->mm_users) <= 1 && mm == current->active_mm)
 		__tlb_flush_mm(mm);
 	if (MACHINE_HAS_IDTE && list_empty(&mm->context.gmap_list))
-		__tlb_flush_asce(mm, (unsigned long) mm->pgd |
-				 mm->context.asce_bits);
+		__tlb_flush_asce(mm, mm->context.asce);
 	else
 		__tlb_flush_full(mm);
 }

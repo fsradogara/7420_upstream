@@ -820,6 +820,7 @@ struct ata_device {
  * acress device init.  Fields below are zeroed.
  */
 #define ATA_DEVICE_CLEAR_OFFSET		offsetof(struct ata_device, n_sectors)
+	} ____cacheline_aligned;
 
 	/* DEVSLP Timing Variables from Identify Device Data Log */
 	u8			devslp_timing[ATA_LOG_DEVSLP_SIZE];

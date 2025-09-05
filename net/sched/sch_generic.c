@@ -193,12 +193,15 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 	if (validate)
 		skb = validate_xmit_skb_list(skb, dev);
 
-	if (skb) {
+	if (likely(skb)) {
 		HARD_TX_LOCK(dev, txq, smp_processor_id());
 		if (!netif_xmit_frozen_or_stopped(txq))
 			skb = dev_hard_start_xmit(skb, dev, txq, &ret);
 
 		HARD_TX_UNLOCK(dev, txq);
+	} else {
+		spin_lock(root_lock);
+		return qdisc_qlen(q);
 	}
 	spin_lock(root_lock);
 
@@ -1190,7 +1193,7 @@ void dev_deactivate_many(struct list_head *head)
 	/* Wait for outstanding qdisc_run calls. */
 	list_for_each_entry(dev, head, close_list)
 		while (some_qdisc_is_busy(dev))
-			yield();
+			msleep(1);
 }
 
 void dev_deactivate(struct net_device *dev)

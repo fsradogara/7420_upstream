@@ -526,9 +526,9 @@ void wb_congested_put(struct bdi_writeback_congested *congested)
 {
 	unsigned long flags;
 
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	if (!atomic_dec_and_lock(&congested->refcnt, &cgwb_lock)) {
-		local_irq_restore(flags);
+		local_irq_restore_nort(flags);
 		return;
 	}
 
@@ -912,6 +912,20 @@ EXPORT_SYMBOL(bdi_register_dev);
 
 void bdi_unregister(struct backing_dev_info *bdi)
 {
+int bdi_register_owner(struct backing_dev_info *bdi, struct device *owner)
+{
+	int rc;
+
+	rc = bdi_register(bdi, NULL, "%u:%u", MAJOR(owner->devt),
+			MINOR(owner->devt));
+	if (rc)
+		return rc;
+	bdi->owner = owner;
+	get_device(owner);
+	return 0;
+}
+EXPORT_SYMBOL(bdi_register_owner);
+
 /*
  * Remove bdi from bdi_list, and ensure that it is no longer visible
  */
@@ -935,6 +949,11 @@ void bdi_unregister(struct backing_dev_info *bdi)
 		bdi_debug_unregister(bdi);
 		device_unregister(bdi->dev);
 		bdi->dev = NULL;
+	}
+
+	if (bdi->owner) {
+		put_device(bdi->owner);
+		bdi->owner = NULL;
 	}
 }
 EXPORT_SYMBOL(bdi_unregister);
@@ -1153,7 +1172,7 @@ long wait_iff_congested(struct zone *zone, int sync, long timeout)
 		 * here rather than calling cond_resched().
 		 */
 		if (current->flags & PF_WQ_WORKER)
-			schedule_timeout(1);
+			schedule_timeout_uninterruptible(1);
 		else
 			cond_resched();
 

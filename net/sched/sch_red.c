@@ -293,6 +293,8 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 
 	if (skb_queue_empty(&sch->q))
 		red_end_of_idle_period(&q->parms);
+		qdisc_tree_reduce_backlog(q->qdisc, q->qdisc->q.qlen,
+					  q->qdisc->qstats.backlog);
 		qdisc_destroy(q->qdisc);
 		q->qdisc = child;
 	}
@@ -409,6 +411,7 @@ static int red_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 	qdisc_tree_decrease_qlen(*old, (*old)->q.qlen);
 	qdisc_reset(*old);
 	sch_tree_unlock(sch);
+	*old = qdisc_replace(sch, new, &q->qdisc);
 	return 0;
 }
 

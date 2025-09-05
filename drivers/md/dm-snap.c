@@ -1317,6 +1317,7 @@ static int snapshot_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	char *origin_path;
 	char *cow_path;
 	char *origin_path, *cow_path;
+	dev_t origin_dev, cow_dev;
 	unsigned args_used, num_flush_bios = 1;
 	fmode_t origin_mode = FMODE_READ;
 
@@ -1394,10 +1395,18 @@ static int snapshot_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		ti->error = "Cannot get origin device";
 		goto bad_origin;
 	}
+	origin_dev = s->origin->bdev->bd_dev;
 
 	cow_path = argv[0];
 	argv++;
 	argc--;
+
+	cow_dev = dm_get_dev_t(cow_path);
+	if (cow_dev && cow_dev == origin_dev) {
+		ti->error = "COW device cannot be the same as origin device";
+		r = -EINVAL;
+		goto bad_cow;
+	}
 
 	r = dm_get_device(ti, cow_path, dm_table_get_mode(ti->table), &s->cow);
 	if (r) {
@@ -1839,7 +1848,9 @@ static void pending_complete(struct dm_snap_pending_exception *pe, int success)
 	struct bio *origin_bios = NULL;
 	struct bio *snapshot_bios = NULL;
 static void pending_complete(struct dm_snap_pending_exception *pe, int success)
+static void pending_complete(void *context, int success)
 {
+	struct dm_snap_pending_exception *pe = context;
 	struct dm_exception *e;
 	struct dm_snapshot *s = pe->snap;
 	struct bio *origin_bios = NULL;
@@ -1929,24 +1940,13 @@ out:
 	free_pending_exception(pe);
 }
 
-static void commit_callback(void *context, int success)
-{
-	struct dm_snap_pending_exception *pe = context;
-
-	pending_complete(pe, success);
-}
-
 static void complete_exception(struct dm_snap_pending_exception *pe)
 {
 	struct dm_snapshot *s = pe->snap;
 
-	if (unlikely(pe->copy_error))
-		pending_complete(pe, 0);
-
-	else
-		/* Update the metadata if we are persistent */
-		s->store->type->commit_exception(s->store, &pe->e,
-						 commit_callback, pe);
+	/* Update the metadata if we are persistent */
+	s->store->type->commit_exception(s->store, &pe->e, !pe->copy_error,
+					 pending_complete, pe);
 }
 
 /*

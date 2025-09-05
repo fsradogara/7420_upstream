@@ -67,7 +67,8 @@ static void tick_do_update_jiffies64(ktime_t now)
 	/* Reevalute with xtime_lock held */
 	write_seqlock(&xtime_lock);
 	/* Reevalute with jiffies_lock held */
-	write_seqlock(&jiffies_lock);
+	raw_spin_lock(&jiffies_lock);
+	write_seqcount_begin(&jiffies_seq);
 
 	delta = ktime_sub(now, last_jiffies_update);
 	if (delta.tv64 >= tick_period.tv64) {
@@ -92,10 +93,12 @@ static void tick_do_update_jiffies64(ktime_t now)
 	}
 	write_sequnlock(&xtime_lock);
 	} else {
-		write_sequnlock(&jiffies_lock);
+		write_seqcount_end(&jiffies_seq);
+		raw_spin_unlock(&jiffies_lock);
 		return;
 	}
-	write_sequnlock(&jiffies_lock);
+	write_seqcount_end(&jiffies_seq);
+	raw_spin_unlock(&jiffies_lock);
 	update_wall_time();
 }
 
@@ -108,6 +111,8 @@ static ktime_t tick_init_jiffy_update(void)
 
 	write_seqlock(&xtime_lock);
 	write_seqlock(&jiffies_lock);
+	raw_spin_lock(&jiffies_lock);
+	write_seqcount_begin(&jiffies_seq);
 	/* Did we start the jiffies update yet ? */
 	if (last_jiffies_update.tv64 == 0)
 		last_jiffies_update = tick_next_period;
@@ -121,6 +126,8 @@ static ktime_t tick_init_jiffy_update(void)
  */
 #ifdef CONFIG_NO_HZ
 	write_sequnlock(&jiffies_lock);
+	write_seqcount_end(&jiffies_seq);
+	raw_spin_unlock(&jiffies_lock);
 	return period;
 }
 
@@ -192,6 +199,11 @@ static bool can_stop_full_tick(void)
 		return false;
 	}
 
+	if (!arch_irq_work_has_interrupt()) {
+		trace_tick_stop(0, "missing irq work interrupt\n");
+		return false;
+	}
+
 	/* sched_clock_tick() needs us? */
 #ifdef CONFIG_HAVE_UNSTABLE_SCHED_CLOCK
 	/*
@@ -220,6 +232,7 @@ static void nohz_full_kick_work_func(struct irq_work *work)
 
 static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) = {
 	.func = nohz_full_kick_work_func,
+	.flags = IRQ_WORK_HARD_IRQ,
 };
 
 /*
@@ -659,10 +672,10 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 
 	/* Read jiffies and the time when jiffies were updated last */
 	do {
-		seq = read_seqbegin(&jiffies_lock);
+		seq = read_seqcount_begin(&jiffies_seq);
 		basemono = last_jiffies_update.tv64;
 		basejiff = jiffies;
-	} while (read_seqretry(&jiffies_lock, seq));
+	} while (read_seqcount_retry(&jiffies_seq, seq));
 	ts->last_jiffies = basejiff;
 
 	if (rcu_needs_cpu(basemono, &next_rcu) ||
@@ -963,14 +976,7 @@ end:
 		return false;
 
 	if (unlikely(local_softirq_pending() && cpu_online(cpu))) {
-		static int ratelimit;
-
-		if (ratelimit < 10 &&
-		    (local_softirq_pending() & SOFTIRQ_STOP_IDLE_MASK)) {
-			pr_warn("NOHZ: local_softirq_pending %02x\n",
-				(unsigned int) local_softirq_pending());
-			ratelimit++;
-		}
+		softirq_check_pending_idle();
 		return false;
 	}
 
@@ -1322,7 +1328,8 @@ static void tick_nohz_switch_to_nohz(void)
 	       smp_processor_id());
 	hrtimer_forward_now(&ts->sched_timer, tick_period);
 	hrtimer_set_expires(&ts->sched_timer, next);
-	tick_program_event(next, 1);
+	hrtimer_forward_now(&ts->sched_timer, tick_period);
+	tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
 	tick_nohz_activate(ts, NOHZ_MODE_LOWRES);
 }
 
@@ -1485,6 +1492,7 @@ void tick_setup_sched_timer(void)
 	 * Emulate tick processing via per-CPU hrtimers:
 	 */
 	hrtimer_init(&ts->sched_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	ts->sched_timer.irqsafe = 1;
 	ts->sched_timer.function = tick_sched_timer;
 	ts->sched_timer.cb_mode = HRTIMER_CB_IRQSAFE_PERCPU;
 

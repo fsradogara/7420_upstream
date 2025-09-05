@@ -103,6 +103,7 @@ static int utimes_common(struct path *path, struct timespec *times)
 			if (error)
 				goto mnt_drop_write_and_out;
 		}
+		newattrs.ia_valid |= ATTR_TOUCH;
 	}
 	mutex_lock(&inode->i_mutex);
 	error = notify_change(path->dentry, &newattrs);
@@ -117,7 +118,6 @@ retry_deleg:
 			goto retry_deleg;
 	}
 
-mnt_drop_write_and_out:
 	mnt_drop_write(path->mnt);
 out:
 	return error;

@@ -3467,9 +3467,11 @@ static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 									NULL);
 		if (error) {
 			/* Remove the !PageUptodate pages we added */
-			shmem_undo_range(inode,
-				(loff_t)start << PAGE_CACHE_SHIFT,
-				(loff_t)index << PAGE_CACHE_SHIFT, true);
+			if (index > start) {
+				shmem_undo_range(inode,
+				 (loff_t)start << PAGE_CACHE_SHIFT,
+				 ((loff_t)index << PAGE_CACHE_SHIFT) - 1, true);
+			}
 			goto undone;
 		}
 
@@ -3836,13 +3838,12 @@ static int shmem_symlink(struct inode *dir, struct dentry *dentry, const char *s
 		memcpy(info, symname, len);
 		inode->i_op = &shmem_symlink_inline_operations;
 	if (len <= SHORT_SYMLINK_LEN) {
-		info->symlink = kmemdup(symname, len, GFP_KERNEL);
-		if (!info->symlink) {
+		inode->i_link = kmemdup(symname, len, GFP_KERNEL);
+		if (!inode->i_link) {
 			iput(inode);
 			return -ENOMEM;
 		}
 		inode->i_op = &shmem_short_symlink_operations;
-		inode->i_link = info->symlink;
 	} else {
 		error = shmem_getpage(inode, 0, &page, SGP_WRITE, NULL);
 		if (error) {
@@ -4642,6 +4643,7 @@ static struct inode *shmem_alloc_inode(struct super_block *sb)
 static void shmem_destroy_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
+	kfree(inode->i_link);
 	kmem_cache_free(shmem_inode_cachep, SHMEM_I(inode));
 }
 

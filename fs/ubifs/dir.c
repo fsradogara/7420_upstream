@@ -405,7 +405,7 @@ static int ubifs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	if (file->f_pos > UBIFS_S_KEY_HASH_MASK || file->f_pos == 2)
 static int ubifs_readdir(struct file *file, struct dir_context *ctx)
 {
-	int err;
+	int err = 0;
 	struct qstr nm;
 	union ubifs_key key;
 	struct ubifs_dent_node *dent;
@@ -554,14 +554,20 @@ static loff_t ubifs_dir_llseek(struct file *file, loff_t offset, int origin)
 	kfree(file->private_data);
 	file->private_data = NULL;
 
-	if (err != -ENOENT) {
+	if (err != -ENOENT)
 		ubifs_err(c, "cannot find next direntry, error %d", err);
-		return err;
-	}
+	else
+		/*
+		 * -ENOENT is a non-fatal error in this context, the TNC uses
+		 * it to indicate that the cursor moved past the current directory
+		 * and readdir() has to stop.
+		 */
+		err = 0;
+
 
 	/* 2 is a special value indicating that there are no more direntries */
 	ctx->pos = 2;
-	return 0;
+	return err;
 }
 
 /* Free saved readdir() state when the directory is closed */

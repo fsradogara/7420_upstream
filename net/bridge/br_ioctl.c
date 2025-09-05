@@ -30,11 +30,14 @@ static int get_bridge_ifindices(struct net *net, int *indices, int num)
 
 	for_each_netdev(&init_net, dev) {
 	for_each_netdev(net, dev) {
+	rcu_read_lock();
+	for_each_netdev_rcu(net, dev) {
 		if (i >= num)
 			break;
 		if (dev->priv_flags & IFF_EBRIDGE)
 			indices[i++] = dev->ifindex;
 	}
+	rcu_read_unlock();
 
 	return i;
 }

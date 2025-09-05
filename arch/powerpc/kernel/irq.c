@@ -880,6 +880,7 @@ static inline void do_softirq_onstack(void)
 	}
 }
 
+#ifndef CONFIG_PREEMPT_RT_FULL
 void do_softirq_own_stack(void)
 {
 	struct thread_info *curtp, *irqtp;
@@ -1585,6 +1586,7 @@ __initcall(irq_debugfs_init);
 	if (irqtp->flags)
 		set_bits(irqtp->flags, &curtp->flags);
 }
+#endif
 
 irq_hw_number_t virq_to_hw(unsigned int virq)
 {

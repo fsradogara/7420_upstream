@@ -297,6 +297,7 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 		type = "Int.";
 		if (speed == USB_SPEED_HIGH)
 		if (speed == USB_SPEED_HIGH || speed == USB_SPEED_SUPER)
+		if (speed == USB_SPEED_HIGH || speed >= USB_SPEED_SUPER)
 			interval = 1 << (desc->bInterval - 1);
 		else
 			interval = desc->bInterval;
@@ -306,7 +307,7 @@ static char *usb_dump_endpoint_descriptor(int speed, char *start, char *end,
 	}
 	interval *= (speed == USB_SPEED_HIGH) ? 125 : 1000;
 	interval *= (speed == USB_SPEED_HIGH ||
-		     speed == USB_SPEED_SUPER) ? 125 : 1000;
+		     speed >= USB_SPEED_SUPER) ? 125 : 1000;
 	if (interval % 1000)
 		unit = 'u';
 	else {
@@ -403,7 +404,7 @@ static char *usb_dump_config_descriptor(char *start, char *end,
 
 	if (start > end)
 		return start;
-	if (speed == USB_SPEED_SUPER)
+	if (speed >= USB_SPEED_SUPER)
 		mul = 8;
 	else
 		mul = 2;
@@ -623,6 +624,8 @@ static ssize_t usb_device_dump(char __user **buffer, size_t *nbytes,
 		speed = "480"; break;
 	case USB_SPEED_SUPER:
 		speed = "5000"; break;
+	case USB_SPEED_SUPER_PLUS:
+		speed = "10000"; break;
 	default:
 		speed = "??";
 	}
@@ -644,7 +647,7 @@ static ssize_t usb_device_dump(char __user **buffer, size_t *nbytes,
 		if (usbdev->speed == USB_SPEED_HIGH)
 		/* super/high speed reserves 80%, full/low reserves 90% */
 		if (usbdev->speed == USB_SPEED_HIGH ||
-		    usbdev->speed == USB_SPEED_SUPER)
+		    usbdev->speed >= USB_SPEED_SUPER)
 			max = 800;
 		else
 			max = FRAME_TIME_MAX_USECS_ALLOC;

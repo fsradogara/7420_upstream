@@ -1423,6 +1423,7 @@ u64 __init e820_hole_size(u64 start, u64 end)
 	}
 	return end - start - ((u64)ram << PAGE_SHIFT);
 	return e820_end_pfn(1UL << (32-PAGE_SHIFT));
+	return e820_end_pfn(1UL << (32 - PAGE_SHIFT), E820_RAM);
 }
 
 static void early_panic(char *msg)

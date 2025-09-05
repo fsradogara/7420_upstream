@@ -146,6 +146,7 @@ static void rs_poll(unsigned long priv)
 	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
 	struct tty_port *port = (struct tty_port *)priv;
 	int i = 0;
+	int rd = 1;
 	unsigned char c;
 
 	spin_lock(&timer_lock);
@@ -154,7 +155,9 @@ static void rs_poll(unsigned long priv)
 		__simc (SYS_read, 0, (unsigned long)&c, 1, 0, 0);
 		tty_insert_flip_char(tty, c, TTY_NORMAL);
 	while (simc_poll(0)) {
-		simc_read(0, &c, 1);
+		rd = simc_read(0, &c, 1);
+		if (rd <= 0)
+			break;
 		tty_insert_flip_char(port, c, TTY_NORMAL);
 		i++;
 	}
@@ -162,9 +165,8 @@ static void rs_poll(unsigned long priv)
 	if (i)
 		tty_flip_buffer_push(tty);
 		tty_flip_buffer_push(port);
-
-
-	mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
+	if (rd)
+		mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
 	spin_unlock(&timer_lock);
 }
 

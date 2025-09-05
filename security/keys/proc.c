@@ -233,7 +233,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	 * non-possession) */
 	rc = key_task_permission(make_key_ref(key, 0), current, KEY_VIEW);
 	key_ref_t key_ref, skey_ref;
-	char xbuf[12];
+	char xbuf[16];
 	int rc;
 
 	struct keyring_search_context ctx = {

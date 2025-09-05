@@ -172,6 +172,7 @@ int vcpu_load(struct kvm_vcpu *vcpu)
 	put_cpu();
 	return 0;
 }
+EXPORT_SYMBOL_GPL(vcpu_load);
 
 void vcpu_put(struct kvm_vcpu *vcpu)
 {
@@ -181,6 +182,7 @@ void vcpu_put(struct kvm_vcpu *vcpu)
 	preempt_enable();
 	mutex_unlock(&vcpu->mutex);
 }
+EXPORT_SYMBOL_GPL(vcpu_put);
 
 static void ack_flush(void *_completed)
 {
@@ -308,8 +310,7 @@ int kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	vcpu->vcpu_id = id;
 	init_waitqueue_head(&vcpu->wq);
 	vcpu->pid = NULL;
-	vcpu->halt_poll_ns = 0;
-	init_waitqueue_head(&vcpu->wq);
+	init_swait_queue_head(&vcpu->wq);
 	kvm_async_pf_vcpu_init(vcpu);
 
 	vcpu->pre_pcpu = -1;
@@ -742,6 +743,16 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	if (!kvm)
 		return ERR_PTR(-ENOMEM);
 
+	spin_lock_init(&kvm->mmu_lock);
+	atomic_inc(&current->mm->mm_count);
+	kvm->mm = current->mm;
+	kvm_eventfd_init(kvm);
+	mutex_init(&kvm->lock);
+	mutex_init(&kvm->irq_lock);
+	mutex_init(&kvm->slots_lock);
+	atomic_set(&kvm->users_count, 1);
+	INIT_LIST_HEAD(&kvm->devices);
+
 	r = kvm_arch_init_vm(kvm, type);
 	if (r)
 		goto out_err_no_disable;
@@ -774,16 +785,6 @@ static struct kvm *kvm_create_vm(unsigned long type)
 			goto out_err;
 	}
 
-	spin_lock_init(&kvm->mmu_lock);
-	kvm->mm = current->mm;
-	atomic_inc(&kvm->mm->mm_count);
-	kvm_eventfd_init(kvm);
-	mutex_init(&kvm->lock);
-	mutex_init(&kvm->irq_lock);
-	mutex_init(&kvm->slots_lock);
-	atomic_set(&kvm->users_count, 1);
-	INIT_LIST_HEAD(&kvm->devices);
-
 	r = kvm_init_mmu_notifier(kvm);
 	if (r)
 		goto out_err;
@@ -808,6 +809,7 @@ out_err_no_disable:
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 		kvm_free_memslots(kvm, kvm->memslots[i]);
 	kvm_arch_free_vm(kvm);
+	mmdrop(current->mm);
 	return ERR_PTR(r);
 }
 
@@ -2492,6 +2494,9 @@ static void grow_halt_poll_ns(struct kvm_vcpu *vcpu)
 	else
 		val *= halt_poll_ns_grow;
 
+	if (val > halt_poll_ns)
+		val = halt_poll_ns;
+
 	vcpu->halt_poll_ns = val;
 	trace_kvm_halt_poll_ns_grow(vcpu->vcpu_id, val, old);
 }
@@ -2531,7 +2536,7 @@ void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 {
 	DEFINE_WAIT(wait);
 	ktime_t start, cur;
-	DEFINE_WAIT(wait);
+	DECLARE_SWAITQUEUE(wait);
 	bool waited = false;
 	u64 block_ns;
 
@@ -2556,7 +2561,7 @@ void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	kvm_arch_vcpu_blocking(vcpu);
 
 	for (;;) {
-		prepare_to_wait(&vcpu->wq, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_swait(&vcpu->wq, &wait, TASK_INTERRUPTIBLE);
 
 		if (kvm_cpu_has_interrupt(vcpu))
 			break;
@@ -2589,7 +2594,7 @@ EXPORT_SYMBOL_GPL(kvm_resched);
 		schedule();
 	}
 
-	finish_wait(&vcpu->wq, &wait);
+	finish_swait(&vcpu->wq, &wait);
 	cur = ktime_get();
 
 	kvm_arch_vcpu_unblocking(vcpu);
@@ -2621,11 +2626,11 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 {
 	int me;
 	int cpu = vcpu->cpu;
-	wait_queue_head_t *wqp;
+	struct swait_queue_head *wqp;
 
 	wqp = kvm_arch_vcpu_wq(vcpu);
-	if (waitqueue_active(wqp)) {
-		wake_up_interruptible(wqp);
+	if (swait_active(wqp)) {
+		swake_up(wqp);
 		++vcpu->stat.halt_wakeup;
 	}
 
@@ -2726,7 +2731,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 				continue;
 			if (vcpu == me)
 				continue;
-			if (waitqueue_active(&vcpu->wq) && !kvm_arch_vcpu_runnable(vcpu))
+			if (swait_active(&vcpu->wq) && !kvm_arch_vcpu_runnable(vcpu))
 				continue;
 			if (!kvm_vcpu_eligible_for_directed_yield(vcpu))
 				continue;
@@ -3561,7 +3566,7 @@ static long kvm_vm_ioctl(struct file *filp,
 		if (copy_from_user(&routing, argp, sizeof(routing)))
 			goto out;
 		r = -EINVAL;
-		if (routing.nr >= KVM_MAX_IRQ_ROUTES)
+		if (routing.nr > KVM_MAX_IRQ_ROUTES)
 			goto out;
 		if (routing.flags)
 			goto out;

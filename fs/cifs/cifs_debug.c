@@ -85,7 +85,7 @@ void cifs_vfs_err(const char *fmt, ...)
 	vaf.fmt = fmt;
 	vaf.va = &args;
 
-	pr_err("CIFS VFS: %pV", &vaf);
+	pr_err_ratelimited("CIFS VFS: %pV", &vaf);
 
 	va_end(args);
 }
@@ -301,6 +301,7 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	list_for_each(tmp1, &cifs_tcp_ses_list) {
 		server = list_entry(tmp1, struct TCP_Server_Info,
 				    tcp_ses_list);
+		seq_printf(m, "\nNumber of credits: %d", server->credits);
 		i++;
 		list_for_each(tmp2, &server->smb_ses_list) {
 			ses = list_entry(tmp2, struct cifs_ses,
@@ -422,6 +423,8 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 	if (c == '1' || c == 'y' || c == 'Y' || c == '0') {
 		read_lock(&GlobalSMBSeslock);
 	if (strtobool(&c, &bv) == 0) {
+	rc = kstrtobool_from_user(buffer, count, &bv);
+	if (rc == 0) {
 #ifdef CONFIG_CIFS_STATS2
 		atomic_set(&totBufAllocCount, 0);
 		atomic_set(&totSmBufAllocCount, 0);
@@ -466,6 +469,8 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 			}
 		}
 		spin_unlock(&cifs_tcp_ses_lock);
+	} else {
+		return rc;
 	}
 
 	return count;
@@ -669,11 +674,11 @@ static int cifsFYI_proc_open(struct inode *inode, struct file *file)
 static ssize_t cifsFYI_proc_write(struct file *file, const char __user *buffer,
 		size_t count, loff_t *ppos)
 {
-	char c;
+	char c[2] = { '\0' };
 	bool bv;
 	int rc;
 
-	rc = get_user(c, buffer);
+	rc = get_user(c[0], buffer);
 	if (rc)
 		return rc;
 	if (c == '0' || c == 'n' || c == 'N')
@@ -681,9 +686,10 @@ static ssize_t cifsFYI_proc_write(struct file *file, const char __user *buffer,
 	else if (c == '1' || c == 'y' || c == 'Y')
 		cifsFYI = 1;
 	if (strtobool(&c, &bv) == 0)
+	if (strtobool(c, &bv) == 0)
 		cifsFYI = bv;
-	else if ((c > '1') && (c <= '9'))
-		cifsFYI = (int) (c - '0'); /* see cifs_debug.h for meanings */
+	else if ((c[0] > '1') && (c[0] <= '9'))
+		cifsFYI = (int) (c[0] - '0'); /* see cifs_debug.h for meanings */
 
 	return count;
 }
@@ -787,23 +793,15 @@ static int cifs_linux_ext_proc_open(struct inode *inode, struct file *file)
 static ssize_t cifs_linux_ext_proc_write(struct file *file,
 		const char __user *buffer, size_t count, loff_t *ppos)
 {
-	char c;
-	bool bv;
 	int rc;
 
-	rc = get_user(c, buffer);
+	rc = kstrtobool_from_user(buffer, count, &linuxExtEnabled);
 	if (rc)
 		return rc;
 	if (c == '0' || c == 'n' || c == 'N')
 		linuxExtEnabled = 0;
 	else if (c == '1' || c == 'y' || c == 'Y')
 		linuxExtEnabled = 1;
-
-	rc = strtobool(&c, &bv);
-	if (rc)
-		return rc;
-
-	linuxExtEnabled = bv;
 
 	return count;
 }
@@ -831,23 +829,15 @@ static int cifs_lookup_cache_proc_open(struct inode *inode, struct file *file)
 static ssize_t cifs_lookup_cache_proc_write(struct file *file,
 		const char __user *buffer, size_t count, loff_t *ppos)
 {
-	char c;
-	bool bv;
 	int rc;
 
-	rc = get_user(c, buffer);
+	rc = kstrtobool_from_user(buffer, count, &lookupCacheEnabled);
 	if (rc)
 		return rc;
 	if (c == '0' || c == 'n' || c == 'N')
 		lookupCacheEnabled = 0;
 	else if (c == '1' || c == 'y' || c == 'Y')
 		lookupCacheEnabled = 1;
-
-	rc = strtobool(&c, &bv);
-	if (rc)
-		return rc;
-
-	lookupCacheEnabled = bv;
 
 	return count;
 }
@@ -875,23 +865,15 @@ static int traceSMB_proc_open(struct inode *inode, struct file *file)
 static ssize_t traceSMB_proc_write(struct file *file, const char __user *buffer,
 		size_t count, loff_t *ppos)
 {
-	char c;
-	bool bv;
 	int rc;
 
-	rc = get_user(c, buffer);
+	rc = kstrtobool_from_user(buffer, count, &traceSMB);
 	if (rc)
 		return rc;
 	if (c == '0' || c == 'n' || c == 'N')
 		traceSMB = 0;
 	else if (c == '1' || c == 'y' || c == 'Y')
 		traceSMB = 1;
-
-	rc = strtobool(&c, &bv);
-	if (rc)
-		return rc;
-
-	traceSMB = bv;
 
 	return count;
 }
@@ -996,7 +978,6 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 	int rc;
 	unsigned int flags;
 	char flags_string[12];
-	char c;
 	bool bv;
 
 	if ((count < 1) || (count > 11))
@@ -1030,9 +1011,10 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 	if (flags <= 0)  {
 		cERROR(1, ("invalid security flags %s", flags_string));
 		if (strtobool(&c, &bv) == 0) {
+		if (strtobool(flags_string, &bv) == 0) {
 			global_secflags = bv ? CIFSSEC_MAX : CIFSSEC_DEF;
 			return count;
-		} else if (!isdigit(c)) {
+		} else if (!isdigit(flags_string[0])) {
 			cifs_dbg(VFS, "Invalid SecurityFlags: %s\n",
 					flags_string);
 			return -EINVAL;

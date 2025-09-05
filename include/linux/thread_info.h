@@ -115,6 +115,17 @@ static inline int test_ti_thread_flag(struct thread_info *ti, int flag)
 #define set_need_resched()	set_thread_flag(TIF_NEED_RESCHED)
 #define clear_need_resched()	clear_thread_flag(TIF_NEED_RESCHED)
 #define tif_need_resched() test_thread_flag(TIF_NEED_RESCHED)
+#ifdef CONFIG_PREEMPT_LAZY
+#define tif_need_resched()	(test_thread_flag(TIF_NEED_RESCHED) || \
+				 test_thread_flag(TIF_NEED_RESCHED_LAZY))
+#define tif_need_resched_now()	(test_thread_flag(TIF_NEED_RESCHED))
+#define tif_need_resched_lazy()	test_thread_flag(TIF_NEED_RESCHED_LAZY))
+
+#else
+#define tif_need_resched()	test_thread_flag(TIF_NEED_RESCHED)
+#define tif_need_resched_now()	test_thread_flag(TIF_NEED_RESCHED)
+#define tif_need_resched_lazy()	0
+#endif
 
 #if defined TIF_RESTORE_SIGMASK && !defined HAVE_SET_RESTORE_SIGMASK
 /*

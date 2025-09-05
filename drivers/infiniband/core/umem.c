@@ -227,6 +227,7 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
 
 	ret = 0;
 	if (npages == 0) {
+	if (npages == 0 || npages > UINT_MAX) {
 		ret = -EINVAL;
 		goto out;
 	}

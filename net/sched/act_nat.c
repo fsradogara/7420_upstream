@@ -168,6 +168,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		    !skb_clone_writable(skb, sizeof(*iph)) &&
 		    !skb_clone_writable(skb, sizeof(*iph) + noff) &&
 		    pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
+		if (skb_try_make_writable(skb, sizeof(*iph) + noff))
 			goto drop;
 
 		new_addr &= mask;
@@ -198,9 +199,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		    (skb_cloned(skb) &&
 		     !skb_clone_writable(skb, ihl + sizeof(*tcph)) &&
 		if (!pskb_may_pull(skb, ihl + sizeof(*tcph) + noff) ||
-		    (skb_cloned(skb) &&
-		     !skb_clone_writable(skb, ihl + sizeof(*tcph) + noff) &&
-		     pskb_expand_head(skb, 0, 0, GFP_ATOMIC)))
+		    skb_try_make_writable(skb, ihl + sizeof(*tcph) + noff))
 			goto drop;
 
 		tcph = (void *)(skb_network_header(skb) + ihl);
@@ -217,9 +216,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		    (skb_cloned(skb) &&
 		     !skb_clone_writable(skb, ihl + sizeof(*udph)) &&
 		if (!pskb_may_pull(skb, ihl + sizeof(*udph) + noff) ||
-		    (skb_cloned(skb) &&
-		     !skb_clone_writable(skb, ihl + sizeof(*udph) + noff) &&
-		     pskb_expand_head(skb, 0, 0, GFP_ATOMIC)))
+		    skb_try_make_writable(skb, ihl + sizeof(*udph) + noff))
 			goto drop;
 
 		udph = (void *)(skb_network_header(skb) + ihl);
@@ -267,6 +264,8 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		    !skb_clone_writable(skb, ihl + sizeof(*icmph) +
 					     sizeof(*iph) + noff) &&
 		    pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
+		if (skb_try_make_writable(skb, ihl + sizeof(*icmph) +
+					  sizeof(*iph) + noff))
 			goto drop;
 
 		icmph = (void *)(skb_network_header(skb) + ihl);

@@ -1279,8 +1279,10 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	if (msg->msg_controllen) {
 		err = ip_cmsg_send(sock_net(sk), msg, &ipc,
 				   sk->sk_family == AF_INET6);
-		if (err)
+		if (unlikely(err)) {
+			kfree(ipc.opt);
 			return err;
+		}
 		if (ipc.opt)
 			free = 1;
 		connected = 0;
@@ -1677,6 +1679,7 @@ int udp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int noblock,
 	int peeked, off = 0;
 	int err;
 	int is_udplite = IS_UDPLITE(sk);
+	bool checksum_valid = false;
 	bool slow;
 
 	if (flags & MSG_ERRQUEUE)
@@ -1702,7 +1705,8 @@ try_again:
 	 */
 
 	if (copied < ulen || UDP_SKB_CB(skb)->partial_cov) {
-		if (udp_lib_checksum_complete(skb))
+		checksum_valid = !udp_lib_checksum_complete(skb);
+		if (!checksum_valid)
 			goto csum_copy_err;
 	}
 
@@ -1711,6 +1715,7 @@ try_again:
 					      msg->msg_iov, copied       );
 	else {
 		err = skb_copy_and_csum_datagram_iovec(skb, sizeof(struct udphdr), msg->msg_iov);
+	if (checksum_valid || skb_csum_unnecessary(skb))
 		err = skb_copy_datagram_msg(skb, sizeof(struct udphdr),
 					    msg, copied);
 	else {
@@ -1756,7 +1761,7 @@ try_again:
 		*addr_len = sizeof(*sin);
 	}
 	if (inet->cmsg_flags)
-		ip_cmsg_recv_offset(msg, skb, sizeof(struct udphdr));
+		ip_cmsg_recv_offset(msg, skb, sizeof(struct udphdr), off);
 
 	err = copied;
 	if (flags & MSG_TRUNC)
@@ -1985,7 +1990,7 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 
 			ret = (*up->encap_rcv)(sk, skb);
 		encap_rcv = ACCESS_ONCE(up->encap_rcv);
-		if (skb->len > sizeof(struct udphdr) && encap_rcv) {
+		if (encap_rcv) {
 			int ret;
 
 			/* Verify checksum before giving to encap */
@@ -2551,10 +2556,14 @@ void udp_v4_early_demux(struct sk_buff *skb)
 		if (!in_dev)
 			return;
 
-		ours = ip_check_mc_rcu(in_dev, iph->daddr, iph->saddr,
-				       iph->protocol);
-		if (!ours)
-			return;
+		/* we are supposed to accept bcast packets */
+		if (skb->pkt_type == PACKET_MULTICAST) {
+			ours = ip_check_mc_rcu(in_dev, iph->daddr, iph->saddr,
+					       iph->protocol);
+			if (!ours)
+				return;
+		}
+
 		sk = __udp4_lib_mcast_demux_lookup(net, uh->dest, iph->daddr,
 						   uh->source, iph->saddr, dif);
 	} else if (skb->pkt_type == PACKET_HOST) {

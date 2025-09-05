@@ -232,6 +232,7 @@ struct request {
 	struct list_head queuelist;
 	union {
 		struct call_single_data csd;
+		struct work_struct work;
 		unsigned long fifo_time;
 	};
 
@@ -745,7 +746,7 @@ static inline int queue_is_locked(struct request_queue *q)
 	struct throtl_data *td;
 #endif
 	struct rcu_head		rcu_head;
-	wait_queue_head_t	mq_freeze_wq;
+	struct swait_queue_head	mq_freeze_wq;
 	struct percpu_ref	q_usage_counter;
 	struct list_head	all_q_node;
 
@@ -1379,7 +1380,7 @@ static inline unsigned int blk_rq_get_max_sectors(struct request *rq)
 {
 	struct request_queue *q = rq->q;
 
-	if (unlikely(rq->cmd_type == REQ_TYPE_BLOCK_PC))
+	if (unlikely(rq->cmd_type != REQ_TYPE_FS))
 		return q->limits.max_hw_sectors;
 
 	if (!q->limits.chunk_sectors || (rq->cmd_flags & REQ_DISCARD))
@@ -1952,6 +1953,13 @@ static inline void put_dev_sector(Sector p)
 struct work_struct;
 int kblockd_schedule_work(struct work_struct *work);
 void kblockd_flush_work(struct work_struct *work);
+static inline bool __bvec_gap_to_prev(struct request_queue *q,
+				struct bio_vec *bprv, unsigned int offset)
+{
+	return offset ||
+		((bprv->bv_offset + bprv->bv_len) & queue_virt_boundary(q));
+}
+
 /*
  * Check if adding a bio_vec after bprv with offset would create a gap in
  * the SG list. Most drivers don't care about this, but some do.
@@ -1961,18 +1969,22 @@ static inline bool bvec_gap_to_prev(struct request_queue *q,
 {
 	if (!queue_virt_boundary(q))
 		return false;
-	return offset ||
-		((bprv->bv_offset + bprv->bv_len) & queue_virt_boundary(q));
+	return __bvec_gap_to_prev(q, bprv, offset);
 }
 
 static inline bool bio_will_gap(struct request_queue *q, struct bio *prev,
 			 struct bio *next)
 {
-	if (!bio_has_data(prev))
-		return false;
+	if (bio_has_data(prev) && queue_virt_boundary(q)) {
+		struct bio_vec pb, nb;
 
-	return bvec_gap_to_prev(q, &prev->bi_io_vec[prev->bi_vcnt - 1],
-				next->bi_io_vec[0].bv_offset);
+		bio_get_last_bvec(prev, &pb);
+		bio_get_first_bvec(next, &nb);
+
+		return __bvec_gap_to_prev(q, &pb, nb.bv_offset);
+	}
+
+	return false;
 }
 
 static inline bool req_gap_back_merge(struct request *req, struct bio *bio)

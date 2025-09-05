@@ -257,6 +257,8 @@ static int blkcipher_walk_next(struct blkcipher_desc *desc,
 		return blkcipher_walk_done(desc, walk, -EINVAL);
 	}
 
+	bsize = min(walk->walk_blocksize, n);
+
 	walk->flags &= ~(BLKCIPHER_WALK_SLOW | BLKCIPHER_WALK_COPY |
 			 BLKCIPHER_WALK_DIFF);
 	if (!scatterwalk_aligned(&walk->in, alignmask) ||

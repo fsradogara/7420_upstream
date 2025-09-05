@@ -225,7 +225,7 @@ dma_alloc_coherent(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gf
 /* The ARM override for dma_max_pfn() */
 static inline unsigned long dma_max_pfn(struct device *dev)
 {
-	return PHYS_PFN_OFFSET + dma_to_pfn(dev, *dev->dma_mask);
+	return dma_to_pfn(dev, *dev->dma_mask);
 }
 #define dma_max_pfn(dev) dma_max_pfn(dev)
 

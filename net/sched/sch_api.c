@@ -864,7 +864,8 @@ static struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 	return 0;
 }
 
-void qdisc_tree_decrease_qlen(struct Qdisc *sch, unsigned int n)
+void qdisc_tree_reduce_backlog(struct Qdisc *sch, unsigned int n,
+			       unsigned int len)
 {
 	const struct Qdisc_class_ops *cops;
 	unsigned long cl;
@@ -882,7 +883,7 @@ void qdisc_tree_decrease_qlen(struct Qdisc *sch, unsigned int n)
 			return;
 	int drops;
 
-	if (n == 0)
+	if (n == 0 && len == 0)
 		return;
 	drops = max_t(int, n, 0);
 	rcu_read_lock();
@@ -914,11 +915,12 @@ static void notify_and_destroy(struct sk_buff *skb, struct nlmsghdr *n, u32 clid
 {
 	if (new || old)
 		qdisc_notify(skb, n, clid, old, new);
+		sch->qstats.backlog -= len;
 		__qdisc_qstats_drop(sch, drops);
 	}
 	rcu_read_unlock();
 }
-EXPORT_SYMBOL(qdisc_tree_decrease_qlen);
+EXPORT_SYMBOL(qdisc_tree_reduce_backlog);
 
 static void notify_and_destroy(struct net *net, struct sk_buff *skb,
 			       struct nlmsghdr *n, u32 clid,
@@ -2324,6 +2326,7 @@ reset:
 	}
 
 	tp = old_tp;
+	protocol = tc_skb_protocol(skb);
 	goto reclassify;
 #endif
 }

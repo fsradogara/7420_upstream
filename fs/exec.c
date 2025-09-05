@@ -19,7 +19,7 @@
  * current->executable is only used by the procfs.  This allows a dispatch
  * table to check for several different types  of binary formats.  We keep
  * trying until we recognize the file or we run out of supported binary
- * formats. 
+ * formats.
  */
 
 #include <linux/slab.h>
@@ -60,6 +60,7 @@
 #include <linux/pipe_fs_i.h>
 #include <linux/oom.h>
 #include <linux/compat.h>
+#include <linux/user_namespace.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1113,6 +1114,7 @@ static int exec_mmap(struct mm_struct *mm)
 		}
 	}
 	task_lock(tsk);
+	preempt_disable_rt();
 	active_mm = tsk->active_mm;
 	tsk->mm = mm;
 	tsk->active_mm = mm;
@@ -1124,6 +1126,7 @@ static int exec_mmap(struct mm_struct *mm)
 		BUG_ON(active_mm != old_mm);
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
+	preempt_enable_rt();
 	task_unlock(tsk);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);
@@ -1470,6 +1473,13 @@ int flush_old_exec(struct linux_binprm * bprm)
 	flush_thread();
 	current->personality &= ~bprm->per_clear;
 
+	/*
+	 * We have to apply CLOEXEC before we change whether the process is
+	 * dumpable (in setup_new_exec) to avoid a race with a process in userspace
+	 * trying to access the should-be-closed file descriptors of a process
+	 * undergoing exec(2).
+	 */
+	do_close_on_exec(current->files);
 	return 0;
 
 out:
@@ -1479,8 +1489,22 @@ EXPORT_SYMBOL(flush_old_exec);
 
 void would_dump(struct linux_binprm *bprm, struct file *file)
 {
-	if (inode_permission(file_inode(file), MAY_READ) < 0)
+	struct inode *inode = file_inode(file);
+	if (inode_permission(inode, MAY_READ) < 0) {
+		struct user_namespace *old, *user_ns;
 		bprm->interp_flags |= BINPRM_FLAGS_ENFORCE_NONDUMP;
+
+		/* Ensure mm->user_ns contains the executable */
+		user_ns = old = bprm->mm->user_ns;
+		while ((user_ns != &init_user_ns) &&
+		       !privileged_wrt_inode_uidgid(user_ns, inode))
+			user_ns = user_ns->parent;
+
+		if (old != user_ns) {
+			bprm->mm->user_ns = get_user_ns(user_ns);
+			put_user_ns(old);
+		}
+	}
 }
 EXPORT_SYMBOL(would_dump);
 
@@ -1518,7 +1542,6 @@ void setup_new_exec(struct linux_binprm * bprm)
 	    !gid_eq(bprm->cred->gid, current_egid())) {
 		current->pdeath_signal = 0;
 	} else {
-		would_dump(bprm, bprm->file);
 		if (bprm->interp_flags & BINPRM_FLAGS_ENFORCE_NONDUMP)
 			set_dumpable(current->mm, suid_dumpable);
 	}
@@ -1584,7 +1607,6 @@ int prepare_binprm(struct linux_binprm *bprm)
 	return kernel_read(bprm->file,0,bprm->buf,BINPRM_BUF_SIZE);
 	current->self_exec_id++;
 	flush_signal_handlers(current, 0);
-	do_close_on_exec(current->files);
 }
 EXPORT_SYMBOL(setup_new_exec);
 
@@ -1675,7 +1697,7 @@ static void check_unsafe_exec(struct linux_binprm *bprm)
 	unsigned n_fs;
 
 	if (p->ptrace) {
-		if (p->ptrace & PT_PTRACE_CAP)
+		if (ptracer_capable(p, current_user_ns()))
 			bprm->unsafe |= LSM_UNSAFE_PTRACE_CAP;
 		else
 			bprm->unsafe |= LSM_UNSAFE_PTRACE;
@@ -2198,6 +2220,8 @@ out_file:
 	}
 out_kfree:
 	free_bprm(bprm);
+	would_dump(bprm, bprm->file);
+
 	retval = exec_binprm(bprm);
 	if (retval < 0)
 		goto out;

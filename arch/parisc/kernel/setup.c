@@ -40,6 +40,7 @@
 #include <linux/export.h>
 
 #include <asm/processor.h>
+#include <asm/sections.h>
 #include <asm/pdc.h>
 #include <asm/led.h>
 #include <asm/machdep.h>	/* for pa7300lc_init() proto */
@@ -148,6 +149,13 @@ void __init setup_arch(char **cmdline_p)
 #endif
 	printk(KERN_CONT ".\n");
 
+	/*
+	 * Check if initial kernel page mappings are sufficient.
+	 * panic early if not, else we may access kernel functions
+	 * and variables which can't be reached.
+	 */
+	if (__pa((unsigned long) &_end) >= KERNEL_INITIAL_SIZE)
+		panic("KERNEL_INITIAL_ORDER too small!");
 
 	pdc_console_init();
 
@@ -335,6 +343,10 @@ static int __init parisc_init(void)
 	/* tell PDC we're Linux. Nevermind failure. */
 	pdc_stable_write(0x40, &osid, sizeof(osid));
 	
+	/* start with known state */
+	flush_cache_all_local();
+	flush_tlb_all_local(NULL);
+
 	processor_init();
 	printk(KERN_INFO "CPU(s): %d x %s at %d.%06d MHz\n",
 			boot_cpu_data.cpu_count,

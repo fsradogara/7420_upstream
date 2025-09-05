@@ -2194,6 +2194,8 @@ void dlm_lowcomms_stop(void)
 	}
 	dlm_allow_conn = 0;
 	foreach_conn(stop_conn);
+	clean_writequeues();
+	foreach_conn(free_conn);
 	mutex_unlock(&connections_lock);
 
 	work_stop();

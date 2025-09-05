@@ -745,13 +745,13 @@ static int ipip6_err(struct sk_buff *skb, u32 info)
 
 	if (type == ICMP_DEST_UNREACH && code == ICMP_FRAG_NEEDED) {
 		ipv4_update_pmtu(skb, dev_net(skb->dev), info,
-				 t->parms.link, 0, IPPROTO_IPV6, 0);
+				 t->parms.link, 0, iph->protocol, 0);
 		err = 0;
 		goto out;
 	}
 	if (type == ICMP_REDIRECT) {
 		ipv4_redirect(skb, dev_net(skb->dev), t->parms.link, 0,
-			      IPPROTO_IPV6, 0);
+			      iph->protocol, 0);
 		err = 0;
 		goto out;
 	}
@@ -910,13 +910,15 @@ static int ipip6_rcv(struct sk_buff *skb)
 
 	icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);
 	read_unlock(&ipip6_lock);
+		skb->dev = tunnel->dev;
 
 		if (packet_is_spoofed(skb, iph, tunnel)) {
 			tunnel->dev->stats.rx_errors++;
 			goto out;
 		}
 
-		__skb_tunnel_rx(skb, tunnel->dev, tunnel->net);
+		if (iptunnel_pull_header(skb, 0, htons(ETH_P_IPV6)))
+			goto out;
 
 		err = IP_ECN_decapsulate(iph, skb);
 		if (unlikely(err)) {

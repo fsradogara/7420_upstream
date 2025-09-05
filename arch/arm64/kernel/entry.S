@@ -27,6 +27,7 @@
 #include <asm/cpufeature.h>
 #include <asm/errno.h>
 #include <asm/esr.h>
+#include <asm/memory.h>
 #include <asm/thread_info.h>
 #include <asm/unistd.h>
 
@@ -93,7 +94,13 @@
 	disable_step_tsk x19, x20		// exceptions when scheduling.
 	.else
 	add	x21, sp, #S_FRAME_SIZE
-	.endif
+	get_thread_info tsk
+	/* Save the task's original addr_limit and set USER_DS (TASK_SIZE_64) */
+	ldr	x20, [tsk, #TI_ADDR_LIMIT]
+	str	x20, [sp, #S_ORIG_ADDR_LIMIT]
+	mov	x20, #TASK_SIZE_64
+	str	x20, [tsk, #TI_ADDR_LIMIT]
+	.endif /* \el == 0 */
 	mrs	x22, elr_el1
 	mrs	x23, spsr_el1
 	stp	lr, x21, [sp, #S_LR]
@@ -117,6 +124,12 @@
 	.endm
 
 	.macro	kernel_exit, el
+	.if	\el != 0
+	/* Restore the task's original addr_limit. */
+	ldr	x20, [sp, #S_ORIG_ADDR_LIMIT]
+	str	x20, [tsk, #TI_ADDR_LIMIT]
+	.endif
+
 	ldp	x21, x22, [sp, #S_PC]		// load ELR, SPSR
 	.if	\el == 0
 	ct_user_enter
@@ -363,11 +376,16 @@ el1_irq:
 #ifdef CONFIG_PREEMPT
 	get_thread_info tsk
 	ldr	w24, [tsk, #TI_PREEMPT]		// get preempt count
-	cbnz	w24, 1f				// preempt count != 0
+	cbnz	w24, 2f				// preempt count != 0
 	ldr	x0, [tsk, #TI_FLAGS]		// get flags
-	tbz	x0, #TIF_NEED_RESCHED, 1f	// needs rescheduling?
-	bl	el1_preempt
+	tbnz	x0, #TIF_NEED_RESCHED, 1f	// needs rescheduling?
+
+	ldr	w24, [tsk, #TI_PREEMPT_LAZY]	// get preempt lazy count
+	cbnz	w24, 2f				// preempt lazy count != 0
+	tbz	x0, #TIF_NEED_RESCHED_LAZY, 2f	// needs rescheduling?
 1:
+	bl	el1_preempt
+2:
 #endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_on
@@ -381,6 +399,7 @@ el1_preempt:
 1:	bl	preempt_schedule_irq		// irq en/disable is done inside
 	ldr	x0, [tsk, #TI_FLAGS]		// get new tasks TI_FLAGS
 	tbnz	x0, #TIF_NEED_RESCHED, 1b	// needs rescheduling?
+	tbnz	x0, #TIF_NEED_RESCHED_LAZY, 1b	// needs rescheduling?
 	ret	x24
 #endif
 
@@ -625,6 +644,7 @@ ret_fast_syscall_trace:
  */
 work_pending:
 	tbnz	x1, #TIF_NEED_RESCHED, work_resched
+	tbnz	x1, #TIF_NEED_RESCHED_LAZY, work_resched
 	/* TIF_SIGPENDING, TIF_NOTIFY_RESUME or TIF_FOREIGN_FPSTATE case */
 	ldr	x2, [sp, #S_PSTATE]
 	mov	x0, sp				// 'regs'

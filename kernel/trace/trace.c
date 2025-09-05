@@ -2683,6 +2683,7 @@ tracing_generic_entry_update(struct trace_entry *entry, unsigned long flags,
 	struct task_struct *tsk = current;
 
 	entry->preempt_count		= pc & 0xff;
+	entry->preempt_lazy_count	= preempt_lazy_count();
 	entry->pid			= (tsk) ? tsk->pid : 0;
 	entry->flags =
 #ifdef CONFIG_TRACE_IRQFLAGS_SUPPORT
@@ -2692,8 +2693,11 @@ tracing_generic_entry_update(struct trace_entry *entry, unsigned long flags,
 #endif
 		((pc & HARDIRQ_MASK) ? TRACE_FLAG_HARDIRQ : 0) |
 		((pc & SOFTIRQ_MASK) ? TRACE_FLAG_SOFTIRQ : 0) |
-		(tif_need_resched() ? TRACE_FLAG_NEED_RESCHED : 0) |
+		(tif_need_resched_now() ? TRACE_FLAG_NEED_RESCHED : 0) |
+		(need_resched_lazy() ? TRACE_FLAG_NEED_RESCHED_LAZY : 0) |
 		(test_preempt_need_resched() ? TRACE_FLAG_PREEMPT_RESCHED : 0);
+
+	entry->migrate_disable = (tsk) ? __migrate_disabled(tsk) & 0xFF : 0;
 }
 EXPORT_SYMBOL_GPL(tracing_generic_entry_update);
 
@@ -2782,7 +2786,7 @@ void trace_buffer_unlock_commit_regs(struct trace_array *tr,
 {
 	__buffer_unlock_commit(buffer, event);
 
-	ftrace_trace_stack(tr, buffer, flags, 6, pc, regs);
+	ftrace_trace_stack(tr, buffer, flags, 0, pc, regs);
 	ftrace_trace_userstack(buffer, flags, pc);
 }
 EXPORT_SYMBOL_GPL(trace_buffer_unlock_commit_regs);
@@ -3780,6 +3784,17 @@ print_trace_header(struct seq_file *m, struct trace_iterator *iter)
 		    "#                |||| /     delay            \n"
 		    "#  cmd     pid   ||||| time  |   caller      \n"
 		    "#     \\   /      |||||  \\    |   /         \n");
+	seq_puts(m, "#                  _--------=> CPU#              \n"
+		    "#                 / _-------=> irqs-off          \n"
+		    "#                | / _------=> need-resched      \n"
+		    "#                || / _-----=> need-resched_lazy \n"
+		    "#                ||| / _----=> hardirq/softirq   \n"
+		    "#                |||| / _---=> preempt-depth     \n"
+		    "#                ||||| / _--=> preempt-lazy-depth\n"
+		    "#                |||||| / _-=> migrate-disable   \n"
+		    "#                ||||||| /     delay             \n"
+		    "# cmd     pid    |||||||| time   |  caller       \n"
+		    "#     \\   /      ||||||||   \\    |  /            \n");
 }
 
 static void print_event_info(struct trace_buffer *buf, struct seq_file *m)
@@ -3805,11 +3820,14 @@ static void print_func_help_header_irq(struct trace_buffer *buf, struct seq_file
 	print_event_info(buf, m);
 	seq_puts(m, "#                              _-----=> irqs-off\n"
 		    "#                             / _----=> need-resched\n"
-		    "#                            | / _---=> hardirq/softirq\n"
-		    "#                            || / _--=> preempt-depth\n"
-		    "#                            ||| /     delay\n"
-		    "#           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION\n"
-		    "#              | |       |   ||||       |         |\n");
+		    "#                            |/  _-----=> need-resched_lazy\n"
+		    "#                            || / _---=> hardirq/softirq\n"
+		    "#                            ||| / _--=> preempt-depth\n"
+		    "#                            |||| / _-=> preempt-lazy-depth\n"
+		    "#                            ||||| / _-=> migrate-disable   \n"
+		    "#                            |||||| /    delay\n"
+		    "#           TASK-PID   CPU#  |||||||   TIMESTAMP  FUNCTION\n"
+		    "#              | |       |   |||||||      |         |\n");
 }
 
 void
@@ -6886,19 +6904,20 @@ tracing_read_pipe(struct file *filp, char __user *ubuf,
 	struct trace_iterator *iter = filp->private_data;
 	ssize_t sret;
 
-	/* return any leftover data */
-	sret = trace_seq_to_user(&iter->seq, ubuf, cnt);
-	if (sret != -EBUSY)
-		return sret;
-
-	trace_seq_init(&iter->seq);
-
 	/*
 	 * Avoid more than one consumer on a single file descriptor
 	 * This is just a matter of traces coherency, the ring buffer itself
 	 * is protected.
 	 */
 	mutex_lock(&iter->mutex);
+
+	/* return any leftover data */
+	sret = trace_seq_to_user(&iter->seq, ubuf, cnt);
+	if (sret != -EBUSY)
+		goto out;
+
+	trace_seq_init(&iter->seq);
+
 	if (iter->trace->read) {
 		sret = iter->trace->read(iter, filp, ubuf, cnt, ppos);
 		if (sret)
@@ -7184,7 +7203,10 @@ static ssize_t tracing_splice_read_pipe(struct file *filp,
 
 	spd.nr_pages = i;
 
-	ret = splice_to_pipe(pipe, &spd);
+	if (i)
+		ret = splice_to_pipe(pipe, &spd);
+	else
+		ret = 0;
 out:
 	splice_shrink_spd(&spd);
 	return ret;
@@ -8107,9 +8129,6 @@ tracing_buffers_splice_read(struct file *file, loff_t *ppos,
 		return -EBUSY;
 #endif
 
-	if (splice_grow_spd(pipe, &spd))
-		return -ENOMEM;
-
 	if (*ppos & (PAGE_SIZE - 1))
 		return -EINVAL;
 
@@ -8118,6 +8137,9 @@ tracing_buffers_splice_read(struct file *file, loff_t *ppos,
 			return -EINVAL;
 		len &= PAGE_MASK;
 	}
+
+	if (splice_grow_spd(pipe, &spd))
+		return -ENOMEM;
 
  again:
 	trace_access_lock(iter->cpu_file);
@@ -8176,19 +8198,21 @@ tracing_buffers_splice_read(struct file *file, loff_t *ppos,
 	/* did we read anything? */
 	if (!spd.nr_pages) {
 		if (ret)
-			return ret;
+			goto out;
 
+		ret = -EAGAIN;
 		if ((file->f_flags & O_NONBLOCK) || (flags & SPLICE_F_NONBLOCK))
-			return -EAGAIN;
+			goto out;
 
 		ret = wait_on_pipe(iter, true);
 		if (ret)
-			return ret;
+			goto out;
 
 		goto again;
 	}
 
 	ret = splice_to_pipe(pipe, &spd);
+out:
 	splice_shrink_spd(&spd);
 
 	return ret;

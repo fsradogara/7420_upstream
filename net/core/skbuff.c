@@ -67,6 +67,7 @@
 #include <linux/errqueue.h>
 #include <linux/prefetch.h>
 #include <linux/if_vlan.h>
+#include <linux/locallock.h>
 
 #include <net/protocol.h>
 #include <net/dst.h>
@@ -177,6 +178,8 @@ EXPORT_SYMBOL(skb_truesize_bug);
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
+int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
+EXPORT_SYMBOL(sysctl_max_skb_frags);
 
 /**
  *	skb_panic - private function for out-of-line support
@@ -502,6 +505,8 @@ EXPORT_SYMBOL(build_skb);
 
 static DEFINE_PER_CPU(struct page_frag_cache, netdev_alloc_cache);
 static DEFINE_PER_CPU(struct page_frag_cache, napi_alloc_cache);
+static DEFINE_LOCAL_IRQ_LOCK(netdev_alloc_lock);
+static DEFINE_LOCAL_IRQ_LOCK(napi_alloc_cache_lock);
 
 static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 {
@@ -509,10 +514,10 @@ static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 	unsigned long flags;
 	void *data;
 
-	local_irq_save(flags);
+	local_lock_irqsave(netdev_alloc_lock, flags);
 	nc = this_cpu_ptr(&netdev_alloc_cache);
 	data = __alloc_page_frag(nc, fragsz, gfp_mask);
-	local_irq_restore(flags);
+	local_unlock_irqrestore(netdev_alloc_lock, flags);
 	return data;
 }
 
@@ -531,9 +536,13 @@ EXPORT_SYMBOL(netdev_alloc_frag);
 
 static void *__napi_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 {
-	struct page_frag_cache *nc = this_cpu_ptr(&napi_alloc_cache);
+	struct page_frag_cache *nc;
+	void *data;
 
-	return __alloc_page_frag(nc, fragsz, gfp_mask);
+	nc = &get_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+	data = __alloc_page_frag(nc, fragsz, gfp_mask);
+	put_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+	return data;
 }
 
 void *napi_alloc_frag(unsigned int fragsz)
@@ -632,13 +641,13 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 	if (sk_memalloc_socks())
 		gfp_mask |= __GFP_MEMALLOC;
 
-	local_irq_save(flags);
+	local_lock_irqsave(netdev_alloc_lock, flags);
 
 	nc = this_cpu_ptr(&netdev_alloc_cache);
 	data = __alloc_page_frag(nc, len, gfp_mask);
 	pfmemalloc = nc->pfmemalloc;
 
-	local_irq_restore(flags);
+	local_unlock_irqrestore(netdev_alloc_lock, flags);
 
 	if (unlikely(!data))
 		return NULL;
@@ -679,9 +688,10 @@ EXPORT_SYMBOL(__netdev_alloc_skb);
 struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 				 gfp_t gfp_mask)
 {
-	struct page_frag_cache *nc = this_cpu_ptr(&napi_alloc_cache);
+	struct page_frag_cache *nc;
 	struct sk_buff *skb;
 	void *data;
+	bool pfmemalloc;
 
 	len += NET_SKB_PAD + NET_IP_ALIGN;
 
@@ -699,7 +709,11 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 	if (sk_memalloc_socks())
 		gfp_mask |= __GFP_MEMALLOC;
 
+	nc = &get_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
 	data = __alloc_page_frag(nc, len, gfp_mask);
+	pfmemalloc = nc->pfmemalloc;
+	put_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+
 	if (unlikely(!data))
 		return NULL;
 
@@ -710,7 +724,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 	}
 
 	/* use OR instead of assignment to avoid clearing of bits in mask */
-	if (nc->pfmemalloc)
+	if (pfmemalloc)
 		skb->pfmemalloc = 1;
 	skb->head_frag = 1;
 
@@ -5113,9 +5127,9 @@ struct sk_buff *skb_checksum_trimmed(struct sk_buff *skb,
 	if (!pskb_may_pull(skb_chk, offset))
 		goto err;
 
-	__skb_pull(skb_chk, offset);
+	skb_pull_rcsum(skb_chk, offset);
 	ret = skb_chkf(skb_chk);
-	__skb_push(skb_chk, offset);
+	skb_push_rcsum(skb_chk, offset);
 
 	if (ret)
 		goto err;
@@ -5438,15 +5452,16 @@ int skb_vlan_push(struct sk_buff *skb, __be16 vlan_proto, u16 vlan_tci)
 		__skb_push(skb, offset);
 		err = __vlan_insert_tag(skb, skb->vlan_proto,
 					skb_vlan_tag_get(skb));
-		if (err)
+		if (err) {
+			__skb_pull(skb, offset);
 			return err;
+		}
+
 		skb->protocol = skb->vlan_proto;
 		skb->mac_len += VLAN_HLEN;
-		__skb_pull(skb, offset);
 
-		if (skb->ip_summed == CHECKSUM_COMPLETE)
-			skb->csum = csum_add(skb->csum, csum_partial(skb->data
-					+ (2 * ETH_ALEN), VLAN_HLEN, 0));
+		skb_postpush_rcsum(skb, skb->data + (2 * ETH_ALEN), VLAN_HLEN);
+		__skb_pull(skb, offset);
 	}
 	__vlan_hwaccel_put_tag(skb, vlan_proto, vlan_tci);
 	return 0;

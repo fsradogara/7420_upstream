@@ -4440,6 +4440,7 @@ static void qeth_l3_qdio_input_handler(struct ccw_device *ccwdev,
 
 	SET_NETDEV_DEV(card->dev, &card->gdev->dev);
 	netif_napi_add(card->dev, &card->napi, qeth_l3_poll, QETH_NAPI_WEIGHT);
+	netif_carrier_off(card->dev);
 	return register_netdev(card->dev);
 }
 
@@ -4477,6 +4478,7 @@ static void qeth_l3_remove_device(struct ccwgroup_device *cgdev)
 		qeth_l3_set_offline(cgdev);
 
 	if (card->dev) {
+		netif_napi_del(&card->napi);
 		unregister_netdev(card->dev);
 		card->dev = NULL;
 	}

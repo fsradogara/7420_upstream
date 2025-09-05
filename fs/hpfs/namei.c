@@ -512,7 +512,6 @@ static int hpfs_unlink(struct inode *dir, struct dentry *dentry)
 	struct inode *inode = d_inode(dentry);
 	dnode_secno dno;
 	int r;
-	int rep = 0;
 	int err;
 
 	lock_kernel();
@@ -524,7 +523,7 @@ again:
 	de = map_dirent(dir, hpfs_i(dir)->i_dno, (char *)name, len, &dno, &qbh);
 	hpfs_lock(dir->i_sb);
 	hpfs_adjust_length(name, &len);
-again:
+
 	err = -ENOENT;
 	de = map_dirent(dir, hpfs_i(dir)->i_dno, name, len, &dno, &qbh);
 	if (!de)
@@ -545,8 +544,7 @@ again:
 		hpfs_error(dir->i_sb, "there was error when removing dirent");
 		err = -EFSERROR;
 		break;
-	case 2:		/* no space for deleting, try to truncate file */
-
+	case 2:		/* no space for deleting */
 		err = -ENOSPC;
 		if (rep++)
 			break;
@@ -590,6 +588,7 @@ again:
 		unlock_kernel();
 		hpfs_unlock(dir->i_sb);
 		return -ENOSPC;
+		break;
 	default:
 		drop_nlink(inode);
 		err = 0;

@@ -911,8 +911,9 @@ unsigned int ata_sff_data_xfer_noirq(struct ata_device *dev, unsigned char *buf,
 
 	local_irq_save(flags);
 	consumed = ata_sff_data_xfer(dev, buf, buflen, rw);
+	local_irq_save_nort(flags);
 	consumed = ata_sff_data_xfer32(dev, buf, buflen, rw);
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 
 	return consumed;
 }
@@ -953,6 +954,7 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 		/* FIXME: use a bounce buffer */
 		local_irq_save(flags);
 		buf = kmap_atomic(page, KM_IRQ0);
+		local_irq_save_nort(flags);
 		buf = kmap_atomic(page);
 
 		/* do the actual data transfer */
@@ -961,7 +963,7 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 
 		kunmap_atomic(buf, KM_IRQ0);
 		kunmap_atomic(buf);
-		local_irq_restore(flags);
+		local_irq_restore_nort(flags);
 	} else {
 		buf = page_address(page);
 		ap->ops->sff_data_xfer(qc->dev, buf + offset, qc->sect_size,
@@ -1111,6 +1113,7 @@ next_sg:
 	} else {
 		buf = page_address(page);
 		consumed = ap->ops->sff_data_xfer(dev,  buf + offset, count, rw);
+		local_irq_save_nort(flags);
 		buf = kmap_atomic(page);
 
 		/* do the actual data transfer */
@@ -1118,7 +1121,7 @@ next_sg:
 								count, rw);
 
 		kunmap_atomic(buf);
-		local_irq_restore(flags);
+		local_irq_restore_nort(flags);
 	} else {
 		buf = page_address(page);
 		consumed = ap->ops->sff_data_xfer(dev,  buf + offset,
@@ -1257,12 +1260,9 @@ static inline int ata_hsm_ok_in_wq(struct ata_port *ap,
 static void ata_hsm_qc_complete(struct ata_queued_cmd *qc, int in_wq)
 {
 	struct ata_port *ap = qc->ap;
-	unsigned long flags;
 
 	if (ap->ops->error_handler) {
 		if (in_wq) {
-			spin_lock_irqsave(ap->lock, flags);
-
 			/* EH might have kicked in while host lock is
 			 * released.
 			 */
@@ -1275,8 +1275,6 @@ static void ata_hsm_qc_complete(struct ata_queued_cmd *qc, int in_wq)
 				} else
 					ata_port_freeze(ap);
 			}
-
-			spin_unlock_irqrestore(ap->lock, flags);
 		} else {
 			if (likely(!(qc->err_mask & AC_ERR_HSM)))
 				ata_qc_complete(qc);
@@ -1289,7 +1287,6 @@ static void ata_hsm_qc_complete(struct ata_queued_cmd *qc, int in_wq)
 			ap->ops->sff_irq_on(ap);
 			ata_sff_irq_on(ap);
 			ata_qc_complete(qc);
-			spin_unlock_irqrestore(ap->lock, flags);
 		} else
 			ata_qc_complete(qc);
 	}
@@ -1315,8 +1312,9 @@ int ata_sff_hsm_move(struct ata_port *ap, struct ata_queued_cmd *qc,
 	WARN_ON((qc->flags & ATA_QCFLAG_ACTIVE) == 0);
 	struct ata_link *link = qc->dev->link;
 	struct ata_eh_info *ehi = &link->eh_info;
-	unsigned long flags = 0;
 	int poll_next;
+
+	lockdep_assert_held(ap->lock);
 
 	WARN_ON_ONCE((qc->flags & ATA_QCFLAG_ACTIVE) == 0);
 
@@ -1379,14 +1377,6 @@ fsm_start:
 				goto fsm_start;
 			}
 		}
-
-		/* Send the CDB (atapi) or the first data block (ata pio out).
-		 * During the state transition, interrupt handler shouldn't
-		 * be invoked before the data transfer is complete and
-		 * hsm_task_state is changed. Hence, the following locking.
-		 */
-		if (in_wq)
-			spin_lock_irqsave(ap->lock, flags);
 
 		if (qc->tf.protocol == ATA_PROT_PIO) {
 			/* PIO data out protocol.
@@ -1647,12 +1637,14 @@ static void ata_sff_pio_task(struct work_struct *work)
 	u8 status;
 	int poll_next;
 
+	spin_lock_irq(ap->lock);
+
 	BUG_ON(ap->sff_pio_task_link == NULL);
 	/* qc can be NULL if timeout occurred */
 	qc = ata_qc_from_tag(ap, link->active_tag);
 	if (!qc) {
 		ap->sff_pio_task_link = NULL;
-		return;
+		goto out_unlock;
 	}
 
 fsm_start:
@@ -1671,11 +1663,14 @@ fsm_start:
 		status = ata_sff_busy_wait(ap, ATA_BUSY, 10);
 		if (status & ATA_BUSY) {
 			ata_pio_queue_task(ap, qc, ATA_SHORT_PAUSE);
+		spin_unlock_irq(ap->lock);
 		ata_msleep(ap, 2);
+		spin_lock_irq(ap->lock);
+
 		status = ata_sff_busy_wait(ap, ATA_BUSY, 10);
 		if (status & ATA_BUSY) {
 			ata_sff_queue_pio_task(link, ATA_SHORT_PAUSE);
-			return;
+			goto out_unlock;
 		}
 	}
 
@@ -1692,6 +1687,8 @@ fsm_start:
 	 */
 	if (poll_next)
 		goto fsm_start;
+out_unlock:
+	spin_unlock_irq(ap->lock);
 }
 
 /**

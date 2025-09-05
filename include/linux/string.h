@@ -148,6 +148,11 @@ extern ssize_t memory_read_from_buffer(void *to, size_t count, loff_t *ppos,
 
 #endif
 extern int strtobool(const char *s, bool *res);
+extern int kstrtobool(const char *s, bool *res);
+static inline int strtobool(const char *s, bool *res)
+{
+	return kstrtobool(s, res);
+}
 
 #ifdef CONFIG_BINARY_PRINTF
 int vbin_printf(u32 *bin_buf, size_t size, const char *fmt, va_list args);

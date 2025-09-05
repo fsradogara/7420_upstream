@@ -64,6 +64,7 @@ int chp_is_registered(struct chp_id chpid);
 void *chp_get_chp_desc(struct chp_id chpid);
 void chp_remove_cmg_attr(struct channel_path *chp);
 int chp_add_cmg_attr(struct channel_path *chp);
+	struct cmg_chars cmg_chars;
 };
 
 /* Return channel_path struct for given chpid. */

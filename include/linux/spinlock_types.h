@@ -9,10 +9,15 @@
  * Released under the General Public License (GPL).
  */
 
-#if defined(CONFIG_SMP)
-# include <asm/spinlock_types.h>
+#include <linux/spinlock_types_raw.h>
+
+#ifndef CONFIG_PREEMPT_RT_FULL
+# include <linux/spinlock_types_nort.h>
+# include <linux/rwlock_types.h>
 #else
-# include <linux/spinlock_types_up.h>
+# include <linux/rtmutex.h>
+# include <linux/spinlock_types_rt.h>
+# include <linux/rwlock_types_rt.h>
 #endif
 
 #include <linux/lockdep.h>

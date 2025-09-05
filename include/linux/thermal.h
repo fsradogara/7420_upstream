@@ -48,6 +48,9 @@ struct thermal_cooling_device;
 /* Default weight of a bound cooling device */
 #define THERMAL_WEIGHT_DEFAULT 0
 
+/* use value, which < 0K, to indicate an invalid/uninitialized temperature */
+#define THERMAL_TEMP_INVALID	-274000
+
 /* Unit conversion macros */
 #define DECI_KELVIN_TO_CELSIUS(t)	({			\
 	long _t = (t);						\
@@ -200,6 +203,7 @@ struct thermal_attr {
  * @trip_hyst_attrs:	attributes for trip points for sysfs: trip hysteresis
  * @devdata:	private pointer for device private data
  * @trips:	number of trip points the thermal zone supports
+ * @trips_disabled;	bitmap for disabled trips
  * @passive_delay:	number of milliseconds to wait between polls when
  *			performing passive cooling.
  * @polling_delay:	number of milliseconds to wait between polls when
@@ -214,6 +218,7 @@ struct thermal_attr {
  * @forced_passive:	If > 0, temperature at which to switch on all ACPI
  *			processor cooling devices.  Currently only used by the
  *			step-wise governor.
+ * @need_update:	if equals 1, thermal_zone_device_update needs to be invoked.
  * @ops:	operations this &thermal_zone_device supports
  * @tzp:	thermal zone parameters
  * @governor:	pointer to the governor for this thermal zone
@@ -264,6 +269,7 @@ void thermal_cooling_device_unregister(struct thermal_cooling_device *);
 	struct thermal_attr *trip_hyst_attrs;
 	void *devdata;
 	int trips;
+	unsigned long trips_disabled;	/* bitmap for disabled trips */
 	int passive_delay;
 	int polling_delay;
 	int temperature;
@@ -271,6 +277,7 @@ void thermal_cooling_device_unregister(struct thermal_cooling_device *);
 	int emul_temperature;
 	int passive;
 	unsigned int forced_passive;
+	atomic_t need_update;
 	struct thermal_zone_device_ops *ops;
 	struct thermal_zone_params *tzp;
 	struct thermal_governor *governor;

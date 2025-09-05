@@ -1711,7 +1711,8 @@ static bool io_apic_level_ack_pending(struct mp_chip_data *data)
 static inline bool ioapic_irqd_mask(struct irq_data *data)
 {
 	/* If we are moving the irq we need to mask it */
-	if (unlikely(irqd_is_setaffinity_pending(data))) {
+	if (unlikely(irqd_is_setaffinity_pending(data) &&
+		     !irqd_irq_inprogress(data))) {
 		mask_ioapic_irq(data);
 		return true;
 	}
@@ -2521,6 +2522,7 @@ void __init setup_ioapic_dest(void)
 {
 	int pin, ioapic, irq, irq_entry;
 	const struct cpumask *mask;
+	struct irq_desc *desc;
 	struct irq_data *idata;
 	struct irq_chip *chip;
 
@@ -2536,7 +2538,9 @@ void __init setup_ioapic_dest(void)
 		if (irq < 0 || !mp_init_irq_at_boot(ioapic, irq))
 			continue;
 
-		idata = irq_get_irq_data(irq);
+		desc = irq_to_desc(irq);
+		raw_spin_lock_irq(&desc->lock);
+		idata = irq_desc_get_irq_data(desc);
 
 		/*
 		 * Honour affinities which have been set in early boot
@@ -2550,6 +2554,7 @@ void __init setup_ioapic_dest(void)
 		/* Might be lapic_chip for irq 0 */
 		if (chip->irq_set_affinity)
 			chip->irq_set_affinity(idata, mask, false);
+		raw_spin_unlock_irq(&desc->lock);
 	}
 }
 #endif

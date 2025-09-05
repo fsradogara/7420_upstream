@@ -241,8 +241,8 @@
 #define M_NETIF_RECEIVE 	1	/* Inject packets into stack */
 
 /* If lock -- protects updating of if_list */
-#define   if_lock(t)           spin_lock(&(t->if_lock));
-#define   if_unlock(t)           spin_unlock(&(t->if_lock));
+#define   if_lock(t)           mutex_lock(&(t->if_lock));
+#define   if_unlock(t)           mutex_unlock(&(t->if_lock));
 
 /* Used to help with determining the pkts on receive */
 #define PKTGEN_MAGIC 0xbe9be955
@@ -510,7 +510,7 @@ struct pktgen_net {
 };
 
 struct pktgen_thread {
-	spinlock_t if_lock;		/* for list of devices */
+	struct mutex if_lock;		/* for list of devices */
 	struct list_head if_list;	/* All device here */
 	struct list_head th_list;
 	struct task_struct *tsk;
@@ -2656,11 +2656,13 @@ static void pktgen_change_name(const struct pktgen_net *pn, struct net_device *d
 {
 	struct pktgen_thread *t;
 
+	mutex_lock(&pktgen_thread_lock);
+
 	list_for_each_entry(t, &pn->pktgen_threads, th_list) {
 		struct pktgen_dev *pkt_dev;
 
-		rcu_read_lock();
-		list_for_each_entry_rcu(pkt_dev, &t->if_list, list) {
+		if_lock(t);
+		list_for_each_entry(pkt_dev, &t->if_list, list) {
 			if (pkt_dev->odev != dev)
 				continue;
 
@@ -2675,8 +2677,9 @@ static void pktgen_change_name(const struct pktgen_net *pn, struct net_device *d
 				       dev->name);
 			break;
 		}
-		rcu_read_unlock();
+		if_unlock(t);
 	}
+	mutex_unlock(&pktgen_thread_lock);
 }
 
 static int pktgen_device_event(struct notifier_block *unused,
@@ -3652,13 +3655,13 @@ static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 }
 
 static struct sk_buff *pktgen_alloc_skb(struct net_device *dev,
-					struct pktgen_dev *pkt_dev,
-					unsigned int extralen)
+					struct pktgen_dev *pkt_dev)
 {
+	unsigned int extralen = LL_RESERVED_SPACE(dev);
 	struct sk_buff *skb = NULL;
-	unsigned int size = pkt_dev->cur_pkt_size + 64 + extralen +
-			    pkt_dev->pkt_overhead;
+	unsigned int size;
 
+	size = pkt_dev->cur_pkt_size + 64 + extralen + pkt_dev->pkt_overhead;
 	if (pkt_dev->flags & F_NODE) {
 		int node = pkt_dev->node >= 0 ? pkt_dev->node : numa_node_id();
 
@@ -3670,7 +3673,10 @@ static struct sk_buff *pktgen_alloc_skb(struct net_device *dev,
 	} else {
 		 skb = __netdev_alloc_skb(dev, size, GFP_NOWAIT);
 	}
-	skb_reserve(skb, LL_RESERVED_SPACE(dev));
+
+	/* the caller pre-fetches from skb->data and reserves for the mac hdr */
+	if (likely(skb))
+		skb_reserve(skb, extralen - 16);
 
 	return skb;
 }
@@ -3710,16 +3716,14 @@ static struct sk_buff *fill_packet_ipv4(struct net_device *odev,
 	mod_cur_headers(pkt_dev);
 	queue_map = pkt_dev->cur_queue_map;
 
-	datalen = (odev->hard_header_len + 16) & ~0xf;
-
-	skb = pktgen_alloc_skb(odev, pkt_dev, datalen);
+	skb = pktgen_alloc_skb(odev, pkt_dev);
 	if (!skb) {
 		sprintf(pkt_dev->result, "No memory");
 		return NULL;
 	}
 
 	prefetchw(skb->data);
-	skb_reserve(skb, datalen);
+	skb_reserve(skb, 16);
 
 	/*  Reserve for ethernet and IP header  */
 	eth = (__u8 *) skb_push(skb, 14);
@@ -4095,7 +4099,7 @@ static struct sk_buff *fill_packet_ipv6(struct net_device *odev,
 	mod_cur_headers(pkt_dev);
 	queue_map = pkt_dev->cur_queue_map;
 
-	skb = pktgen_alloc_skb(odev, pkt_dev, 16);
+	skb = pktgen_alloc_skb(odev, pkt_dev);
 	if (!skb) {
 		sprintf(pkt_dev->result, "No memory");
 		return NULL;
@@ -5341,7 +5345,7 @@ static int __net_init pktgen_create_thread(int cpu, struct pktgen_net *pn)
 		return -ENOMEM;
 	}
 
-	spin_lock_init(&t->if_lock);
+	mutex_init(&t->if_lock);
 	t->cpu = cpu;
 
 	INIT_LIST_HEAD(&t->if_list);

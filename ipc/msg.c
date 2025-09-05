@@ -305,7 +305,8 @@ static void ss_wakeup(struct list_head *h, int kill)
 	}
 }
 
-static void expunge_all(struct msg_queue *msq, int res)
+static void expunge_all(struct msg_queue *msq, int res,
+			struct wake_q_head *wake_q)
 {
 	struct list_head *tmp;
 
@@ -321,15 +322,8 @@ static void expunge_all(struct msg_queue *msq, int res)
 	struct msg_receiver *msr, *t;
 
 	list_for_each_entry_safe(msr, t, &msq->q_receivers, r_list) {
-		msr->r_msg = NULL; /* initialize expunge ordering */
-		wake_up_process(msr->r_tsk);
-		/*
-		 * Ensure that the wakeup is visible before setting r_msg as
-		 * the receiving end depends on it: either spinning on a nil,
-		 * or dealing with -EAGAIN cases. See lockless receive part 1
-		 * and 2 in do_msgrcv().
-		 */
-		smp_wmb(); /* barrier (B) */
+
+		wake_q_add(wake_q, msr->r_tsk);
 		msr->r_msg = ERR_PTR(res);
 	}
 }
@@ -352,8 +346,9 @@ static void freeque(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp)
 {
 	struct msg_msg *msg, *t;
 	struct msg_queue *msq = container_of(ipcp, struct msg_queue, q_perm);
+	WAKE_Q(wake_q);
 
-	expunge_all(msq, -EIDRM);
+	expunge_all(msq, -EIDRM, &wake_q);
 	ss_wakeup(&msq->q_senders, 1);
 	msg_rmid(ns, msq);
 	msg_unlock(msq);
@@ -364,6 +359,7 @@ static void freeque(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp)
 
 		tmp = tmp->next;
 	ipc_unlock_object(&msq->q_perm);
+	wake_up_q(&wake_q);
 	rcu_read_unlock();
 
 	list_for_each_entry_safe(msg, t, &msq->q_messages, m_list) {
@@ -520,6 +516,7 @@ static int msgctl_down(struct ipc_namespace *ns, int msqid, int cmd,
 	struct msqid64_ds msqid64;
 	struct msqid64_ds uninitialized_var(msqid64);
 	struct msg_queue *msq;
+	WAKE_Q(wake_q);
 	int err;
 
 	if (cmd == IPC_SET) {
@@ -581,7 +578,7 @@ static int msgctl_down(struct ipc_namespace *ns, int msqid, int cmd,
 		/* sleeping receivers might be excluded by
 		 * stricter permissions.
 		 */
-		expunge_all(msq, -EAGAIN);
+		expunge_all(msq, -EAGAIN, &wake_q);
 		/* sleeping senders might be able to send
 		 * due to a larger queue size.
 		 */
@@ -613,6 +610,7 @@ asmlinkage long sys_msgctl(int msqid, int cmd, struct msqid_ds __user *buf)
 
 out_unlock0:
 	ipc_unlock_object(&msq->q_perm);
+	wake_up_q(&wake_q);
 out_unlock1:
 	rcu_read_unlock();
 out_up:
@@ -823,7 +821,8 @@ static int testmsg(struct msg_msg *msg, long type, int mode)
 	return 0;
 }
 
-static inline int pipelined_send(struct msg_queue *msq, struct msg_msg *msg)
+static inline int pipelined_send(struct msg_queue *msq, struct msg_msg *msg,
+				 struct wake_q_head *wake_q)
 {
 	struct list_head *tmp;
 
@@ -850,9 +849,9 @@ static inline int pipelined_send(struct msg_queue *msq, struct msg_msg *msg)
 				wake_up_process(msr->r_tsk);
 				/* barrier (B) see barrier comment below */
 				smp_wmb();
+				wake_q_add(wake_q, msr->r_tsk);
 				msr->r_msg = ERR_PTR(-E2BIG);
 			} else {
-				msr->r_msg = NULL;
 				msq->q_lrpid = task_pid_vnr(msr->r_tsk);
 				msq->q_rtime = get_seconds();
 				wake_up_process(msr->r_tsk);
@@ -865,8 +864,8 @@ static inline int pipelined_send(struct msg_queue *msq, struct msg_msg *msg)
 				 * in do_msgrcv(). Barrier (B).
 				 */
 				smp_wmb();
+				wake_q_add(wake_q, msr->r_tsk);
 				msr->r_msg = msg;
-
 				return 1;
 			}
 		}
@@ -882,6 +881,7 @@ long do_msgsnd(int msqid, long mtype, void __user *mtext,
 	struct msg_msg *msg;
 	int err;
 	struct ipc_namespace *ns;
+	WAKE_Q(wake_q);
 
 	ns = current->nsproxy->ipc_ns;
 
@@ -974,7 +974,7 @@ long do_msgsnd(int msqid, long mtype, void __user *mtext,
 		rcu_read_lock();
 		ipc_lock_object(&msq->q_perm);
 
-		ipc_rcu_putref(msq, ipc_rcu_free);
+		ipc_rcu_putref(msq, msg_rcu_free);
 		/* raced with RMID? */
 		if (!ipc_valid_object(&msq->q_perm)) {
 			err = -EIDRM;
@@ -998,6 +998,7 @@ long do_msgsnd(int msqid, long mtype, void __user *mtext,
 
 	if (!pipelined_send(msq, msg)) {
 		/* noone is waiting for this message, enqueue it */
+	if (!pipelined_send(msq, msg, &wake_q)) {
 		/* no one is waiting for this message, enqueue it */
 		list_add_tail(&msg->m_list, &msq->q_messages);
 		msq->q_cbytes += msgsz;
@@ -1014,6 +1015,7 @@ out_unlock_free:
 out_free:
 out_unlock0:
 	ipc_unlock_object(&msq->q_perm);
+	wake_up_q(&wake_q);
 out_unlock1:
 	rcu_read_unlock();
 	if (msg != NULL)
@@ -1316,28 +1318,14 @@ long do_msgrcv(int msqid, void __user *buf, size_t bufsz, long msgtyp, int msgfl
 		 * ipc/mqueue.c for the details. The correct serialization
 		 * ensures that a receiver cannot continue without the wakeup
 		 * being visibible _before_ setting r_msg:
+		 * The work in pipelined_send() and expunge_all():
+		 * - Set pointer to message
+		 * - Queue the receiver task for later wakeup
+		 * - Wake up the process after the lock is dropped.
 		 *
-		 * CPU 0                             CPU 1
-		 * <loop receiver>
-		 *   smp_rmb(); (A) <-- pair -.      <waker thread>
-		 *   <load ->r_msg>           |        msr->r_msg = NULL;
-		 *                            |        wake_up_process();
-		 * <continue>                 `------> smp_wmb(); (B)
-		 *                                     msr->r_msg = msg;
-		 *
-		 * Where (A) orders the message value read and where (B) orders
-		 * the write to the r_msg -- done in both pipelined_send and
-		 * expunge_all.
+		 * Should the process wake up before this wakeup (due to a
+		 * signal) it will either see the message and continue …
 		 */
-		for (;;) {
-			/*
-			 * Pairs with writer barrier in pipelined_send
-			 * or expunge_all.
-			 */
-			smp_rmb(); /* barrier (A) */
-			msg = (struct msg_msg *)msr_d.r_msg;
-			if (msg)
-				break;
 
 			/*
 			 * The cpu_relax() call is a compiler barrier
@@ -1371,6 +1359,16 @@ long do_msgrcv(int msqid, void __user *buf, size_t bufsz, long msgtyp, int msgfl
 		msg = (struct msg_msg*)msr_d.r_msg;
 		if (msg != ERR_PTR(-EAGAIN))
 			goto out_unlock;
+		msg = (struct msg_msg *)msr_d.r_msg;
+		if (msg != ERR_PTR(-EAGAIN))
+			goto out_unlock1;
+
+		 /*
+		  * … or see -EAGAIN, acquire the lock to check the message
+		  * again.
+		  */
+		ipc_lock_object(&msq->q_perm);
+
 		msg = (struct msg_msg *)msr_d.r_msg;
 		if (msg != ERR_PTR(-EAGAIN))
 			goto out_unlock0;

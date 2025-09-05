@@ -66,6 +66,9 @@ struct trace_entry {
 	unsigned char		flags;
 	unsigned char		preempt_count;
 	int			pid;
+	unsigned short		migrate_disable;
+	unsigned short		padding;
+	unsigned char		preempt_lazy_count;
 };
 
 #define TRACE_EVENT_TYPE_MAX						\
@@ -568,6 +571,8 @@ enum {
 	FILTER_DYN_STRING,
 	FILTER_PTR_STRING,
 	FILTER_TRACE_FN,
+	FILTER_COMM,
+	FILTER_CPU,
 };
 
 extern int trace_event_raw_init(struct trace_event_call *call);

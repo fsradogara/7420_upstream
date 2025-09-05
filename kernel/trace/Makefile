@@ -1,4 +1,8 @@
 
+# We are fully aware of the dangers of __builtin_return_address()
+FRAME_CFLAGS := $(call cc-disable-warning,frame-address)
+KBUILD_CFLAGS += $(FRAME_CFLAGS)
+
 # Do not instrument the tracer itself:
 
 ifdef CONFIG_FTRACE
@@ -55,6 +59,10 @@ obj-$(CONFIG_FUNCTION_TRACER) += trace_functions.o
 obj-$(CONFIG_IRQSOFF_TRACER) += trace_irqsoff.o
 obj-$(CONFIG_PREEMPT_TRACER) += trace_irqsoff.o
 obj-$(CONFIG_SCHED_TRACER) += trace_sched_wakeup.o
+obj-$(CONFIG_INTERRUPT_OFF_HIST) += latency_hist.o
+obj-$(CONFIG_PREEMPT_OFF_HIST) += latency_hist.o
+obj-$(CONFIG_WAKEUP_LATENCY_HIST) += latency_hist.o
+obj-$(CONFIG_MISSED_TIMER_OFFSETS_HIST) += latency_hist.o
 obj-$(CONFIG_NOP_TRACER) += trace_nop.o
 obj-$(CONFIG_STACK_TRACER) += trace_stack.o
 obj-$(CONFIG_MMIOTRACE) += trace_mmiotrace.o

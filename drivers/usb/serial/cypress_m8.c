@@ -652,6 +652,11 @@ static int cypress_generic_port_probe(struct usb_serial_port *port)
 	struct usb_serial *serial = port->serial;
 	struct cypress_private *priv;
 
+	if (!port->interrupt_out_urb || !port->interrupt_in_urb) {
+		dev_err(&port->dev, "required endpoint is missing\n");
+		return -ENODEV;
+	}
+
 	priv = kzalloc(sizeof(struct cypress_private), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;

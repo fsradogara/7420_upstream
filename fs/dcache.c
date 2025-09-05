@@ -20,6 +20,7 @@
 #include <linux/fdtable.h>
 #include <linux/fs.h>
 #include <linux/fsnotify.h>
+#include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/hash.h>
@@ -318,9 +319,6 @@ static inline int dname_external(const struct dentry *dentry)
 	return dentry->d_name.name != dentry->d_iname;
 }
 
-/*
- * Make sure other CPUs see the inode attached before the type is set.
- */
 static inline void __d_set_inode_and_type(struct dentry *dentry,
 					  struct inode *inode,
 					  unsigned type_flags)
@@ -328,28 +326,18 @@ static inline void __d_set_inode_and_type(struct dentry *dentry,
 	unsigned flags;
 
 	dentry->d_inode = inode;
-	smp_wmb();
 	flags = READ_ONCE(dentry->d_flags);
 	flags &= ~(DCACHE_ENTRY_TYPE | DCACHE_FALLTHRU);
 	flags |= type_flags;
 	WRITE_ONCE(dentry->d_flags, flags);
 }
 
-/*
- * Ideally, we want to make sure that other CPUs see the flags cleared before
- * the inode is detached, but this is really a violation of RCU principles
- * since the ordering suggests we should always set inode before flags.
- *
- * We should instead replace or discard the entire dentry - but that sucks
- * performancewise on mass deletion/rename.
- */
 static inline void __d_clear_type_and_inode(struct dentry *dentry)
 {
 	unsigned flags = READ_ONCE(dentry->d_flags);
 
 	flags &= ~(DCACHE_ENTRY_TYPE | DCACHE_FALLTHRU);
 	WRITE_ONCE(dentry->d_flags, flags);
-	smp_wmb();
 	dentry->d_inode = NULL;
 }
 
@@ -488,9 +476,11 @@ static void dentry_unlink_inode(struct dentry * dentry)
 	__releases(dentry->d_inode->i_lock)
 {
 	struct inode *inode = dentry->d_inode;
+
+	raw_write_seqcount_begin(&dentry->d_seq);
 	__d_clear_type_and_inode(dentry);
 	hlist_del_init(&dentry->d_u.d_alias);
-	dentry_rcuwalk_invalidate(dentry);
+	raw_write_seqcount_end(&dentry->d_seq);
 	spin_unlock(&dentry->d_lock);
 	spin_unlock(&inode->i_lock);
 	if (!inode->i_nlink)
@@ -707,7 +697,6 @@ static struct dentry *dentry_kill(struct dentry *dentry)
 
 failed:
 	spin_unlock(&dentry->d_lock);
-	cpu_relax();
 	return dentry; /* try again with same dentry */
 }
 
@@ -997,10 +986,14 @@ struct dentry * dget_locked(struct dentry *dentry)
  */
 void dput(struct dentry *dentry)
 {
+	struct dentry *parent;
+
 	if (unlikely(!dentry))
 		return;
 
 repeat:
+	might_sleep();
+
 	rcu_read_lock();
 	if (likely(fast_dput(dentry))) {
 		rcu_read_unlock();
@@ -1031,9 +1024,20 @@ repeat:
 	return;
 
 kill_it:
-	dentry = dentry_kill(dentry);
-	if (dentry)
+	parent = dentry_kill(dentry);
+	if (parent) {
+		int r;
+
+		if (parent == dentry) {
+			/* the task with the highest priority won't schedule */
+			r = cond_resched();
+			if (!r)
+				cpu_chill();
+		} else {
+			dentry = parent;
+		}
 		goto repeat;
+	}
 }
 EXPORT_SYMBOL(dput);
 
@@ -2443,7 +2447,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	struct dentry *dentry = __d_alloc(parent->d_sb, name);
 	if (!dentry)
 		return NULL;
-
+	dentry->d_flags |= DCACHE_RCUACCESS;
 	spin_lock(&parent->d_lock);
 	/*
 	 * don't need child lock because it is not subject
@@ -2491,7 +2495,8 @@ void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
 				DCACHE_OP_REVALIDATE	|
 				DCACHE_OP_WEAK_REVALIDATE	|
 				DCACHE_OP_DELETE	|
-				DCACHE_OP_SELECT_INODE));
+				DCACHE_OP_SELECT_INODE	|
+				DCACHE_OP_REAL));
 	dentry->d_op = op;
 	if (!op)
 		return;
@@ -2509,6 +2514,8 @@ void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
 		dentry->d_flags |= DCACHE_OP_PRUNE;
 	if (op->d_select_inode)
 		dentry->d_flags |= DCACHE_OP_SELECT_INODE;
+	if (op->d_real)
+		dentry->d_flags |= DCACHE_OP_REAL;
 
 }
 EXPORT_SYMBOL(d_set_d_op);
@@ -2571,8 +2578,9 @@ static void __d_instantiate(struct dentry *dentry, struct inode *inode)
 	spin_lock(&dentry->d_lock);
 	if (inode)
 		hlist_add_head(&dentry->d_u.d_alias, &inode->i_dentry);
+	raw_write_seqcount_begin(&dentry->d_seq);
 	__d_set_inode_and_type(dentry, inode, add_flags);
-	dentry_rcuwalk_invalidate(dentry);
+	raw_write_seqcount_end(&dentry->d_seq);
 	spin_unlock(&dentry->d_lock);
 	fsnotify_d_instantiate(dentry, inode);
 }
@@ -3601,7 +3609,7 @@ again:
 	if (dentry->d_lockref.count == 1) {
 		if (!spin_trylock(&inode->i_lock)) {
 			spin_unlock(&dentry->d_lock);
-			cpu_relax();
+			cpu_chill();
 			goto again;
 		}
 		dentry->d_flags &= ~DCACHE_CANT_MOUNT;
@@ -3633,7 +3641,6 @@ static void __d_rehash(struct dentry * entry, struct hlist_bl_head *b)
 {
 	BUG_ON(!d_unhashed(entry));
 	hlist_bl_lock(b);
-	entry->d_flags |= DCACHE_RCUACCESS;
 	hlist_bl_add_head_rcu(&entry->d_hash, b);
 	hlist_bl_unlock(b);
 }
@@ -3971,6 +3978,7 @@ static void __d_move(struct dentry *dentry, struct dentry *target,
 	/* ... and switch them in the tree */
 	if (IS_ROOT(dentry)) {
 		/* splicing a tree */
+		dentry->d_flags |= DCACHE_RCUACCESS;
 		dentry->d_parent = target->d_parent;
 		target->d_parent = target;
 		list_del_init(&target->d_child);

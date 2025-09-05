@@ -86,6 +86,18 @@ static DECLARE_RWSEM(snd_pcm_link_rwsem);
 static DEFINE_RWLOCK(snd_pcm_link_rwlock);
 static DECLARE_RWSEM(snd_pcm_link_rwsem);
 
+/* Writer in rwsem may block readers even during its waiting in queue,
+ * and this may lead to a deadlock when the code path takes read sem
+ * twice (e.g. one in snd_pcm_action_nonatomic() and another in
+ * snd_pcm_stream_lock()).  As a (suboptimal) workaround, let writer to
+ * spin until it gets the lock.
+ */
+static inline void down_write_nonblock(struct rw_semaphore *lock)
+{
+	while (!down_write_trylock(lock))
+		cond_resched();
+}
+
 /**
  * snd_pcm_stream_lock - Lock the PCM stream
  * @substream: PCM substream
@@ -135,7 +147,7 @@ EXPORT_SYMBOL_GPL(snd_pcm_stream_unlock);
 void snd_pcm_stream_lock_irq(struct snd_pcm_substream *substream)
 {
 	if (!substream->pcm->nonatomic)
-		local_irq_disable();
+		local_irq_disable_nort();
 	snd_pcm_stream_lock(substream);
 }
 EXPORT_SYMBOL_GPL(snd_pcm_stream_lock_irq);
@@ -150,7 +162,7 @@ void snd_pcm_stream_unlock_irq(struct snd_pcm_substream *substream)
 {
 	snd_pcm_stream_unlock(substream);
 	if (!substream->pcm->nonatomic)
-		local_irq_enable();
+		local_irq_enable_nort();
 }
 EXPORT_SYMBOL_GPL(snd_pcm_stream_unlock_irq);
 
@@ -158,7 +170,7 @@ unsigned long _snd_pcm_stream_lock_irqsave(struct snd_pcm_substream *substream)
 {
 	unsigned long flags = 0;
 	if (!substream->pcm->nonatomic)
-		local_irq_save(flags);
+		local_irq_save_nort(flags);
 	snd_pcm_stream_lock(substream);
 	return flags;
 }
@@ -176,7 +188,7 @@ void snd_pcm_stream_unlock_irqrestore(struct snd_pcm_substream *substream,
 {
 	snd_pcm_stream_unlock(substream);
 	if (!substream->pcm->nonatomic)
-		local_irq_restore(flags);
+		local_irq_restore_nort(flags);
 }
 EXPORT_SYMBOL_GPL(snd_pcm_stream_unlock_irqrestore);
 
@@ -2153,7 +2165,7 @@ static int snd_pcm_link(struct snd_pcm_substream *substream, int fd)
 		res = -ENOMEM;
 		goto _nolock;
 	}
-	down_write(&snd_pcm_link_rwsem);
+	down_write_nonblock(&snd_pcm_link_rwsem);
 	write_lock_irq(&snd_pcm_link_rwlock);
 	if (substream->runtime->status->state == SNDRV_PCM_STATE_OPEN ||
 	    substream->runtime->status->state != substream1->runtime->status->state ||
@@ -2207,7 +2219,7 @@ static int snd_pcm_unlink(struct snd_pcm_substream *substream)
 	struct snd_pcm_substream *s;
 	int res = 0;
 
-	down_write(&snd_pcm_link_rwsem);
+	down_write_nonblock(&snd_pcm_link_rwsem);
 	write_lock_irq(&snd_pcm_link_rwlock);
 	if (!snd_pcm_stream_linked(substream)) {
 		res = -EALREADY;

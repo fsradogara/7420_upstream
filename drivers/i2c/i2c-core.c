@@ -2280,6 +2280,7 @@ int i2c_register_driver(struct module *owner, struct i2c_driver *driver)
 	/* add the driver to the list of i2c drivers in the driver core */
 	driver->driver.owner = owner;
 	driver->driver.bus = &i2c_bus_type;
+	INIT_LIST_HEAD(&driver->clients);
 
 	/* for new style drivers, when registration returns the driver core
 	/* When registration returns, the driver core
@@ -2293,7 +2294,6 @@ int i2c_register_driver(struct module *owner, struct i2c_driver *driver)
 
 	pr_debug("i2c-core: driver [%s] registered\n", driver->driver.name);
 
-	INIT_LIST_HEAD(&driver->clients);
 	/* Walk the adapters that are already present */
 	class_for_each_device(&i2c_adapter_class, NULL, driver,
 			      __attach_adapter);

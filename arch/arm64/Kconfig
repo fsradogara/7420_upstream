@@ -76,6 +76,7 @@ config ARM64
 	select HAVE_PERF_REGS
 	select HAVE_PERF_USER_STACK_DUMP
 	select HAVE_RCU_TABLE_FREE
+	select HAVE_PREEMPT_LAZY
 	select HAVE_SYSCALL_TRACEPOINTS
 	select IOMMU_DMA if IOMMU_SUPPORT
 	select IRQ_DOMAIN
@@ -391,6 +392,15 @@ config CAVIUM_ERRATUM_22375
 
 	  If unsure, say Y.
 
+config CAVIUM_ERRATUM_23144
+	bool "Cavium erratum 23144: ITS SYNC hang on dual socket system"
+	depends on NUMA
+	default y
+	help
+	  ITS SYNC command hang for cross node io and collections/cpu mapping.
+
+	  If unsure, say Y.
+
 config CAVIUM_ERRATUM_23154
 	bool "Cavium erratum 23154: Access to ICC_IAR1_EL1 is not sync'ed"
 	default y
@@ -398,6 +408,17 @@ config CAVIUM_ERRATUM_23154
 	  The gicv3 of ThunderX requires a modified version for
 	  reading the IAR status to ensure data synchronization
 	  (access to icc_iar1_el1 is not sync'ed before and after).
+
+	  If unsure, say Y.
+
+config CAVIUM_ERRATUM_27456
+	bool "Cavium erratum 27456: Broadcast TLBI instructions may cause icache corruption"
+	default y
+	help
+	  On ThunderX T88 pass 1.x through 2.1 parts, broadcast TLBI
+	  instructions may cause the icache to become corrupted if it
+	  contains data for a non-current ASID.  The fix is to
+	  invalidate the icache when changing the mm context.
 
 	  If unsure, say Y.
 
@@ -562,7 +583,7 @@ config XEN_DOM0
 
 config XEN
 	bool "Xen guest support on ARM64"
-	depends on ARM64 && OF
+	depends on ARM64 && OF && !PREEMPT_RT_FULL
 	select SWIOTLB_XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM64.

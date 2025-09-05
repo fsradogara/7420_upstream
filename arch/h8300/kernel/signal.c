@@ -200,7 +200,7 @@ restore_sigcontext(struct sigcontext *usc, int *pd0)
 	unsigned int er0;
 
 	/* Always make any pending restarted system calls return -EINTR */
-	current_thread_info()->restart_block.fn = do_no_restart_syscall;
+	current->restart_block.fn = do_no_restart_syscall;
 
 #define COPY(r) err |= __get_user(regs->r, &usc->sc_##r)    /* restore passed registers */
 	/* restore passed registers */

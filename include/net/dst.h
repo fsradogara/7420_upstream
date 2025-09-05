@@ -575,7 +575,7 @@ static inline void dst_negative_advice(struct dst_entry **dst_p)
 static inline int dst_neigh_output(struct dst_entry *dst, struct neighbour *n,
 				   struct sk_buff *skb)
 {
-	const struct hh_cache *hh;
+	struct hh_cache *hh;
 
 	if (dst->pending_confirm) {
 		unsigned long now = jiffies;

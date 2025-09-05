@@ -264,7 +264,8 @@ void workingset_activation(struct page *page)
  * point where they would still be useful.
  */
 
-struct list_lru workingset_shadow_nodes;
+struct list_lru __workingset_shadow_nodes;
+DEFINE_LOCAL_IRQ_LOCK(workingset_shadow_lock);
 
 static unsigned long count_shadow_nodes(struct shrinker *shrinker,
 					struct shrink_control *sc)
@@ -274,9 +275,9 @@ static unsigned long count_shadow_nodes(struct shrinker *shrinker,
 	unsigned long pages;
 
 	/* list_lru lock nests inside IRQ-safe mapping->tree_lock */
-	local_irq_disable();
-	shadow_nodes = list_lru_shrink_count(&workingset_shadow_nodes, sc);
-	local_irq_enable();
+	local_lock_irq(workingset_shadow_lock);
+	shadow_nodes = list_lru_shrink_count(&__workingset_shadow_nodes, sc);
+	local_unlock_irq(workingset_shadow_lock);
 
 	pages = node_present_pages(sc->nid);
 	/*
@@ -341,21 +342,19 @@ static enum lru_status shadow_lru_isolate(struct list_head *item,
 	 * no pages, so we expect to be able to remove them all and
 	 * delete and free the empty node afterwards.
 	 */
-
-	BUG_ON(!node->count);
-	BUG_ON(node->count & RADIX_TREE_COUNT_MASK);
+	BUG_ON(!workingset_node_shadows(node));
+	BUG_ON(workingset_node_pages(node));
 
 	for (i = 0; i < RADIX_TREE_MAP_SIZE; i++) {
 		if (node->slots[i]) {
 			BUG_ON(!radix_tree_exceptional_entry(node->slots[i]));
 			node->slots[i] = NULL;
-			BUG_ON(node->count < (1U << RADIX_TREE_COUNT_SHIFT));
-			node->count -= 1U << RADIX_TREE_COUNT_SHIFT;
+			workingset_node_shadows_dec(node);
 			BUG_ON(!mapping->nrshadows);
 			mapping->nrshadows--;
 		}
 	}
-	BUG_ON(node->count);
+	BUG_ON(workingset_node_shadows(node));
 	inc_zone_state(page_zone(virt_to_page(node)), WORKINGSET_NODERECLAIM);
 	if (!__radix_tree_delete_node(&mapping->page_tree, node))
 		BUG();
@@ -363,9 +362,9 @@ static enum lru_status shadow_lru_isolate(struct list_head *item,
 	spin_unlock(&mapping->tree_lock);
 	ret = LRU_REMOVED_RETRY;
 out:
-	local_irq_enable();
+	local_unlock_irq(workingset_shadow_lock);
 	cond_resched();
-	local_irq_disable();
+	local_lock_irq(workingset_shadow_lock);
 	spin_lock(lru_lock);
 	return ret;
 }
@@ -376,10 +375,10 @@ static unsigned long scan_shadow_nodes(struct shrinker *shrinker,
 	unsigned long ret;
 
 	/* list_lru lock nests inside IRQ-safe mapping->tree_lock */
-	local_irq_disable();
-	ret =  list_lru_shrink_walk(&workingset_shadow_nodes, sc,
+	local_lock_irq(workingset_shadow_lock);
+	ret =  list_lru_shrink_walk(&__workingset_shadow_nodes, sc,
 				    shadow_lru_isolate, NULL);
-	local_irq_enable();
+	local_unlock_irq(workingset_shadow_lock);
 	return ret;
 }
 
@@ -400,7 +399,7 @@ static int __init workingset_init(void)
 {
 	int ret;
 
-	ret = list_lru_init_key(&workingset_shadow_nodes, &shadow_nodes_key);
+	ret = list_lru_init_key(&__workingset_shadow_nodes, &shadow_nodes_key);
 	if (ret)
 		goto err;
 	ret = register_shrinker(&workingset_shadow_shrinker);
@@ -408,7 +407,7 @@ static int __init workingset_init(void)
 		goto err_list_lru;
 	return 0;
 err_list_lru:
-	list_lru_destroy(&workingset_shadow_nodes);
+	list_lru_destroy(&__workingset_shadow_nodes);
 err:
 	return ret;
 }
