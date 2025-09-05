@@ -943,6 +943,19 @@ MODULE_FIRMWARE("keyspan_pda/keyspan_pda.fw");
 MODULE_FIRMWARE("keyspan_pda/xircom_pgs.fw");
 #endif
 
+static int keyspan_pda_attach(struct usb_serial *serial)
+{
+	unsigned char num_ports = serial->num_ports;
+
+	if (serial->num_bulk_out < num_ports ||
+			serial->num_interrupt_in < num_ports) {
+		dev_err(&serial->interface->dev, "missing endpoints\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 static int keyspan_pda_port_probe(struct usb_serial_port *port)
 {
 
@@ -1104,6 +1117,7 @@ static void __exit keyspan_pda_exit(void)
 
 module_init(keyspan_pda_init);
 module_exit(keyspan_pda_exit);
+	.attach =		keyspan_pda_attach,
 	.port_probe =		keyspan_pda_port_probe,
 	.port_remove =		keyspan_pda_port_remove,
 };

@@ -6,6 +6,7 @@
  * Copyright IBM Corporation 2002, 2008
  * Copyright IBM Corp. 2002, 2010
  * Copyright IBM Corp. 2002, 2015
+ * Copyright IBM Corp. 2002, 2016
  */
 
 #ifndef FSF_H
@@ -102,6 +103,7 @@
 #define FSF_APP_TAG_CHECK_FAILURE		0x00000082
 #define FSF_REF_TAG_CHECK_FAILURE		0x00000083
 #define FSF_ADAPTER_STATUS_AVAILABLE		0x000000AD
+#define FSF_FCP_RSP_AVAILABLE			0x000000AF
 #define FSF_UNKNOWN_COMMAND			0x000000E2
 #define FSF_UNKNOWN_OP_SUBTYPE                  0x000000E3
 #define FSF_INVALID_COMMAND_OPTION              0x000000E5

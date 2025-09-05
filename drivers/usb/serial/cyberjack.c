@@ -63,6 +63,7 @@ static int  cyberjack_open(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp);
 static void cyberjack_close(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp);
+static int cyberjack_attach(struct usb_serial *serial);
 static int cyberjack_port_probe(struct usb_serial_port *port);
 static int cyberjack_port_remove(struct usb_serial_port *port);
 static int  cyberjack_open(struct tty_struct *tty,
@@ -104,6 +105,7 @@ static struct usb_serial_driver cyberjack_device = {
 	.shutdown =		cyberjack_shutdown,
 	.id_table =		id_table,
 	.num_ports =		1,
+	.attach =		cyberjack_attach,
 	.port_probe =		cyberjack_port_probe,
 	.port_remove =		cyberjack_port_remove,
 	.open =			cyberjack_open,
@@ -136,6 +138,14 @@ static int cyberjack_startup(struct usb_serial *serial)
 	dbg("%s", __func__);
 
 	/* allocate the private data structure */
+static int cyberjack_attach(struct usb_serial *serial)
+{
+	if (serial->num_bulk_out < serial->num_ports)
+		return -ENODEV;
+
+	return 0;
+}
+
 static int cyberjack_port_probe(struct usb_serial_port *port)
 {
 	struct cyberjack_private *priv;

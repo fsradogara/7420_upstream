@@ -790,6 +790,9 @@ sg_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
 	if (sdp->detached)
 	unsigned char cmnd[SG_MAX_CDB_SIZE];
 
+	if (unlikely(segment_eq(get_fs(), KERNEL_DS)))
+		return -EINVAL;
+
 	if ((!(sfp = (Sg_fd *) filp->private_data)) || (!(sdp = sfp->parentdp)))
 		return -ENXIO;
 	SCSI_LOG_TIMEOUT(3, sg_printk(KERN_INFO, sdp,
@@ -2389,6 +2392,10 @@ sg_finish_rem_req(Sg_request * srp)
 			return res;
 
 		iov_iter_truncate(&i, hp->dxfer_len);
+		if (!iov_iter_count(&i)) {
+			kfree(iov);
+			return -EINVAL;
+		}
 
 		res = blk_rq_map_user_iov(q, rq, md, &i, GFP_ATOMIC);
 		kfree(iov);

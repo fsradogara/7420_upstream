@@ -102,7 +102,8 @@ extern int __add_pages(struct zone *zone, unsigned long start_pfn,
 extern int __remove_pages(struct zone *zone, unsigned long start_pfn,
 /* VM interface that may be used by firmware interface */
 extern int online_pages(unsigned long, unsigned long, int);
-extern int test_pages_in_a_zone(unsigned long, unsigned long);
+extern int test_pages_in_a_zone(unsigned long start_pfn, unsigned long end_pfn,
+	unsigned long *valid_start, unsigned long *valid_end);
 extern void __offline_isolated_pages(unsigned long, unsigned long);
 
 typedef void (*online_page_callback_t)(struct page *page);

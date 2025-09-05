@@ -89,6 +89,7 @@ static void kobil_set_termios(struct tty_struct *tty,
 
 
 static struct usb_device_id id_table [] = {
+static int kobil_attach(struct usb_serial *serial);
 static int kobil_port_probe(struct usb_serial_port *probe);
 static int kobil_port_remove(struct usb_serial_port *probe);
 static int  kobil_open(struct tty_struct *tty, struct usb_serial_port *port);
@@ -144,6 +145,7 @@ static struct usb_serial_driver kobil_device = {
 	.set_termios =		kobil_set_termios,
 	.id_table =		id_table,
 	.num_ports =		1,
+	.attach =		kobil_attach,
 	.port_probe =		kobil_port_probe,
 	.port_remove =		kobil_port_remove,
 	.ioctl =		kobil_ioctl,
@@ -186,6 +188,16 @@ static int kobil_startup(struct usb_serial *serial)
 	struct usb_interface *interface;
 	struct usb_host_interface *altsetting;
 	struct usb_host_endpoint *endpoint;
+static int kobil_attach(struct usb_serial *serial)
+{
+	if (serial->num_interrupt_out < serial->num_ports) {
+		dev_err(&serial->interface->dev, "missing interrupt-out endpoint\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 static int kobil_port_probe(struct usb_serial_port *port)
 {
 	struct usb_serial *serial = port->serial;

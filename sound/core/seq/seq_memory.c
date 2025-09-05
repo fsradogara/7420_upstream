@@ -436,7 +436,6 @@ int snd_seq_pool_done(struct snd_seq_pool *pool)
 {
 	unsigned long flags;
 	struct snd_seq_event_cell *ptr;
-	int max_count = 5 * HZ;
 
 	snd_assert(pool != NULL, return -EINVAL);
 	if (snd_BUG_ON(!pool))
@@ -456,9 +455,8 @@ int snd_seq_pool_done(struct snd_seq_pool *pool)
 			pr_warn("ALSA: snd_seq_pool_done timeout: %d cells remain\n", atomic_read(&pool->counter));
 			break;
 		}
+	while (atomic_read(&pool->counter) > 0)
 		schedule_timeout_uninterruptible(1);
-		max_count--;
-	}
 	
 	/* release all resources */
 	spin_lock_irqsave(&pool->lock, flags);

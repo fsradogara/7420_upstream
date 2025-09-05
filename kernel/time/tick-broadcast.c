@@ -1211,6 +1211,9 @@ void tick_broadcast_setup_oneshot(struct clock_event_device *bc)
 		tick_do_timer_cpu = cpu;
 	int cpu = smp_processor_id();
 
+	if (!bc)
+		return;
+
 	/* Set it up only once ! */
 	if (bc->event_handler != tick_handle_oneshot_broadcast) {
 		int was_periodic = clockevent_state_periodic(bc);

@@ -293,6 +293,11 @@ static int klsi_105_get_line_state(struct usb_serial_port *port,
 		dev_err(&port->dev, "Reading line status failed (error = %d)\n",
 			rc);
 	else {
+	if (rc != KLSI_STATUSBUF_LEN) {
+		dev_err(&port->dev, "reading line status failed: %d\n", rc);
+		if (rc >= 0)
+			rc = -EIO;
+	} else {
 		status = get_unaligned_le16(status_buf);
 
 		dev_info(&port->serial->dev->dev, "read status %x %x\n",
@@ -566,6 +571,7 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 		dbg("%s - enabled reading", __func__);
 		dev_err(&port->dev, "Enabling read failed (error = %d)\n", rc);
 		retval = rc;
+		goto err_generic_close;
 	} else
 		dev_dbg(&port->dev, "%s - enabled reading\n", __func__);
 
@@ -640,6 +646,7 @@ err_disable_read:
 			     0, /* index */
 			     NULL, 0,
 			     KLSI_TIMEOUT);
+err_generic_close:
 	usb_serial_generic_close(port);
 err_free_cfg:
 	kfree(cfg);

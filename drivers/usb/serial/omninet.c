@@ -80,6 +80,7 @@ static int omninet_attach(struct usb_serial *serial);
 
 static struct usb_device_id id_table[] = {
 static void omninet_disconnect(struct usb_serial *serial);
+static int omninet_attach(struct usb_serial *serial);
 static int omninet_port_probe(struct usb_serial_port *port);
 static int omninet_port_remove(struct usb_serial_port *port);
 
@@ -128,6 +129,7 @@ static struct usb_serial_driver zyxel_omninet_device = {
  * four bytes are the control header, you can see it in the above structure.
 	.id_table =		id_table,
 	.num_ports =		1,
+	.attach =		omninet_attach,
 	.port_probe =		omninet_port_probe,
 	.port_remove =		omninet_port_remove,
 	.open =			omninet_open,
@@ -284,6 +286,15 @@ static void omninet_read_bulk_callback(struct urb *urb)
 						__func__, result);
 
 	return;
+	/* The second bulk-out endpoint is used for writing. */
+	if (serial->num_bulk_out < 2) {
+		dev_err(&serial->interface->dev, "missing endpoints\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 static int omninet_port_probe(struct usb_serial_port *port)
 {
 	struct omninet_data *od;

@@ -163,6 +163,16 @@ static int iuu_tiocmset(struct tty_struct *tty, struct file *file,
 	u32 clk;
 };
 
+static int iuu_attach(struct usb_serial *serial)
+{
+	unsigned char num_ports = serial->num_ports;
+
+	if (serial->num_bulk_in < num_ports || serial->num_bulk_out < num_ports)
+		return -ENODEV;
+
+	return 0;
+}
+
 static int iuu_port_probe(struct usb_serial_port *port)
 {
 	struct iuu_private *priv;
@@ -1584,6 +1594,7 @@ module_init(iuu_init);
 module_exit(iuu_exit);
 	.set_termios = iuu_set_termios,
 	.init_termios = iuu_init_termios,
+	.attach = iuu_attach,
 	.port_probe = iuu_port_probe,
 	.port_remove = iuu_port_remove,
 };

@@ -4519,4 +4519,4 @@ static int __init futex_init(void)
 
 	return 0;
 }
-__initcall(futex_init);
+core_initcall(futex_init);
