@@ -542,6 +542,7 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb)
 	req->expires	= 0UL;
 	req->retrans	= 0;
 	ireq->opt = tcp_v4_save_options(skb);
+	RCU_INIT_POINTER(ireq->ireq_opt, tcp_v4_save_options(skb));
 
 	if (security_inet_conn_request(sk, skb, req)) {
 		reqsk_free(req);

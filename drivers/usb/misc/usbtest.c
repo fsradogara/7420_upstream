@@ -226,11 +226,13 @@ found:
 		dev->in_pipe = usb_rcvbulkpipe (udev,
 			in->desc.bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
 		dev->out_pipe = usb_sndbulkpipe (udev,
+	if (in)
 		dev->in_pipe = usb_rcvbulkpipe(udev,
 			in->desc.bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
+	if (out)
 		dev->out_pipe = usb_sndbulkpipe(udev,
 			out->desc.bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
-	}
+
 	if (iso_in) {
 		dev->iso_in = &iso_in->desc;
 		dev->in_iso_pipe = usb_rcvisocpipe (udev,

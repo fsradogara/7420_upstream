@@ -561,7 +561,8 @@ static struct mdk_personality linear_personality =
 	 * oldconf until no one uses it anymore.
 	 */
 	mddev_suspend(mddev);
-	oldconf = rcu_dereference(mddev->private);
+	oldconf = rcu_dereference_protected(mddev->private,
+			lockdep_is_held(&mddev->reconfig_mutex));
 	mddev->raid_disks++;
 	WARN_ONCE(mddev->raid_disks != newconf->raid_disks,
 		"copied raid_disks doesn't match mddev->raid_disks");

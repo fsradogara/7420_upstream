@@ -234,6 +234,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	rc = key_task_permission(make_key_ref(key, 0), current, KEY_VIEW);
 	key_ref_t key_ref, skey_ref;
 	char xbuf[16];
+	short state;
 	int rc;
 
 	struct keyring_search_context ctx = {
@@ -297,13 +298,15 @@ static int proc_keys_show(struct seq_file *m, void *v)
 			sprintf(xbuf, "%luw", timo / (60*60*24*7));
 	}
 
+	state = key_read_state(key);
+
 #define showflag(KEY, LETTER, FLAG) \
 	(test_bit(FLAG,	&(KEY)->flags) ? LETTER : '-')
 
 	seq_printf(m, "%08x %c%c%c%c%c%c %5d %4s %08x %5d %5d %-9.9s ",
 	seq_printf(m, "%08x %c%c%c%c%c%c%c %5d %4s %08x %5d %5d %-9.9s ",
 		   key->serial,
-		   showflag(key, 'I', KEY_FLAG_INSTANTIATED),
+		   state != KEY_IS_UNINSTANTIATED ? 'I' : '-',
 		   showflag(key, 'R', KEY_FLAG_REVOKED),
 		   showflag(key, 'D', KEY_FLAG_DEAD),
 		   showflag(key, 'Q', KEY_FLAG_IN_QUOTA),
@@ -314,6 +317,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 		   key->perm,
 		   key->uid,
 		   key->gid,
+		   state < 0 ? 'N' : '-',
 		   showflag(key, 'i', KEY_FLAG_INVALIDATED),
 		   atomic_read(&key->usage),
 		   xbuf,

@@ -91,9 +91,7 @@ asmlinkage void ret_from_fork(void);
 #ifdef CONFIG_HOTPLUG_CPU
 void arch_cpu_idle_dead(void)
 {
-	/* What the heck is this check doing ? */
-	if (!cpumask_test_cpu(smp_processor_id(), &cpu_callin_map))
-		play_dead();
+	play_dead();
 }
 #endif
 

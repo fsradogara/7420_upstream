@@ -187,6 +187,7 @@ struct ocfs2_lock_res {
 
 	struct list_head         l_blocked_list;
 	struct list_head         l_mask_waiters;
+	struct list_head	 l_holders;
 
 	enum ocfs2_lock_type     l_type;
 	unsigned long		 l_flags;

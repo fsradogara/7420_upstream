@@ -214,6 +214,7 @@ EXPORT_SYMBOL_GPL(user_match);
 
 /*****************************************************************************/
 		if (!test_bit(KEY_FLAG_NEGATIVE, &key->flags))
+		if (key_is_positive(key))
 			zap = key->payload.data[0];
 		else
 			zap = NULL;
@@ -295,6 +296,7 @@ EXPORT_SYMBOL_GPL(user_describe);
 
 /*****************************************************************************/
 	if (key_is_instantiated(key))
+	if (key_is_positive(key))
 		seq_printf(m, ": %u", key->datalen);
 }
 
