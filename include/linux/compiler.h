@@ -2,6 +2,8 @@
 #ifndef __LINUX_COMPILER_H
 #define __LINUX_COMPILER_H
 
+#include <linux/compiler_types.h>
+
 #ifndef __ASSEMBLY__
 
 #ifdef __CHECKER__
@@ -120,6 +122,8 @@ struct ftrace_likely_data {
 	unsigned long			constant;
 };
 
+#ifdef __KERNEL__
+
 /*
  * Note: DISABLE_BRANCH_PROFILING can be used by special lowlevel code
  * to disable branch tracing on a per file basis.
@@ -133,7 +137,7 @@ void ftrace_likely_update(struct ftrace_likely_data *f, int val,
 #define unlikely_notrace(x)	__builtin_expect(!!(x), 0)
 
 #define __branch_check__(x, expect, is_constant) ({			\
-			int ______r;					\
+			long ______r;					\
 			static struct ftrace_likely_data		\
 				__attribute__((__aligned__(4)))		\
 				__attribute__((section("_ftrace_annotated_branch"))) \
@@ -196,6 +200,11 @@ void ftrace_likely_update(struct ftrace_likely_data *f, int val,
 
 #ifndef barrier_data
 # define barrier_data(ptr) barrier()
+#endif
+
+/* workaround for GCC PR82365 if needed */
+#ifndef barrier_before_unreachable
+# define barrier_before_unreachable() do { } while (0)
 #endif
 
 /* Unreachable code */
@@ -346,6 +355,7 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
  * with an explicit memory barrier or atomic instruction that provides the
  * required ordering.
  */
+#include <asm/barrier.h>
 
 #define __READ_ONCE(x, check)						\
 ({									\
@@ -354,6 +364,7 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
 		__read_once_size(&(x), __u.__c, sizeof(x));		\
 	else								\
 		__read_once_size_nocheck(&(x), __u.__c, sizeof(x));	\
+	smp_read_barrier_depends(); /* Enforce dependency ordering from x */ \
 	__u.__val;							\
 })
 #define READ_ONCE(x) __READ_ONCE(x, 1)
@@ -536,6 +547,8 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
 /* Is this type a native word size -- useful for atomic operations */
 #ifndef __native_word
 # define __native_word(t) (sizeof(t) == sizeof(char) || sizeof(t) == sizeof(short) || sizeof(t) == sizeof(int) || sizeof(t) == sizeof(long))
+#ifndef __optimize
+# define __optimize(level)
 #endif
 
 /* Compile time object size, -1 for unknown */

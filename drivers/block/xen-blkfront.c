@@ -309,6 +309,7 @@ static LIST_HEAD(vbds_list);
 
 static int blkfront_setup_indirect(struct blkfront_ring_info *rinfo);
 static void blkfront_gather_backend_features(struct blkfront_info *info);
+static int negotiate_mq(struct blkfront_info *info);
 
 static int get_id_from_freelist(struct blkfront_ring_info *rinfo)
 {
@@ -2139,10 +2140,17 @@ static int talk_to_blkback(struct xenbus_device *dev,
 	unsigned int i, max_page_order;
 	unsigned int ring_page_order;
 
+	if (!info)
+		return -ENODEV;
+
 	max_page_order = xenbus_read_unsigned(info->xbdev->otherend,
 					      "max-ring-page-order", 0);
 	ring_page_order = min(xen_blkif_max_ring_order, max_page_order);
 	info->nr_ring_pages = 1 << ring_page_order;
+
+	err = negotiate_mq(info);
+	if (err)
+		goto destroy_blkring;
 
 	for (i = 0; i < info->nr_rings; i++) {
 		struct blkfront_ring_info *rinfo = &info->rinfo[i];

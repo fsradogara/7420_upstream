@@ -71,9 +71,11 @@ static int snd_timer_user_info_compat(struct file *file,
 	snd_assert(t != NULL, return -ENXIO);
 	if (snd_BUG_ON(!tu->timeri))
 		return -ENXIO;
+	if (!tu->timeri)
+		return -EBADFD;
 	t = tu->timeri->timer;
-	if (snd_BUG_ON(!t))
-		return -ENXIO;
+	if (!t)
+		return -EBADFD;
 	memset(&info, 0, sizeof(info));
 	info.card = t->card ? t->card->number : -1;
 	if (t->hw.flags & SNDRV_TIMER_HW_SLAVE)
@@ -105,6 +107,8 @@ static int snd_timer_user_status_compat(struct file *file,
 	snd_assert(tu->timeri != NULL, return -ENXIO);
 	if (snd_BUG_ON(!tu->timeri))
 		return -ENXIO;
+	if (!tu->timeri)
+		return -EBADFD;
 	memset(&status, 0, sizeof(status));
 	status.tstamp.tv_sec = tu->tstamp.tv_sec;
 	status.tstamp.tv_nsec = tu->tstamp.tv_nsec;

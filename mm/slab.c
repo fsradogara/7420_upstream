@@ -115,7 +115,6 @@
 #include	<linux/rtmutex.h>
 #include	<linux/reciprocal_div.h>
 #include	<linux/debugobjects.h>
-#include	<linux/kmemcheck.h>
 #include	<linux/memory.h>
 #include	<linux/prefetch.h>
 #include	<linux/sched/task_stack.h>
@@ -2398,6 +2397,7 @@ void __init kmem_cache_init(void)
 				  nr_node_ids * sizeof(struct kmem_cache_node *),
 				  SLAB_HWCACHE_ALIGN);
 	list_add(&kmem_cache->list, &slab_caches);
+	memcg_link_cache(kmem_cache);
 	slab_state = PARTIAL;
 
 	/*
@@ -2578,7 +2578,7 @@ static struct page *kmem_getpages(struct kmem_cache *cachep, gfp_t flags,
 	if (cachep->flags & SLAB_RECLAIM_ACCOUNT)
 		flags |= __GFP_RECLAIMABLE;
 
-	page = __alloc_pages_node(nodeid, flags | __GFP_NOTRACK, cachep->gfporder);
+	page = __alloc_pages_node(nodeid, flags, cachep->gfporder);
 	if (!page) {
 		slab_out_of_memory(cachep, flags, nodeid);
 		return NULL;
@@ -2605,15 +2605,6 @@ static struct page *kmem_getpages(struct kmem_cache *cachep, gfp_t flags,
 	if (sk_memalloc_socks() && page_is_pfmemalloc(page))
 		SetPageSlabPfmemalloc(page);
 
-	if (kmemcheck_enabled && !(cachep->flags & SLAB_NOTRACK)) {
-		kmemcheck_alloc_shadow(page, cachep->gfporder, flags, nodeid);
-
-		if (cachep->ctor)
-			kmemcheck_mark_uninitialized_pages(page, nr_pages);
-		else
-			kmemcheck_mark_unallocated_pages(page, nr_pages);
-	}
-
 	return page;
 }
 
@@ -2629,8 +2620,6 @@ static void kmem_freepages(struct kmem_cache *cachep, struct page *page)
 {
 	int order = cachep->gfporder;
 	unsigned long nr_freed = (1 << order);
-
-	kmemcheck_free_shadow(page, order);
 
 	if (cachep->flags & SLAB_RECLAIM_ACCOUNT)
 		mod_lruvec_page_state(page, NR_SLAB_RECLAIMABLE, -nr_freed);
@@ -5835,8 +5824,6 @@ void ___cache_free(struct kmem_cache *cachep, void *objp,
 	kmemleak_free_recursive(objp, cachep->flags);
 	objp = cache_free_debugcheck(cachep, objp, caller);
 
-	kmemcheck_slab_free(cachep, objp, cachep->object_size);
-
 	/*
 	 * Skip calling cache_free_alien() when the platform is not numa.
 	 * This will avoid cache misses that happen while accessing slabp (which
@@ -6851,7 +6838,8 @@ static int s_show(struct seq_file *m, void *p)
 	next_reap_node();
 out:
 	/* Set up the next iteration */
-	schedule_delayed_work(work, round_jiffies_relative(REAPTIMEOUT_AC));
+	schedule_delayed_work_on(smp_processor_id(), work,
+				round_jiffies_relative(REAPTIMEOUT_AC));
 }
 
 #ifdef CONFIG_SLABINFO

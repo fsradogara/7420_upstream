@@ -137,6 +137,11 @@ static inline bool is_write_device_private_entry(swp_entry_t entry)
 	return unlikely(swp_type(entry) == SWP_DEVICE_WRITE);
 }
 
+static inline unsigned long device_private_entry_to_pfn(swp_entry_t entry)
+{
+	return swp_offset(entry);
+}
+
 static inline struct page *device_private_entry_to_page(swp_entry_t entry)
 {
 	return pfn_to_page(swp_offset(entry));
@@ -165,6 +170,11 @@ static inline bool is_device_private_entry(swp_entry_t entry)
 static inline bool is_write_device_private_entry(swp_entry_t entry)
 {
 	return false;
+}
+
+static inline unsigned long device_private_entry_to_pfn(swp_entry_t entry)
+{
+	return 0;
 }
 
 static inline struct page *device_private_entry_to_page(swp_entry_t entry)
@@ -202,6 +212,11 @@ static inline int is_write_migration_entry(swp_entry_t entry)
 	return unlikely(swp_type(entry) == SWP_MIGRATION_WRITE);
 }
 
+static inline unsigned long migration_entry_to_pfn(swp_entry_t entry)
+{
+	return swp_offset(entry);
+}
+
 static inline struct page *migration_entry_to_page(swp_entry_t entry)
 {
 	struct page *p = pfn_to_page(swp_offset(entry));
@@ -233,6 +248,12 @@ static inline int is_migration_entry(swp_entry_t swp)
 {
 	return 0;
 }
+
+static inline unsigned long migration_entry_to_pfn(swp_entry_t entry)
+{
+	return 0;
+}
+
 static inline struct page *migration_entry_to_page(swp_entry_t entry)
 {
 	return NULL;

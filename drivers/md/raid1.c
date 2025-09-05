@@ -1205,7 +1205,9 @@ static void flush_pending_writes(struct r1conf *conf)
 	spin_lock_irq(&conf->device_lock);
 
 	if (conf->pending_bio_list.head) {
+		struct blk_plug plug;
 		struct bio *bio;
+
 		bio = bio_list_get(&conf->pending_bio_list);
 		blk_remove_plug(conf->mddev->queue);
 		conf->pending_count = 0;
@@ -1233,7 +1235,9 @@ static void flush_pending_writes(struct r1conf *conf)
 				generic_make_request(bio);
 			bio = next;
 		}
+		blk_start_plug(&plug);
 		flush_bio_list(conf, bio);
+		blk_finish_plug(&plug);
 	} else
 		spin_unlock_irq(&conf->device_lock);
 }
@@ -1459,14 +1463,6 @@ static void wait_barrier(struct r1conf *conf, sector_t sector_nr)
 	_wait_barrier(conf, idx);
 }
 
-static void wait_all_barriers(struct r1conf *conf)
-{
-	int idx;
-
-	for (idx = 0; idx < BARRIER_BUCKETS_NR; idx++)
-		_wait_barrier(conf, idx);
-}
-
 static void _allow_barrier(struct r1conf *conf, int idx)
 {
 	atomic_dec(&conf->nr_pending[idx]);
@@ -1478,14 +1474,6 @@ static void allow_barrier(struct r1conf *conf, sector_t sector_nr)
 	int idx = sector_to_idx(sector_nr);
 
 	_allow_barrier(conf, idx);
-}
-
-static void allow_all_barriers(struct r1conf *conf)
-{
-	int idx;
-
-	for (idx = 0; idx < BARRIER_BUCKETS_NR; idx++)
-		_allow_barrier(conf, idx);
 }
 
 /* conf->resync_lock should be held */
@@ -1878,8 +1866,9 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 	if ((bio_end_sector(bio) > mddev->suspend_lo &&
 	    bio->bi_iter.bi_sector < mddev->suspend_hi) ||
 	    (mddev_is_clustered(mddev) &&
+	if (mddev_is_clustered(mddev) &&
 	     md_cluster_ops->area_resyncing(mddev, WRITE,
-		     bio->bi_iter.bi_sector, bio_end_sector(bio)))) {
+		     bio->bi_iter.bi_sector, bio_end_sector(bio))) {
 
 		/*
 		 * As the suspend_* range is controlled by userspace, we want
@@ -1890,12 +1879,10 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 			sigset_t full, old;
 			prepare_to_wait(&conf->wait_barrier,
 					&w, TASK_INTERRUPTIBLE);
-			if (bio_end_sector(bio) <= mddev->suspend_lo ||
-			    bio->bi_iter.bi_sector >= mddev->suspend_hi ||
-			    (mddev_is_clustered(mddev) &&
-			     !md_cluster_ops->area_resyncing(mddev, WRITE,
-				     bio->bi_iter.bi_sector,
-				     bio_end_sector(bio))))
+			if (!mddev_is_clustered(mddev) ||
+			    !md_cluster_ops->area_resyncing(mddev, WRITE,
+							bio->bi_iter.bi_sector,
+							bio_end_sector(bio)))
 				break;
 			sigfillset(&full);
 			sigprocmask(SIG_BLOCK, &full, &old);
@@ -2540,8 +2527,12 @@ static int raid1_add_disk(mddev_t *mddev, mdk_rdev_t *rdev)
 	int last = mddev->raid_disks - 1;
 static void close_sync(struct r1conf *conf)
 {
-	wait_all_barriers(conf);
-	allow_all_barriers(conf);
+	int idx;
+
+	for (idx = 0; idx < BARRIER_BUCKETS_NR; idx++) {
+		_wait_barrier(conf, idx);
+		_allow_barrier(conf, idx);
+	}
 
 	mempool_destroy(conf->r1buf_pool);
 	conf->r1buf_pool = NULL;
@@ -2742,6 +2733,17 @@ static int raid1_remove_disk(struct mddev *mddev, struct md_rdev *rdev)
 			struct md_rdev *repl =
 				conf->mirrors[conf->raid_disks + number].rdev;
 			freeze_array(conf, 0);
+			if (atomic_read(&repl->nr_pending)) {
+				/* It means that some queued IO of retry_list
+				 * hold repl. Thus, we cannot set replacement
+				 * as NULL, avoiding rdev NULL pointer
+				 * dereference in sync_request_write and
+				 * handle_write_finished.
+				 */
+				err = -EBUSY;
+				unfreeze_array(conf);
+				goto abort;
+			}
 			clear_bit(Replacement, &repl->flags);
 			p->rdev = repl;
 			conf->mirrors[conf->raid_disks + number].rdev = NULL;
@@ -3685,6 +3687,8 @@ static void handle_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 		fix_read_error(conf, r1_bio->read_disk,
 			       r1_bio->sector, r1_bio->sectors);
 		unfreeze_array(conf);
+	} else if (mddev->ro == 0 && test_bit(FailFast, &rdev->flags)) {
+		md_error(mddev, rdev);
 	} else {
 		r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
 	}
@@ -4913,20 +4917,14 @@ static void raid1_quiesce(mddev_t *mddev, int state)
 	case 0:
 		lower_barrier(conf);
 static void raid1_quiesce(struct mddev *mddev, int state)
+static void raid1_quiesce(struct mddev *mddev, int quiesce)
 {
 	struct r1conf *conf = mddev->private;
 
-	switch(state) {
-	case 2: /* wake for suspend */
-		wake_up(&conf->wait_barrier);
-		break;
-	case 1:
+	if (quiesce)
 		freeze_array(conf, 0);
-		break;
-	case 0:
+	else
 		unfreeze_array(conf);
-		break;
-	}
 }
 
 

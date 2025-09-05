@@ -2865,7 +2865,7 @@ out:
 	return err;
 
 out_free_irq:
-	free_irq(dev->irq, dev);
+	free_irq(irq, dev);
 out_free:
 	kfree(dev);
 out_release:

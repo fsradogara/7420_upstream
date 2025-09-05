@@ -67,6 +67,7 @@ STATIC void	xlog_recover_check_ail(xfs_mount_t *, xfs_log_item_t *, int);
 #include "xfs_bit.h"
 #include "xfs_sb.h"
 #include "xfs_mount.h"
+#include "xfs_defer.h"
 #include "xfs_da_format.h"
 #include "xfs_da_btree.h"
 #include "xfs_inode.h"
@@ -1040,7 +1041,7 @@ xlog_find_head(
 	 * in the in-core log.  The following number can be made tighter if
 	 * we actually look at the block size of the filesystem.
 	 */
-	num_scan_bblks = XLOG_TOTAL_REC_SHIFT(log);
+	num_scan_bblks = min_t(int, log_bbnum, XLOG_TOTAL_REC_SHIFT(log));
 	if (head_blk >= num_scan_bblks) {
 		/*
 		 * We are guaranteed that the entire check can be performed
@@ -6587,7 +6588,8 @@ STATIC int
 xlog_recover_process_cui(
 	struct xfs_mount		*mp,
 	struct xfs_ail			*ailp,
-	struct xfs_log_item		*lip)
+	struct xfs_log_item		*lip,
+	struct xfs_defer_ops		*dfops)
 {
 	struct xfs_cui_log_item		*cuip;
 	int				error;
@@ -6600,7 +6602,7 @@ xlog_recover_process_cui(
 		return 0;
 
 	spin_unlock(&ailp->xa_lock);
-	error = xfs_cui_recover(mp, cuip);
+	error = xfs_cui_recover(mp, cuip, dfops);
 	spin_lock(&ailp->xa_lock);
 
 	return error;
@@ -6627,7 +6629,8 @@ STATIC int
 xlog_recover_process_bui(
 	struct xfs_mount		*mp,
 	struct xfs_ail			*ailp,
-	struct xfs_log_item		*lip)
+	struct xfs_log_item		*lip,
+	struct xfs_defer_ops		*dfops)
 {
 	struct xfs_bui_log_item		*buip;
 	int				error;
@@ -6640,7 +6643,7 @@ xlog_recover_process_bui(
 		return 0;
 
 	spin_unlock(&ailp->xa_lock);
-	error = xfs_bui_recover(mp, buip);
+	error = xfs_bui_recover(mp, buip, dfops);
 	spin_lock(&ailp->xa_lock);
 
 	return error;
@@ -6674,6 +6677,46 @@ static inline bool xlog_item_is_intent(struct xfs_log_item *lip)
 	default:
 		return false;
 	}
+}
+
+/* Take all the collected deferred ops and finish them in order. */
+static int
+xlog_finish_defer_ops(
+	struct xfs_mount	*mp,
+	struct xfs_defer_ops	*dfops)
+{
+	struct xfs_trans	*tp;
+	int64_t			freeblks;
+	uint			resblks;
+	int			error;
+
+	/*
+	 * We're finishing the defer_ops that accumulated as a result of
+	 * recovering unfinished intent items during log recovery.  We
+	 * reserve an itruncate transaction because it is the largest
+	 * permanent transaction type.  Since we're the only user of the fs
+	 * right now, take 93% (15/16) of the available free blocks.  Use
+	 * weird math to avoid a 64-bit division.
+	 */
+	freeblks = percpu_counter_sum(&mp->m_fdblocks);
+	if (freeblks <= 0)
+		return -ENOSPC;
+	resblks = min_t(int64_t, UINT_MAX, freeblks);
+	resblks = (resblks * 15) >> 4;
+	error = xfs_trans_alloc(mp, &M_RES(mp)->tr_itruncate, resblks,
+			0, XFS_TRANS_RESERVE, &tp);
+	if (error)
+		return error;
+
+	error = xfs_defer_finish(&tp, dfops);
+	if (error)
+		goto out_cancel;
+
+	return xfs_trans_commit(tp);
+
+out_cancel:
+	xfs_trans_cancel(tp);
+	return error;
 }
 
 /*
@@ -6745,10 +6788,12 @@ xlog_recover_process_efis(
 xlog_recover_process_intents(
 	struct xlog		*log)
 {
-	struct xfs_log_item	*lip;
-	int			error = 0;
+	struct xfs_defer_ops	dfops;
 	struct xfs_ail_cursor	cur;
+	struct xfs_log_item	*lip;
 	struct xfs_ail		*ailp;
+	xfs_fsblock_t		firstfsb;
+	int			error = 0;
 #if defined(DEBUG) || defined(XFS_WARN)
 	xfs_lsn_t		last_lsn;
 #endif
@@ -6759,6 +6804,7 @@ xlog_recover_process_intents(
 #if defined(DEBUG) || defined(XFS_WARN)
 	last_lsn = xlog_assign_lsn(log->l_curr_cycle, log->l_curr_block);
 #endif
+	xfs_defer_init(&dfops, &firstfsb);
 	while (lip != NULL) {
 		/*
 		 * We're done when we see something other than an intent.
@@ -6798,6 +6844,12 @@ xlog_recover_process_intents(
 		}
 		ASSERT(XFS_LSN_CMP(last_lsn, lip->li_lsn) >= 0);
 
+		/*
+		 * NOTE: If your intent processing routine can create more
+		 * deferred ops, you /must/ attach them to the dfops in this
+		 * routine or else those subsequent intents will get
+		 * replayed in the wrong order!
+		 */
 		switch (lip->li_type) {
 		case XFS_LI_EFI:
 			error = xlog_recover_process_efi(log->l_mp, ailp, lip);
@@ -6806,10 +6858,12 @@ xlog_recover_process_intents(
 			error = xlog_recover_process_rui(log->l_mp, ailp, lip);
 			break;
 		case XFS_LI_CUI:
-			error = xlog_recover_process_cui(log->l_mp, ailp, lip);
+			error = xlog_recover_process_cui(log->l_mp, ailp, lip,
+					&dfops);
 			break;
 		case XFS_LI_BUI:
-			error = xlog_recover_process_bui(log->l_mp, ailp, lip);
+			error = xlog_recover_process_bui(log->l_mp, ailp, lip,
+					&dfops);
 			break;
 		}
 		if (error)
@@ -6819,6 +6873,11 @@ xlog_recover_process_intents(
 out:
 	xfs_trans_ail_cursor_done(&cur);
 	spin_unlock(&ailp->xa_lock);
+	if (error)
+		xfs_defer_cancel(&dfops);
+	else
+		error = xlog_finish_defer_ops(log->l_mp, &dfops);
+
 	return error;
 }
 

@@ -1108,7 +1108,7 @@ static int aac_eh_bus_reset(struct scsi_cmnd* cmd)
 			info = &aac->hba_map[bus][cid];
 			if (bus >= AAC_MAX_BUSES || cid >= AAC_MAX_TARGETS ||
 			    info->devtype != AAC_DEVTYPE_NATIVE_RAW) {
-				fib->flags |= FIB_CONTEXT_FLAG_TIMED_OUT;
+				fib->flags |= FIB_CONTEXT_FLAG_EH_RESET;
 				cmd->SCp.phase = AAC_OWNER_ERROR_HANDLER;
 			}
 		}
@@ -1678,6 +1678,7 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 				up(&fib->event_wait);
 		}
 		kthread_stop(aac->thread);
+		aac->thread = NULL;
 	}
 
 	aac_send_shutdown(aac);
@@ -1816,8 +1817,10 @@ static int aac_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	 *	Map in the registers from the adapter.
 	 */
 	aac->base_size = AAC_MIN_FOOTPRINT_SIZE;
-	if ((*aac_drivers[index].init)(aac))
+	if ((*aac_drivers[index].init)(aac)) {
+		error = -ENODEV;
 		goto out_unmap;
+	}
 
 	if (aac->sync_mode) {
 		if (aac_sync_mode)

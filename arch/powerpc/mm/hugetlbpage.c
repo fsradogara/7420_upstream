@@ -1163,9 +1163,11 @@ void set_huge_psize(int psize)
 	} else
 		hugepte_shift[psize] = 0;
 
+#ifdef CONFIG_PPC_RADIX_MMU
 	if (radix_enabled())
 		return radix__hugetlb_get_unmapped_area(file, addr, len,
 						       pgoff, flags);
+#endif
 	return slice_get_unmapped_area(addr, len, flags, mmu_psize, 1);
 }
 #endif

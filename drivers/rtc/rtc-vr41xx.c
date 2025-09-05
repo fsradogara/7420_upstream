@@ -372,10 +372,13 @@ static int rtc_probe(struct platform_device *pdev)
 	rtc = rtc_device_register(rtc_name, &pdev->dev, &vr41xx_rtc_ops, THIS_MODULE);
 	rtc = devm_rtc_device_register(&pdev->dev, rtc_name, &vr41xx_rtc_ops,
 					THIS_MODULE);
+	rtc = devm_rtc_allocate_device(&pdev->dev);
 	if (IS_ERR(rtc)) {
 		retval = PTR_ERR(rtc);
 		goto err_iounmap_all;
 	}
+
+	rtc->ops = &vr41xx_rtc_ops;
 
 	rtc->max_user_freq = MAX_PERIODIC_RATE;
 
@@ -451,6 +454,10 @@ err_iounmap_all:
 err_rtc1_iounmap:
 	iounmap(rtc1_base);
 	dev_info(&pdev->dev, "Real Time Clock of NEC VR4100 series\n");
+
+	retval = rtc_register_device(rtc);
+	if (retval)
+		goto err_iounmap_all;
 
 	return 0;
 

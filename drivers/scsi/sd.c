@@ -254,11 +254,15 @@ manage_start_stop_store(struct device *dev, struct device_attribute *attr,
 {
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
+	bool v;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
-	sdp->manage_start_stop = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->manage_start_stop = v;
 
 	return count;
 }
@@ -280,6 +284,7 @@ static ssize_t
 allow_restart_store(struct device *dev, struct device_attribute *attr,
 		    const char *buf, size_t count)
 {
+	bool v;
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
 
@@ -289,7 +294,10 @@ allow_restart_store(struct device *dev, struct device_attribute *attr,
 	if (sdp->type != TYPE_DISK && sdp->type != TYPE_ZBC)
 		return -EINVAL;
 
-	sdp->allow_restart = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->allow_restart = v;
 
 	return count;
 }
@@ -1484,6 +1492,7 @@ static int sd_init_command(struct scsi_cmnd *cmd)
 static void sd_uninit_command(struct scsi_cmnd *SCpnt)
 {
 	struct request *rq = SCpnt->request;
+	u8 *cmnd;
 
 	if (SCpnt->flags & SCMD_ZONE_WRITE_LOCK)
 		sd_zbc_write_unlock_zone(SCpnt);
@@ -1492,9 +1501,10 @@ static void sd_uninit_command(struct scsi_cmnd *SCpnt)
 		__free_page(rq->special_vec.bv_page);
 
 	if (SCpnt->cmnd != scsi_req(rq)->cmd) {
-		mempool_free(SCpnt->cmnd, sd_cdb_pool);
+		cmnd = SCpnt->cmnd;
 		SCpnt->cmnd = NULL;
 		SCpnt->cmd_len = 0;
+		mempool_free(cmnd, sd_cdb_pool);
 	}
 }
 
@@ -2615,6 +2625,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 				break;	/* standby */
 			if (sshdr.asc == 4 && sshdr.ascq == 0xc)
 				break;	/* unavailable */
+			if (sshdr.asc == 4 && sshdr.ascq == 0x1b)
+				break;	/* sanitize in progress */
 			/*
 			 * Issue command to spin up drive when not ready
 			 */
@@ -3282,6 +3294,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 	set_disk_ro(sdkp->disk, 0);
 	if (sdp->skip_ms_page_3f) {
 		sd_printk(KERN_NOTICE, sdkp, "Assuming Write Enabled\n");
+	int disk_ro = get_disk_ro(sdkp->disk);
 	int old_wp = sdkp->write_prot;
 
 	set_disk_ro(sdkp->disk, 0);
@@ -3329,6 +3342,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 		sd_printk(KERN_DEBUG, sdkp,
 			  "Mode Sense: %02x %02x %02x %02x\n",
 			  buffer[0], buffer[1], buffer[2], buffer[3]);
+		set_disk_ro(sdkp->disk, sdkp->write_prot || disk_ro);
 		if (sdkp->first_scan || old_wp != sdkp->write_prot) {
 			sd_printk(KERN_NOTICE, sdkp, "Write Protect is %s\n",
 				  sdkp->write_prot ? "on" : "off");

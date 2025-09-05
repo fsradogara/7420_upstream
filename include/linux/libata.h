@@ -225,6 +225,7 @@ enum {
 	ATA_FLAG_MMIO		= (1 << 3), /* use MMIO, not PIO */
 	ATA_FLAG_SRST		= (1 << 4), /* (obsolete) use ATA SRST, not E.D.D. */
 	ATA_FLAG_SATA_RESET	= (1 << 5), /* (obsolete) use COMRESET */
+	ATA_FLAG_NO_LPM		= (1 << 2), /* host not happy with LPM */
 	ATA_FLAG_NO_LOG_PAGE	= (1 << 5), /* do not issue log page read */
 	ATA_FLAG_NO_ATAPI	= (1 << 6), /* No ATAPI support */
 	ATA_FLAG_PIO_DMA	= (1 << 7), /* PIO cmds via DMA */

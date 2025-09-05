@@ -4604,6 +4604,8 @@ static void check_msg_timeout(ipmi_smi_t intf, struct seq_table *ent,
 	struct ipmi_smi_handlers *handlers;
 
 	if (intf->intf_num == -1)
+			      struct list_head *timeouts,
+			      unsigned long timeout_period,
 			      int slot, unsigned long *flags,
 			      unsigned int *waiting_msgs)
 {
@@ -4620,6 +4622,8 @@ static void check_msg_timeout(ipmi_smi_t intf, struct seq_table *ent,
 	if (ent->timeout > 0)
 		return;
 	if (ent->timeout > 0) {
+	if (timeout_period < ent->timeout) {
+		ent->timeout -= timeout_period;
 		(*waiting_msgs)++;
 		return;
 	}
@@ -4790,6 +4794,8 @@ static void ipmi_request_event(void)
 	}
 	rcu_read_unlock();
 static unsigned int ipmi_timeout_handler(ipmi_smi_t intf, long timeout_period)
+static unsigned int ipmi_timeout_handler(ipmi_smi_t intf,
+					 unsigned long timeout_period)
 {
 	struct list_head     timeouts;
 	struct ipmi_recv_msg *msg, *msg2;

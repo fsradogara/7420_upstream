@@ -358,8 +358,10 @@ static struct dst_entry *sctp_transport_dst_check(struct sctp_transport *t)
 void sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
 void sctp_transport_update_pmtu(struct sock *sk, struct sctp_transport *t, u32 pmtu)
 void sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
+bool sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
 {
 	struct dst_entry *dst = sctp_transport_dst_check(t);
+	bool change = true;
 
 	if (unlikely(pmtu < SCTP_DEFAULT_MINSEGMENT)) {
 		printk(KERN_WARNING "%s: Reported pmtu %d too low, "
@@ -374,7 +376,12 @@ void sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
 		t->pathmtu = SCTP_DEFAULT_MINSEGMENT;
 	} else {
 		t->pathmtu = pmtu;
+		pr_warn_ratelimited("%s: Reported pmtu %d too low, using default minimum of %d\n",
+				    __func__, pmtu, SCTP_DEFAULT_MINSEGMENT);
+		/* Use default minimum segment instead */
+		pmtu = SCTP_DEFAULT_MINSEGMENT;
 	}
+	pmtu = SCTP_TRUNC4(pmtu);
 
 	dst = sctp_transport_dst_check(t);
 	if (dst)
@@ -387,8 +394,19 @@ void sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
 		dst = sctp_transport_dst_check(t);
 	}
 
-	if (!dst)
+	if (!dst) {
 		t->af_specific->get_dst(t, &t->saddr, &t->fl, t->asoc->base.sk);
+		dst = t->dst;
+	}
+
+	if (dst) {
+		/* Re-fetch, as under layers may have a higher minimum size */
+		pmtu = SCTP_TRUNC4(dst_mtu(dst));
+		change = t->pathmtu != pmtu;
+	}
+	t->pathmtu = pmtu;
+
+	return change;
 }
 
 /* Caches the dst entry and source address for a transport's destination
@@ -824,7 +842,7 @@ unsigned long sctp_transport_timeout(struct sctp_transport *trans)
 	    trans->state != SCTP_PF)
 		timeout += trans->hbinterval;
 
-	return timeout;
+	return max_t(unsigned long, timeout, HZ / 5);
 }
 
 /* Reset transport variables to their initial values */

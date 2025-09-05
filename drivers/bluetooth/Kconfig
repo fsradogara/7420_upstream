@@ -90,6 +90,7 @@ config BT_HCIUART
 	  This driver is required if you want to use Bluetooth devices with
 	  serial port interface. You will also need this driver if you have 
 	  UART based Bluetooth PCMCIA and CF devices like Xircom Credit Card 
+	depends on SERIAL_DEV_BUS || !SERIAL_DEV_BUS
 	depends on TTY
 	help
 	  Bluetooth HCI UART driver.
@@ -104,7 +105,6 @@ config BT_HCIUART
 config BT_HCIUART_SERDEV
 	bool
 	depends on SERIAL_DEV_BUS && BT_HCIUART
-	depends on SERIAL_DEV_BUS=y || SERIAL_DEV_BUS=BT_HCIUART
 	default y
 
 config BT_HCIUART_H4

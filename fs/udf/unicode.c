@@ -32,6 +32,9 @@ static int udf_translate_to_linux(uint8_t *, uint8_t *, int, uint8_t *, int);
 
 #include "udf_sb.h"
 
+#define SURROGATE_MASK 0xfffff800
+#define SURROGATE_PAIR 0x0000d800
+
 static int udf_uni2char_utf8(wchar_t uni,
 			     unsigned char *out,
 			     int boundlen)
@@ -187,6 +190,9 @@ int udf_CS0toUTF8(struct ustr *utf_o, const struct ustr *ocu_i)
  *	Written, tested, and released.
  */
 static int udf_UTF8toCS0(dstring *ocu, struct ustr *utf, int length)
+	if ((uni & SURROGATE_MASK) == SURROGATE_PAIR)
+		return -EINVAL;
+
 	if (uni < 0x80) {
 		out[u_len++] = (unsigned char)uni;
 	} else if (uni < 0x800) {

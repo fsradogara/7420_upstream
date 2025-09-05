@@ -802,7 +802,6 @@ fail:
 	return event;
 
 fail_mark:
-	sctp_chunk_put(chunk);
 	kfree_skb(skb);
 fail:
 	return NULL;

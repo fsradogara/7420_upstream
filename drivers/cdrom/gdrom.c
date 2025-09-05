@@ -562,6 +562,9 @@ static struct block_device_operations gdrom_bdops = {
 static int gdrom_bdops_open(struct block_device *bdev, fmode_t mode)
 {
 	int ret;
+
+	check_disk_change(bdev);
+
 	mutex_lock(&gdrom_mutex);
 	ret = cdrom_open(gd.cd_info, bdev, mode);
 	mutex_unlock(&gdrom_mutex);

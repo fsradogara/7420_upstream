@@ -1716,11 +1716,10 @@ unsigned long xen_read_cr2_direct(void)
 
 void xen_flush_tlb_all(void)
 static void xen_flush_tlb_all(void)
+static noinline void xen_flush_tlb_all(void)
 {
 	struct mmuext_op *op;
 	struct multicall_space mcs;
-
-	trace_xen_mmu_flush_tlb_all(0);
 
 	preempt_disable();
 

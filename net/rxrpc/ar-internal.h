@@ -84,6 +84,7 @@ struct rxrpc_net {
 	unsigned int		nr_client_conns;
 	unsigned int		nr_active_client_conns;
 	bool			kill_all_client_conns;
+	bool			live;
 	spinlock_t		client_conn_cache_lock; /* Lock for ->*_client_conns */
 	spinlock_t		client_conn_discard_lock; /* Prevent multiple discarders */
 	struct list_head	waiting_client_conns;
@@ -267,6 +268,7 @@ struct rxrpc_local {
 	rwlock_t		services_lock;	/* lock for services list */
 	int			debug_id;	/* debug ID for printks */
 	bool			dead;
+	bool			service_closed;	/* Service socket closed */
 	struct sockaddr_rxrpc	srx;		/* local address */
 };
 
@@ -851,7 +853,7 @@ struct rxrpc_call *rxrpc_incoming_call(struct rxrpc_sock *,
 struct rxrpc_call *rxrpc_find_server_call(struct rxrpc_sock *, unsigned long);
 void rxrpc_release_call(struct rxrpc_call *);
 struct rxrpc_call *rxrpc_find_call_by_user_ID(struct rxrpc_sock *, unsigned long);
-struct rxrpc_call *rxrpc_alloc_call(gfp_t);
+struct rxrpc_call *rxrpc_alloc_call(struct rxrpc_sock *, gfp_t);
 struct rxrpc_call *rxrpc_new_client_call(struct rxrpc_sock *,
 					 struct rxrpc_conn_parameters *,
 					 struct sockaddr_rxrpc *,
@@ -1030,6 +1032,7 @@ extern void rxrpc_UDP_error_handler(struct work_struct *);
 void rxrpc_UDP_error_report(struct sock *);
 void rxrpc_UDP_error_handler(struct work_struct *);
 extern unsigned int rxrpc_connection_expiry;
+extern unsigned int rxrpc_closed_conn_expiry;
 
 struct rxrpc_connection *rxrpc_alloc_connection(gfp_t);
 struct rxrpc_connection *rxrpc_find_connection_rcu(struct rxrpc_local *,

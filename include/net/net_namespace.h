@@ -286,6 +286,11 @@ static inline int net_alive(struct net *net)
 	return 1;
 }
 
+static inline int check_net(const struct net *net)
+{
+	return atomic_read(&net->count) != 0;
+}
+
 void net_drop_ns(void *);
 
 #else
@@ -336,6 +341,11 @@ static inline void release_net(struct net *net)
 }
 #endif
 
+
+static inline int check_net(const struct net *net)
+{
+	return 1;
+}
 
 #define net_drop_ns NULL
 #endif

@@ -401,6 +401,7 @@ static int pppoatm_send(struct ppp_channel *chan, struct sk_buff *skb)
 	return ATM_SKB(skb)->vcc->send(ATM_SKB(skb)->vcc, skb)
 	    ? DROP_PACKET : 1;
     nospace:
+	atm_account_tx(vcc, skb);
 	pr_debug("atm_skb(%p)->vcc(%p)->dev(%p)\n",
 		 skb, ATM_SKB(skb)->vcc, ATM_SKB(skb)->vcc->dev);
 	ret = ATM_SKB(skb)->vcc->send(ATM_SKB(skb)->vcc, skb)

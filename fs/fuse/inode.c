@@ -1487,6 +1487,7 @@ static int fuse_get_sb(struct file_system_type *fs_type,
 	fuse_dev_free(fud);
  err_put_conn:
 	fuse_conn_put(fc);
+	sb->s_fs_info = NULL;
  err_fput:
 	fput(file);
  err:

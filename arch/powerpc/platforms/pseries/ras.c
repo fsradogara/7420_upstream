@@ -142,6 +142,28 @@ static void request_ras_irqs(struct device_node *np,
 }
 
 /*
+ * Enable the hotplug interrupt late because processing them may touch other
+ * devices or systems (e.g. hugepages) that have not been initialized at the
+ * subsys stage.
+ */
+int __init init_ras_hotplug_IRQ(void)
+{
+	struct device_node *np;
+
+	/* Hotplug Events */
+	np = of_find_node_by_path("/event-sources/hot-plug-events");
+	if (np != NULL) {
+		if (dlpar_workqueue_init() == 0)
+			request_event_sources_irqs(np, ras_hotplug_interrupt,
+						   "RAS_HOTPLUG");
+		of_node_put(np);
+	}
+
+	return 0;
+}
+machine_late_initcall(pseries, init_ras_hotplug_IRQ);
+
+/*
  * Initialize handlers for the set of interrupts caused by hardware errors
  * and power system events.
  */
@@ -158,14 +180,6 @@ static int __init init_ras_IRQ(void)
 		request_ras_irqs(np, ras_error_interrupt, "RAS_ERROR");
 		request_event_sources_irqs(np, ras_error_interrupt,
 					   "RAS_ERROR");
-		of_node_put(np);
-	}
-
-	/* Hotplug Events */
-	np = of_find_node_by_path("/event-sources/hot-plug-events");
-	if (np != NULL) {
-		request_event_sources_irqs(np, ras_hotplug_interrupt,
-					   "RAS_HOTPLUG");
 		of_node_put(np);
 	}
 

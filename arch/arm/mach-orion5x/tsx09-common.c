@@ -110,12 +110,53 @@ static int __init qnap_tsx09_check_mac_addr(const char *addr_str)
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
 
+static int __init qnap_tsx09_parse_hex_nibble(char n)
+{
+	if (n >= '0' && n <= '9')
+		return n - '0';
+
+	if (n >= 'A' && n <= 'F')
+		return n - 'A' + 10;
+
+	if (n >= 'a' && n <= 'f')
+		return n - 'a' + 10;
+
+	return -1;
+}
+
+static int __init qnap_tsx09_parse_hex_byte(const char *b)
+{
+	int hi;
+	int lo;
+
+	hi = qnap_tsx09_parse_hex_nibble(b[0]);
+	lo = qnap_tsx09_parse_hex_nibble(b[1]);
+
+	if (hi < 0 || lo < 0)
+		return -1;
+
+	return (hi << 4) | lo;
+}
+
 static int __init qnap_tsx09_check_mac_addr(const char *addr_str)
 {
 	u_int8_t addr[6];
+	int i;
 
-	if (!mac_pton(addr_str, addr))
-		return -1;
+	for (i = 0; i < 6; i++) {
+		int byte;
+
+		/*
+		 * Enforce "xx:xx:xx:xx:xx:xx\n" format.
+		 */
+		if (addr_str[(i * 3) + 2] != ((i < 5) ? ':' : '\n'))
+			return -1;
+
+		byte = qnap_tsx09_parse_hex_byte(addr_str + (i * 3));
+		if (byte < 0)
+			return -1;
+		addr[i] = byte;
+	}
 
 	printk(KERN_INFO "tsx09: found ethernet mac address %pM\n", addr);
 

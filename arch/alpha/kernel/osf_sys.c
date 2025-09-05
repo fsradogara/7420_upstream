@@ -1169,8 +1169,8 @@ static inline long
 put_tv32(struct timeval32 __user *o, struct timeval *i)
 {
 	return copy_to_user(o, &(struct timeval32){
-				.tv_sec = o->tv_sec,
-				.tv_usec = o->tv_usec},
+				.tv_sec = i->tv_sec,
+				.tv_usec = i->tv_usec},
 			    sizeof(struct timeval32));
 }
 
@@ -1456,11 +1456,9 @@ SYSCALL_DEFINE4(osf_wait4, pid_t, pid, int __user *, ustatus, int, options,
 
 	if (!access_ok(VERIFY_WRITE, ur, sizeof(*ur)))
 	struct rusage r;
-	long err = kernel_wait4(pid, &status, options, &r);
+	long err = kernel_wait4(pid, ustatus, options, &r);
 	if (err <= 0)
 		return err;
-	if (put_user(status, ustatus))
-		return -EFAULT;
 	if (!ur)
 		return err;
 	if (put_tv32(&ur->ru_utime, &r.ru_utime))

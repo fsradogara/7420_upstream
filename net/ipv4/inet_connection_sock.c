@@ -679,7 +679,6 @@ out_err:
 		}
 		spin_unlock_bh(&queue->fastopenq.lock);
 	}
-	mem_cgroup_sk_alloc(newsk);
 out:
 	release_sock(sk);
 	if (req)

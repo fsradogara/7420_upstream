@@ -142,7 +142,7 @@ COMPAT_SYSCALL_DEFINE2(s390_setregid16, u16, rgid, u16, egid)
 asmlinkage long sys32_setgid16(u16 gid)
 COMPAT_SYSCALL_DEFINE1(s390_setgid16, u16, gid)
 {
-	return sys_setgid((gid_t)gid);
+	return sys_setgid(low2highgid(gid));
 }
 
 asmlinkage long sys32_setreuid16(u16 ruid, u16 euid)
@@ -154,7 +154,7 @@ COMPAT_SYSCALL_DEFINE2(s390_setreuid16, u16, ruid, u16, euid)
 asmlinkage long sys32_setuid16(u16 uid)
 COMPAT_SYSCALL_DEFINE1(s390_setuid16, u16, uid)
 {
-	return sys_setuid((uid_t)uid);
+	return sys_setuid(low2highuid(uid));
 }
 
 asmlinkage long sys32_setresuid16(u16 ruid, u16 euid, u16 suid)
@@ -234,13 +234,13 @@ COMPAT_SYSCALL_DEFINE3(s390_getresgid16, u16 __user *, rgidp,
 asmlinkage long sys32_setfsuid16(u16 uid)
 COMPAT_SYSCALL_DEFINE1(s390_setfsuid16, u16, uid)
 {
-	return sys_setfsuid((uid_t)uid);
+	return sys_setfsuid(low2highuid(uid));
 }
 
 asmlinkage long sys32_setfsgid16(u16 gid)
 COMPAT_SYSCALL_DEFINE1(s390_setfsgid16, u16, gid)
 {
-	return sys_setfsgid((gid_t)gid);
+	return sys_setfsgid(low2highgid(gid));
 }
 
 static int groups16_to_user(u16 __user *grouplist, struct group_info *group_info)
@@ -344,6 +344,7 @@ COMPAT_SYSCALL_DEFINE2(s390_setgroups16, int, gidsetsize, u16 __user *, grouplis
 		return retval;
 	}
 
+	groups_sort(group_info);
 	retval = set_current_groups(group_info);
 	put_group_info(group_info);
 

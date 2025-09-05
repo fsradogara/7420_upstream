@@ -642,6 +642,7 @@ tcp_rmem - vector of 3 INTEGERs: min, default, max
 	pressure.
 	Default: 8K
 	Default: 1 page
+	Default: 4K
 
 	default: initial size of receive buffer used by TCP sockets.
 	This value overrides net.core.rmem_default used by other protocols.

@@ -2982,3 +2982,12 @@ Efault:
 	return -EFAULT;
 }
 #endif
+
+__weak void abort(void)
+{
+	BUG();
+
+	/* if that doesn't kill us, halt */
+	panic("Oops failed to kill thread");
+}
+EXPORT_SYMBOL(abort);

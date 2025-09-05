@@ -1372,10 +1372,8 @@ static int ubifs_symlink(struct inode *dir, struct dentry *dentry,
 		ostr.len = disk_link.len;
 
 		err = fscrypt_fname_usr_to_disk(inode, &istr, &ostr);
-		if (err) {
-			kfree(sd);
+		if (err)
 			goto out_inode;
-		}
 
 		sd->len = cpu_to_le16(ostr.len);
 		disk_link.name = (char *)sd;
@@ -1407,11 +1405,10 @@ static int ubifs_symlink(struct inode *dir, struct dentry *dentry,
 		goto out_cancel;
 	mutex_unlock(&dir_ui->ui_mutex);
 
-	ubifs_release_budget(c, &req);
 	insert_inode_hash(inode);
 	d_instantiate(dentry, inode);
-	fscrypt_free_filename(&nm);
-	return 0;
+	err = 0;
+	goto out_fname;
 
 out_cancel:
 	dir->i_size -= sz_change;
@@ -1424,6 +1421,7 @@ out_fname:
 	fscrypt_free_filename(&nm);
 out_budg:
 	ubifs_release_budget(c, &req);
+	kfree(sd);
 	return err;
 }
 

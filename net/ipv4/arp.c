@@ -303,10 +303,16 @@ static int arp_constructor(struct neighbour *neigh)
 {
 	__be32 addr = *(__be32*)neigh->primary_key;
 	__be32 addr = *(__be32 *)neigh->primary_key;
+	__be32 addr;
 	struct net_device *dev = neigh->dev;
 	struct in_device *in_dev;
 	struct neigh_parms *parms;
+	u32 inaddr_any = INADDR_ANY;
 
+	if (dev->flags & (IFF_LOOPBACK | IFF_POINTOPOINT))
+		memcpy(neigh->primary_key, &inaddr_any, arp_tbl.key_len);
+
+	addr = *(__be32 *)neigh->primary_key;
 	rcu_read_lock();
 	in_dev = __in_dev_get_rcu(dev);
 	if (in_dev == NULL) {
@@ -595,6 +601,7 @@ static int arp_filter(__be32 sip, __be32 tip, struct net_device *dev)
 		return 1;
 	if (rt->u.dst.dev != dev) {
 	rt = ip_route_output(net, sip, tip, 0, 0);
+	rt = ip_route_output(net, sip, tip, 0, l3mdev_master_ifindex_rcu(dev));
 	if (IS_ERR(rt))
 		return 1;
 	if (rt->dst.dev != dev) {

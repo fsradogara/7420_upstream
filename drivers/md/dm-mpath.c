@@ -442,7 +442,7 @@ static struct pgpath *choose_path_in_pg(struct multipath *m,
 
 	pgpath = path_to_pgpath(path);
 
-	if (unlikely(lockless_dereference(m->current_pg) != pg)) {
+	if (unlikely(READ_ONCE(m->current_pg) != pg)) {
 		/* Only update current_pgpath if pg changed */
 		spin_lock_irqsave(&m->lock, flags);
 		m->current_pgpath = pgpath;
@@ -472,7 +472,7 @@ static struct pgpath *choose_pgpath(struct multipath *m, size_t nr_bytes)
 	}
 
 	/* Were we instructed to switch PG? */
-	if (lockless_dereference(m->next_pg)) {
+	if (READ_ONCE(m->next_pg)) {
 		spin_lock_irqsave(&m->lock, flags);
 		pg = m->next_pg;
 		if (!pg) {
@@ -497,7 +497,7 @@ static struct pgpath *choose_pgpath(struct multipath *m, size_t nr_bytes)
 
 	/* Don't change PG until it has no remaining paths */
 check_current_pg:
-	pg = lockless_dereference(m->current_pg);
+	pg = READ_ONCE(m->current_pg);
 	if (pg) {
 		pgpath = choose_path_in_pg(m, pg, nr_bytes);
 		if (!IS_ERR_OR_NULL(pgpath))
@@ -619,6 +619,7 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 
 	pgpath = m->current_pgpath;
 	pgpath = lockless_dereference(m->current_pgpath);
+	pgpath = READ_ONCE(m->current_pgpath);
 	if (!pgpath || !test_bit(MPATHF_QUEUE_IO, &m->flags))
 		pgpath = choose_pgpath(m, nr_bytes);
 
@@ -644,13 +645,23 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 	if (IS_ERR(clone)) {
 		/* EBUSY, ENODEV or EWOULDBLOCK: requeue */
 		bool queue_dying = blk_queue_dying(q);
-		DMERR_LIMIT("blk_get_request() returned %ld%s - requeuing",
-			    PTR_ERR(clone), queue_dying ? " (path offline)" : "");
 		if (queue_dying) {
 			atomic_inc(&m->pg_init_in_progress);
 			activate_or_offline_path(pgpath);
+			return DM_MAPIO_DELAY_REQUEUE;
 		}
-		return DM_MAPIO_DELAY_REQUEUE;
+
+		/*
+		 * blk-mq's SCHED_RESTART can cover this requeue, so we
+		 * needn't deal with it by DELAY_REQUEUE. More importantly,
+		 * we have to return DM_MAPIO_REQUEUE so that blk-mq can
+		 * get the queue busy feedback (via BLK_STS_RESOURCE),
+		 * otherwise I/O merging can suffer.
+		 */
+		if (q->mq_ops)
+			return DM_MAPIO_REQUEUE;
+		else
+			return DM_MAPIO_DELAY_REQUEUE;
 	}
 	clone->bio = clone->biotail = NULL;
 	clone->rq_disk = bdev->bd_disk;
@@ -680,7 +691,7 @@ static int __multipath_map_bio(struct multipath *m, struct bio *bio, struct dm_m
 	bool queue_io;
 
 	/* Do we need to select a new pgpath? */
-	pgpath = lockless_dereference(m->current_pgpath);
+	pgpath = READ_ONCE(m->current_pgpath);
 	queue_io = test_bit(MPATHF_QUEUE_IO, &m->flags);
 	if (!pgpath || !queue_io)
 		pgpath = choose_pgpath(m, nr_bytes);
@@ -2422,7 +2433,7 @@ static int multipath_prepare_ioctl(struct dm_target *ti,
 	struct pgpath *current_pgpath;
 	int r;
 
-	current_pgpath = lockless_dereference(m->current_pgpath);
+	current_pgpath = READ_ONCE(m->current_pgpath);
 	if (!current_pgpath)
 		current_pgpath = choose_pgpath(m, 0);
 
@@ -2468,7 +2479,7 @@ static int multipath_prepare_ioctl(struct dm_target *ti,
 	}
 
 	if (r == -ENOTCONN) {
-		if (!lockless_dereference(m->current_pg)) {
+		if (!READ_ONCE(m->current_pg)) {
 			/* Path status changed, redo selection */
 			(void) choose_pgpath(m, 0);
 		}
@@ -2537,9 +2548,9 @@ static int multipath_busy(struct dm_target *ti)
 		return (m->queue_mode != DM_TYPE_MQ_REQUEST_BASED);
 
 	/* Guess which priority_group will be used at next mapping time */
-	pg = lockless_dereference(m->current_pg);
-	next_pg = lockless_dereference(m->next_pg);
-	if (unlikely(!lockless_dereference(m->current_pgpath) && next_pg))
+	pg = READ_ONCE(m->current_pg);
+	next_pg = READ_ONCE(m->next_pg);
+	if (unlikely(!READ_ONCE(m->current_pgpath) && next_pg))
 		pg = next_pg;
 
 	if (!pg) {
@@ -2599,6 +2610,9 @@ static struct target_type multipath_target = {
 	.version = {1, 10, 0},
 	.version = {1, 12, 0},
 	.features = DM_TARGET_SINGLETON | DM_TARGET_IMMUTABLE,
+	.version = {1, 13, 0},
+	.features = DM_TARGET_SINGLETON | DM_TARGET_IMMUTABLE |
+		    DM_TARGET_PASSES_INTEGRITY,
 	.module = THIS_MODULE,
 	.ctr = multipath_ctr,
 	.dtr = multipath_dtr,
@@ -2667,13 +2681,20 @@ static int __init dm_multipath_init(void)
 		goto bad_alloc_kmpath_handlerd;
 	}
 
+	r = dm_register_target(&multipath_target);
+	if (r < 0) {
+		DMERR("request-based register failed %d", r);
+		r = -EINVAL;
+		goto bad_register_target;
+	}
+
 	return 0;
 
+bad_register_target:
+	destroy_workqueue(kmpath_handlerd);
 bad_alloc_kmpath_handlerd:
 	destroy_workqueue(kmultipathd);
 bad_alloc_kmultipathd:
-	dm_unregister_target(&multipath_target);
-bad_register_target:
 	return r;
 }
 

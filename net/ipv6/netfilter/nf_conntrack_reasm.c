@@ -407,7 +407,7 @@ static int nf_ct_frag6_queue(struct frag_queue *fq, struct sk_buff *skb,
 
 	if ((unsigned int)end > IPV6_MAXPLEN) {
 		pr_debug("offset is too large.\n");
-		return -1;
+		return -EINVAL;
 	}
 
 	ecn = ip6_frag_ecn(ipv6_hdr(skb));
@@ -445,7 +445,8 @@ static int nf_ct_frag6_queue(struct frag_queue *fq, struct sk_buff *skb,
 			 * this case. -DaveM
 			 */
 			pr_debug("end of fragment not rounded to 8 bytes.\n");
-			return -1;
+			inet_frag_kill(&fq->q, &nf_frags);
+			return -EPROTO;
 		}
 		if (end > fq->q.len) {
 			/* Some bits beyond end -> corruption. */
@@ -611,7 +612,7 @@ found:
 discard_fq:
 	inet_frag_kill(&fq->q, &nf_frags);
 err:
-	return -1;
+	return -EINVAL;
 }
 
 /*
@@ -896,6 +897,7 @@ struct sk_buff *nf_ct_frag6_gather(struct sk_buff *skb)
 struct sk_buff *nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 {
+	u16 savethdr = skb->transport_header;
 	struct net_device *dev = skb->dev;
 	int fhoff, nhoff, ret;
 	struct frag_hdr *fhdr;
@@ -952,6 +954,12 @@ int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 		goto ret_orig;
 	if (nf_ct_frag6_queue(fq, skb, fhdr, nhoff) < 0) {
 		ret = -EINVAL;
+	ret = nf_ct_frag6_queue(fq, skb, fhdr, nhoff);
+	if (ret < 0) {
+		if (ret == -EPROTO) {
+			skb->transport_header = savethdr;
+			ret = 0;
+		}
 		goto out_unlock;
 	}
 
@@ -963,6 +971,8 @@ int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 	    fq->q.meat == fq->q.len &&
 	    nf_ct_frag6_reasm(fq, skb, dev))
 		ret = 0;
+	else
+		skb_dst_drop(skb);
 
 out_unlock:
 	spin_unlock_bh(&fq->q.lock);

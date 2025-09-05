@@ -869,7 +869,8 @@ static void xfrm_hash_rebuild(struct work_struct *work)
 
 	/* re-insert all policies by order of creation */
 	list_for_each_entry_reverse(policy, &net->xfrm.policy_all, walk.all) {
-		if (xfrm_policy_id2dir(policy->index) >= XFRM_POLICY_MAX) {
+		if (policy->walk.dead ||
+		    xfrm_policy_id2dir(policy->index) >= XFRM_POLICY_MAX) {
 			/* skip socket policies */
 			continue;
 		}
@@ -1435,8 +1436,6 @@ out:
 	}
 	if (!cnt)
 		err = -ESRCH;
-	else
-		xfrm_policy_cache_flush();
 out:
 	spin_unlock_bh(&net->xfrm.xfrm_policy_lock);
 	return err;
@@ -1795,9 +1794,15 @@ static struct xfrm_policy *xfrm_sk_policy_lookup(const struct sock *sk, int dir,
  again:
 	pol = rcu_dereference(sk->sk_policy[dir]);
 	if (pol != NULL) {
-		bool match = xfrm_selector_match(&pol->selector, fl, family);
+		bool match;
 		int err = 0;
 
+		if (pol->family != family) {
+			pol = NULL;
+			goto out;
+		}
+
+		match = xfrm_selector_match(&pol->selector, fl, family);
 		if (match) {
 			if ((sk->sk_mark & pol->mark.m) != pol->mark.v) {
 				pol = NULL;
@@ -1904,7 +1909,7 @@ EXPORT_SYMBOL(xfrm_policy_delete);
 
 int xfrm_sk_policy_insert(struct sock *sk, int dir, struct xfrm_policy *pol)
 {
-	struct net *net = xp_net(pol);
+	struct net *net = sock_net(sk);
 	struct xfrm_policy *old_pol;
 
 #ifdef CONFIG_XFRM_SUB_POLICY
@@ -1973,6 +1978,7 @@ static struct xfrm_policy *clone_policy(const struct xfrm_policy *old, int dir)
 		newp->xfrm_nr = old->xfrm_nr;
 		newp->index = old->index;
 		newp->type = old->type;
+		newp->family = old->family;
 		memcpy(newp->xfrm_vec, old->xfrm_vec,
 		       newp->xfrm_nr*sizeof(struct xfrm_tmpl));
 		write_lock_bh(&xfrm_policy_lock);
@@ -2055,13 +2061,15 @@ xfrm_tmpl_resolve_one(struct xfrm_policy *policy, const struct flowi *fl,
 	struct net *net = xp_net(policy);
 	int nx;
 	int i, error;
+	xfrm_address_t *daddr = xfrm_flowi_daddr(fl, family);
+	xfrm_address_t *saddr = xfrm_flowi_saddr(fl, family);
 	xfrm_address_t tmp;
 
 	for (nx=0, i = 0; i < policy->xfrm_nr; i++) {
 	for (nx = 0, i = 0; i < policy->xfrm_nr; i++) {
 		struct xfrm_state *x;
-		xfrm_address_t *local;
-		xfrm_address_t *remote;
+		xfrm_address_t *remote = daddr;
+		xfrm_address_t *local  = saddr;
 		struct xfrm_tmpl *tmpl = &policy->xfrm_vec[i];
 
 		if (tmpl->mode == XFRM_MODE_TUNNEL ||
@@ -2075,6 +2083,10 @@ xfrm_tmpl_resolve_one(struct xfrm_policy *policy, const struct flowi *fl,
 				error = xfrm_get_saddr(net, fl->flowi_oif,
 						       &tmp, remote,
 						       tmpl->encap_family);
+			if (xfrm_addr_any(local, tmpl->encap_family)) {
+				error = xfrm_get_saddr(net, fl->flowi_oif,
+						       &tmp, remote,
+						       tmpl->encap_family, 0);
 				if (error)
 					goto fail;
 				local = &tmp;
@@ -2094,6 +2106,8 @@ xfrm_tmpl_resolve_one(struct xfrm_policy *policy, const struct flowi *fl,
 
 		if (x && x->km.state == XFRM_STATE_VALID) {
 			xfrm[nx++] = x;
+			daddr = remote;
+			saddr = local;
 			continue;
 		}
 		if (x) {
@@ -2179,10 +2193,13 @@ static inline int xfrm_get_tos(const struct flowi *fl, int family)
 static int xfrm_get_tos(const struct flowi *fl, int family)
 {
 	const struct xfrm_policy_afinfo *afinfo;
-	int tos = 0;
+	int tos;
 
 	afinfo = xfrm_policy_get_afinfo(family);
-	tos = afinfo ? afinfo->get_tos(fl) : 0;
+	if (!afinfo)
+		return 0;
+
+	tos = afinfo->get_tos(fl);
 
 	rcu_read_unlock();
 
@@ -2587,6 +2604,8 @@ void xfrm_policy_cache_flush(void)
 	bool found = 0;
 	int cpu;
 
+	might_sleep();
+
 	local_bh_disable();
 	rcu_read_lock();
 	for_each_possible_cpu(cpu) {
@@ -2905,8 +2924,11 @@ xfrm_bundle_lookup(struct net *net, const struct flowi *fl, u16 family, u8 dir, 
 	if (num_xfrms <= 0)
 		goto make_dummy_bundle;
 
+	local_bh_disable();
 	xdst = xfrm_resolve_and_create_bundle(pols, num_pols, fl, family,
-						  xflo->dst_orig);
+					      xflo->dst_orig);
+	local_bh_enable();
+
 	if (IS_ERR(xdst)) {
 		err = PTR_ERR(xdst);
 		if (err != -EAGAIN)
@@ -3254,9 +3276,12 @@ struct dst_entry *xfrm_lookup(struct net *net, struct dst_entry *dst_orig,
 				goto no_transform;
 			}
 
+			local_bh_disable();
 			xdst = xfrm_resolve_and_create_bundle(
 					pols, num_pols, fl,
 					family, dst_orig);
+			local_bh_enable();
+
 			if (IS_ERR(xdst)) {
 				xfrm_pols_put(pols, num_pols);
 				err = PTR_ERR(xdst);

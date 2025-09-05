@@ -92,6 +92,7 @@ struct flchip {
 	unsigned int write_suspended:1;
 	unsigned int erase_suspended:1;
 	unsigned long in_progress_block_addr;
+	unsigned long in_progress_block_mask;
 
 	spinlock_t *mutex;
 	spinlock_t _spinlock; /* We do it like this because sometimes they'll be shared. */

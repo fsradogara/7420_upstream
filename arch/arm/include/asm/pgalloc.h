@@ -64,7 +64,7 @@ extern void free_pgd_slow(struct mm_struct *mm, pgd_t *pgd);
 extern pgd_t *pgd_alloc(struct mm_struct *mm);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 
-#define PGALLOC_GFP	(GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO)
+#define PGALLOC_GFP	(GFP_KERNEL | __GFP_ZERO)
 
 static inline void clean_pte_table(pte_t *pte)
 {

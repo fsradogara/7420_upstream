@@ -494,7 +494,7 @@ static struct dentry *hypfs_create_file(struct super_block *sb,
 	mutex_lock(&parent->d_inode->i_mutex);
 	if (sb->s_root)
 		hypfs_delete_tree(sb->s_root);
-	if (sb_info->update_file)
+	if (sb_info && sb_info->update_file)
 		hypfs_remove(sb_info->update_file);
 	kfree(sb->s_fs_info);
 	sb->s_fs_info = NULL;

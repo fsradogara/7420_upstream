@@ -41,6 +41,7 @@
 #include <linux/ioctl.h>
 #include <linux/skbuff.h>
 #include <linux/firmware.h>
+#include <linux/serdev.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
@@ -134,12 +135,12 @@ static inline struct sk_buff *hci_uart_dequeue(struct hci_uart *hu)
 	struct sk_buff *skb = hu->tx_skb;
 
 	if (!skb) {
-		read_lock(&hu->proto_lock);
+		percpu_down_read(&hu->proto_lock);
 
 		if (test_bit(HCI_UART_PROTO_READY, &hu->flags))
 			skb = hu->proto->dequeue(hu);
 
-		read_unlock(&hu->proto_lock);
+		percpu_up_read(&hu->proto_lock);
 	} else {
 		hu->tx_skb = NULL;
 	}
@@ -153,6 +154,14 @@ int hci_uart_tx_wakeup(struct hci_uart *hu)
 	struct hci_dev *hdev = hu->hdev;
 	struct sk_buff *skb;
 	read_lock(&hu->proto_lock);
+	/* This may be called in an IRQ context, so we can't sleep. Therefore
+	 * we try to acquire the lock only, and if that fails we assume the
+	 * tty is being closed because that is the only time the write lock is
+	 * acquired. If, however, at some point in the future the write lock
+	 * is also acquired in other situations, then this must be revisited.
+	 */
+	if (!percpu_down_read_trylock(&hu->proto_lock))
+		return 0;
 
 	if (!test_bit(HCI_UART_PROTO_READY, &hu->flags))
 		goto no_schedule;
@@ -167,7 +176,7 @@ int hci_uart_tx_wakeup(struct hci_uart *hu)
 	schedule_work(&hu->write_work);
 
 no_schedule:
-	read_unlock(&hu->proto_lock);
+	percpu_up_read(&hu->proto_lock);
 
 	return 0;
 }
@@ -273,12 +282,12 @@ static int hci_uart_flush(struct hci_dev *hdev)
 	tty_ldisc_flush(tty);
 	tty_driver_flush_buffer(tty);
 
-	read_lock(&hu->proto_lock);
+	percpu_down_read(&hu->proto_lock);
 
 	if (test_bit(HCI_UART_PROTO_READY, &hu->flags))
 		hu->proto->flush(hu);
 
-	read_unlock(&hu->proto_lock);
+	percpu_up_read(&hu->proto_lock);
 
 	return 0;
 }
@@ -320,15 +329,15 @@ static int hci_uart_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 	BT_DBG("%s: type %d len %d", hdev->name, hci_skb_pkt_type(skb),
 	       skb->len);
 
-	read_lock(&hu->proto_lock);
+	percpu_down_read(&hu->proto_lock);
 
 	if (!test_bit(HCI_UART_PROTO_READY, &hu->flags)) {
-		read_unlock(&hu->proto_lock);
+		percpu_up_read(&hu->proto_lock);
 		return -EUNATCH;
 	}
 
 	hu->proto->enqueue(hu, skb);
-	read_unlock(&hu->proto_lock);
+	percpu_up_read(&hu->proto_lock);
 
 	hci_uart_tx_wakeup(hu);
 
@@ -350,6 +359,12 @@ void hci_uart_set_flow_control(struct hci_uart *hu, bool enable)
 	int status;
 	unsigned int set = 0;
 	unsigned int clear = 0;
+
+	if (hu->serdev) {
+		serdev_device_set_flow_control(hu->serdev, !enable);
+		serdev_device_set_rts(hu->serdev, !enable);
+		return;
+	}
 
 	if (enable) {
 		/* Disable hardware flow control */
@@ -543,7 +558,7 @@ static int hci_uart_tty_open(struct tty_struct *tty)
 	INIT_WORK(&hu->init_ready, hci_uart_init_work);
 	INIT_WORK(&hu->write_work, hci_uart_write_work);
 
-	rwlock_init(&hu->proto_lock);
+	percpu_init_rwsem(&hu->proto_lock);
 
 	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
 	   open path is before the ldisc is referencable */
@@ -568,7 +583,6 @@ static void hci_uart_tty_close(struct tty_struct *tty)
 	struct hci_uart *hu = (void *)tty->disc_data;
 	struct hci_uart *hu = tty->disc_data;
 	struct hci_dev *hdev;
-	unsigned long flags;
 
 	BT_DBG("tty %p", tty);
 
@@ -594,12 +608,12 @@ static void hci_uart_tty_close(struct tty_struct *tty)
 	if (hdev)
 		hci_uart_close(hdev);
 
-	cancel_work_sync(&hu->write_work);
-
 	if (test_bit(HCI_UART_PROTO_READY, &hu->flags)) {
-		write_lock_irqsave(&hu->proto_lock, flags);
+		percpu_down_write(&hu->proto_lock);
 		clear_bit(HCI_UART_PROTO_READY, &hu->flags);
-		write_unlock_irqrestore(&hu->proto_lock, flags);
+		percpu_up_write(&hu->proto_lock);
+
+		cancel_work_sync(&hu->write_work);
 
 		if (hdev) {
 			if (test_bit(HCI_UART_REGISTERED, &hu->flags))
@@ -670,10 +684,10 @@ static void hci_uart_tty_receive(struct tty_struct *tty, const u8 *data,
 	if (!hu || tty != hu->tty)
 		return;
 
-	read_lock(&hu->proto_lock);
+	percpu_down_read(&hu->proto_lock);
 
 	if (!test_bit(HCI_UART_PROTO_READY, &hu->flags)) {
-		read_unlock(&hu->proto_lock);
+		percpu_up_read(&hu->proto_lock);
 		return;
 	}
 
@@ -685,7 +699,7 @@ static void hci_uart_tty_receive(struct tty_struct *tty, const u8 *data,
 	 * tty caller
 	 */
 	hu->proto->recv(hu, data, count);
-	read_unlock(&hu->proto_lock);
+	percpu_up_read(&hu->proto_lock);
 
 	if (hu->hdev)
 		hu->hdev->stat.byte_rx += count;

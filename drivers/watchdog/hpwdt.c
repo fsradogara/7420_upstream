@@ -56,16 +56,7 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/watchdog.h>
-#ifdef CONFIG_HPWDT_NMI_DECODING
-#include <linux/dmi.h>
-#include <linux/spinlock.h>
-#include <linux/nmi.h>
-#include <linux/kdebug.h>
-#include <linux/notifier.h>
-#include <asm/set_memory.h>
-#endif /* CONFIG_HPWDT_NMI_DECODING */
 #include <asm/nmi.h>
-#include <asm/frame.h>
 
 #define HPWDT_VERSION			"1.4.0"
 #define SECS_TO_TICKS(secs)		((secs) * 1000 / 128)
@@ -76,10 +67,14 @@
 static unsigned int soft_margin = DEFAULT_MARGIN;	/* in seconds */
 static unsigned int reload;			/* the computed soft_margin */
 static bool nowayout = WATCHDOG_NOWAYOUT;
+#ifdef CONFIG_HPWDT_NMI_DECODING
+static unsigned int allow_kdump = 1;
+#endif
 static char expect_release;
 static unsigned long hpwdt_is_open;
 
 static void __iomem *pci_mem_addr;		/* the PCI-memory address */
+static unsigned long __iomem *hpwdt_nmistat;
 static unsigned long __iomem *hpwdt_timer_reg;
 static unsigned long __iomem *hpwdt_timer_con;
 
@@ -589,6 +584,11 @@ static int hpwdt_time_left(void)
 }
 
 #ifdef CONFIG_HPWDT_NMI_DECODING
+static int hpwdt_my_nmi(void)
+{
+	return ioread8(hpwdt_nmistat) & 0x6;
+}
+
 /*
  *	NMI Handler
  */
@@ -618,23 +618,12 @@ static int hpwdt_pretimeout(unsigned int ulReason, struct pt_regs *regs)
 	return NOTIFY_STOP;
 }
 	if (!hpwdt_nmi_decoding)
+	if ((ulReason == NMI_UNKNOWN) && !hpwdt_my_nmi())
 		return NMI_DONE;
-
-	spin_lock_irqsave(&rom_lock, rom_pl);
-	if (!die_nmi_called && !is_icru && !is_uefi)
-		asminline_call(&cmn_regs, cru_rom_addr);
-	die_nmi_called = 1;
-	spin_unlock_irqrestore(&rom_lock, rom_pl);
 
 	if (allow_kdump)
 		hpwdt_stop();
 
-	if (!is_icru && !is_uefi) {
-		if (cmn_regs.u1.ral == 0) {
-			nmi_panic(regs, "An NMI occurred, but unable to determine source.\n");
-			return NMI_HANDLED;
-		}
-	}
 	nmi_panic(regs, "An NMI occurred. Depending on your system the reason "
 		"for the NMI is logged in any one of the following "
 		"resources:\n"
@@ -856,43 +845,8 @@ static void dmi_find_icru(const struct dmi_header *dm, void *dummy)
 
 static int hpwdt_init_nmi_decoding(struct pci_dev *dev)
 {
+#ifdef CONFIG_HPWDT_NMI_DECODING
 	int retval;
-
-	/*
-	 * On typical CRU-based systems we need to map that service in
-	 * the BIOS. For 32 bit Operating Systems we need to go through
-	 * the 32 Bit BIOS Service Directory. For 64 bit Operating
-	 * Systems we get that service through SMBIOS.
-	 *
-	 * On systems that support the new iCRU service all we need to
-	 * do is call dmi_walk to get the supported flag value and skip
-	 * the old cru detect code.
-	 */
-	dmi_walk(dmi_find_icru, NULL);
-	if (!is_icru && !is_uefi) {
-
-		/*
-		* We need to map the ROM to get the CRU service.
-		* For 32 bit Operating Systems we need to go through the 32 Bit
-		* BIOS Service Directory
-		* For 64 bit Operating Systems we get that service through SMBIOS.
-		*/
-		retval = detect_cru_service();
-		if (retval < 0) {
-			dev_warn(&dev->dev,
-				"Unable to detect the %d Bit CRU Service.\n",
-				HPWDT_ARCH);
-			return retval;
-		}
-
-		/*
-		* We know this is the only CRU call we need to make so lets keep as
-		* few instructions as possible once the NMI comes in.
-		*/
-		cmn_regs.u1.rah = 0x0D;
-		cmn_regs.u1.ral = 0x02;
-	}
-
 	/*
 	 * Only one function can register for NMI_UNKNOWN
 	 */
@@ -920,33 +874,19 @@ error:
 	dev_warn(&dev->dev,
 		"Unable to register a die notifier (err=%d).\n",
 		retval);
-	if (cru_rom_addr)
-		iounmap(cru_rom_addr);
 	return retval;
-}
-
-static void hpwdt_exit_nmi_decoding(void)
-{
-	unregister_nmi_handler(NMI_UNKNOWN, "hpwdt");
-	unregister_nmi_handler(NMI_SERR, "hpwdt");
-	unregister_nmi_handler(NMI_IO_CHECK, "hpwdt");
-	if (cru_rom_addr)
-		iounmap(cru_rom_addr);
-}
-#else /* !CONFIG_HPWDT_NMI_DECODING */
-static void hpwdt_check_nmi_decoding(struct pci_dev *dev)
-{
-}
-
-static int hpwdt_init_nmi_decoding(struct pci_dev *dev)
-{
+#endif	/* CONFIG_HPWDT_NMI_DECODING */
 	return 0;
 }
 
 static void hpwdt_exit_nmi_decoding(void)
 {
+#ifdef CONFIG_HPWDT_NMI_DECODING
+	unregister_nmi_handler(NMI_UNKNOWN, "hpwdt");
+	unregister_nmi_handler(NMI_SERR, "hpwdt");
+	unregister_nmi_handler(NMI_IO_CHECK, "hpwdt");
+#endif
 }
-#endif /* CONFIG_HPWDT_NMI_DECODING */
 
 static int hpwdt_init_one(struct pci_dev *dev,
 					const struct pci_device_id *ent)
@@ -997,6 +937,7 @@ static int hpwdt_init_one(struct pci_dev *dev,
 		retval = -ENOMEM;
 		goto error_pci_iomap;
 	}
+	hpwdt_nmistat	= pci_mem_addr + 0x6e;
 	hpwdt_timer_reg = pci_mem_addr + 0x70;
 	hpwdt_timer_con = pci_mem_addr + 0x72;
 
@@ -1141,6 +1082,6 @@ MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 #ifdef CONFIG_HPWDT_NMI_DECODING
 module_param(allow_kdump, int, 0);
 MODULE_PARM_DESC(allow_kdump, "Start a kernel dump after NMI occurs");
-#endif /* !CONFIG_HPWDT_NMI_DECODING */
+#endif /* CONFIG_HPWDT_NMI_DECODING */
 
 module_pci_driver(hpwdt_driver);

@@ -2383,9 +2383,10 @@ static int setup_callchain(struct perf_evlist *evlist)
 	enum perf_call_graph_mode mode = CALLCHAIN_NONE;
 
 	if ((sample_type & PERF_SAMPLE_REGS_USER) &&
-	    (sample_type & PERF_SAMPLE_STACK_USER))
+	    (sample_type & PERF_SAMPLE_STACK_USER)) {
 		mode = CALLCHAIN_DWARF;
-	else if (sample_type & PERF_SAMPLE_BRANCH_STACK)
+		dwarf_callchain_users = true;
+	} else if (sample_type & PERF_SAMPLE_BRANCH_STACK)
 		mode = CALLCHAIN_LBR;
 	else if (sample_type & PERF_SAMPLE_CALLCHAIN)
 		mode = CALLCHAIN_FP;
@@ -2723,6 +2724,7 @@ static int perf_c2c__record(int argc, const char **argv)
 		if (!perf_mem_events[j].supported) {
 			pr_err("failed: event '%s' not supported\n",
 			       perf_mem_events[j].name);
+			free(rec_argv);
 			return -1;
 		}
 

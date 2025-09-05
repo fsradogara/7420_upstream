@@ -6,6 +6,7 @@
 #include <asm/linkage.h>
 
 #define notrace __attribute__((no_instrument_function))
+#include <linux/compiler_types.h>
 #include <linux/stringify.h>
 #include <linux/export.h>
 #include <asm/linkage.h>

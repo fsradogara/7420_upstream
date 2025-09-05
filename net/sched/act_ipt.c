@@ -140,9 +140,12 @@ static void ipt_destroy_target(struct xt_entry_target *t)
 static void tcf_ipt_release(struct tc_action *a, int bind)
 {
 	struct tcf_ipt *ipt = to_ipt(a);
-	ipt_destroy_target(ipt->tcfi_t);
+
+	if (ipt->tcfi_t) {
+		ipt_destroy_target(ipt->tcfi_t);
+		kfree(ipt->tcfi_t);
+	}
 	kfree(ipt->tcfi_tname);
-	kfree(ipt->tcfi_t);
 }
 
 static const struct nla_policy ipt_policy[TCA_IPT_MAX + 1] = {
@@ -297,7 +300,7 @@ static int tcf_ipt_cleanup(struct tc_action *a, int bind)
 
 static int tcf_ipt(struct sk_buff *skb, struct tc_action *a,
 	if (ret == ACT_P_CREATED)
-		tcf_idr_cleanup(*a, est);
+		tcf_idr_release(*a, bind);
 	return err;
 }
 
