@@ -623,6 +623,7 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 	default:
 		b43legacywarn(dev->wl, "Unexpected value for chanstat (0x%X)\n",
 		       chanstat);
+		goto drop;
 	}
 
 	dev->stats.last_rx = jiffies;

@@ -1381,7 +1381,7 @@ static int
 _request_firmware(const struct firmware **firmware_p, const char *name,
 		  struct device *device, unsigned int opt_flags)
 {
-	struct firmware *fw;
+	struct firmware *fw = NULL;
 	long timeout;
 	int ret;
 
@@ -1447,6 +1447,10 @@ out:
 	return retval;
 	if (!name || name[0] == '\0')
 		return -EINVAL;
+	if (!name || name[0] == '\0') {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	ret = _request_firmware_prepare(&fw, name, device);
 	if (ret <= 0) /* error or already assigned */

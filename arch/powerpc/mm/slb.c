@@ -437,7 +437,7 @@ void slb_initialize(void)
 #endif
 	}
 
-	get_paca()->stab_rr = SLB_NUM_BOLTED;
+	get_paca()->stab_rr = SLB_NUM_BOLTED - 1;
 
 	/* On iSeries the bolted entries have already been set up by
 	 * the hypervisor from the lparMap data in head.S */

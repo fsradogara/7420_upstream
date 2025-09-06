@@ -187,6 +187,7 @@ static struct rtnl_link_stats64 *br_get_stats64(struct net_device *dev,
 		sum.rx_packets += tmp.rx_packets;
 	}
 
+	netdev_stats_to_stats64(stats, &dev->stats);
 	stats->tx_bytes   = sum.tx_bytes;
 	stats->tx_packets = sum.tx_packets;
 	stats->rx_bytes   = sum.rx_bytes;
@@ -228,6 +229,12 @@ static int br_set_mac_address(struct net_device *dev, void *p)
 	br_stp_change_bridge_id(br, addr->sa_data);
 	br->flags |= BR_SET_MAC_ADDR;
 		return -EADDRNOTAVAIL;
+
+	/* dev_set_mac_addr() can be called by a master device on bridge's
+	 * NETDEV_UNREGISTER, but since it's being destroyed do nothing
+	 */
+	if (dev->reg_state != NETREG_REGISTERED)
+		return -EBUSY;
 
 	spin_lock_bh(&br->lock);
 	if (!ether_addr_equal(dev->dev_addr, addr->sa_data)) {

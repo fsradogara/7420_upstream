@@ -354,8 +354,10 @@ static void sg_complete(struct urb *urb)
 						__func__, retval);
 			} else if (urb == io->urbs [i])
 			if (!io->urbs[i] || !io->urbs[i]->dev)
+			if (!io->urbs[i])
 				continue;
 			if (found) {
+				usb_block_urb(io->urbs[i]);
 				retval = usb_unlink_urb(io->urbs[i]);
 				if (retval != -EINPROGRESS &&
 				    retval != -ENODEV &&
@@ -653,6 +655,9 @@ void usb_sg_wait(struct usb_sg_request *io)
 		 * we handshake using io->status.
 		 */
 		spin_unlock_irq(&io->lock);
+
+		retval = usb_submit_urb(io->urbs[i], GFP_NOIO);
+
 		switch (retval) {
 			/* maybe we retrying will recover */
 		case -ENXIO:	/* hc didn't queue this one */
@@ -712,6 +717,7 @@ EXPORT_SYMBOL_GPL(usb_sg_wait);
 void usb_sg_cancel(struct usb_sg_request *io)
 {
 	unsigned long flags;
+	int i, retval;
 
 	spin_lock_irqsave(&io->lock, flags);
 
@@ -739,7 +745,31 @@ void usb_sg_cancel(struct usb_sg_request *io)
 					__func__, retval);
 		}
 		spin_lock(&io->lock);
+	if (io->status || io->count == 0) {
+		spin_unlock_irqrestore(&io->lock, flags);
+		return;
 	}
+	/* shut everything down */
+	io->status = -ECONNRESET;
+	io->count++;		/* Keep the request alive until we're done */
+	spin_unlock_irqrestore(&io->lock, flags);
+
+	for (i = io->entries - 1; i >= 0; --i) {
+		usb_block_urb(io->urbs[i]);
+
+		retval = usb_unlink_urb(io->urbs[i]);
+		if (retval != -EINPROGRESS
+		    && retval != -ENODEV
+		    && retval != -EBUSY
+		    && retval != -EIDRM)
+			dev_warn(&io->dev->dev, "%s, unlink --> %d\n",
+				 __func__, retval);
+	}
+
+	spin_lock_irqsave(&io->lock, flags);
+	io->count--;
+	if (!io->count)
+		complete(&io->complete);
 	spin_unlock_irqrestore(&io->lock, flags);
 }
 EXPORT_SYMBOL_GPL(usb_sg_cancel);
@@ -976,9 +1006,11 @@ int usb_string(struct usb_device *dev, int index, char *buf, size_t size)
 
 	if (dev->state == USB_STATE_SUSPENDED)
 		return -EHOSTUNREACH;
-	if (size <= 0 || !buf || !index)
+	if (size <= 0 || !buf)
 		return -EINVAL;
 	buf[0] = 0;
+	if (index <= 0 || index >= 256)
+		return -EINVAL;
 	tbuf = kmalloc(256, GFP_NOIO);
 	if (!tbuf)
 		return -ENOMEM;
@@ -1289,10 +1321,11 @@ void usb_disable_endpoint(struct usb_device *dev, unsigned int epaddr,
 		ep = dev->ep_in[epnum];
 		dev->ep_in[epnum] = NULL;
 		if (reset_hardware)
+		if (reset_hardware && epnum != 0)
 			dev->ep_out[epnum] = NULL;
 	} else {
 		ep = dev->ep_in[epnum];
-		if (reset_hardware)
+		if (reset_hardware && epnum != 0)
 			dev->ep_in[epnum] = NULL;
 	}
 	if (ep) {
@@ -1358,6 +1391,34 @@ void usb_disable_interface(struct usb_device *dev, struct usb_interface *intf,
 	}
 }
 
+/*
+ * usb_disable_device_endpoints -- Disable all endpoints for a device
+ * @dev: the device whose endpoints are being disabled
+ * @skip_ep0: 0 to disable endpoint 0, 1 to skip it.
+ */
+static void usb_disable_device_endpoints(struct usb_device *dev, int skip_ep0)
+{
+	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
+	int i;
+
+	if (hcd->driver->check_bandwidth) {
+		/* First pass: Cancel URBs, leave endpoint pointers intact. */
+		for (i = skip_ep0; i < 16; ++i) {
+			usb_disable_endpoint(dev, i, false);
+			usb_disable_endpoint(dev, i + USB_DIR_IN, false);
+		}
+		/* Remove endpoints from the host controller internal state */
+		mutex_lock(hcd->bandwidth_mutex);
+		usb_hcd_alloc_bandwidth(dev, NULL, NULL, NULL);
+		mutex_unlock(hcd->bandwidth_mutex);
+	}
+	/* Second pass: remove endpoint pointers */
+	for (i = skip_ep0; i < 16; ++i) {
+		usb_disable_endpoint(dev, i, true);
+		usb_disable_endpoint(dev, i + USB_DIR_IN, true);
+	}
+}
+
 /**
  * usb_disable_device - Disable all the endpoints for a USB device
  * @dev: the device whose endpoints are being disabled
@@ -1415,8 +1476,7 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			dev->actconfig->interface[i] = NULL;
 		}
 
-		if (dev->usb2_hw_lpm_enabled == 1)
-			usb_set_usb2_hardware_lpm(dev, 0);
+		usb_disable_usb2_hardware_lpm(dev);
 		usb_unlocked_disable_lpm(dev);
 		usb_disable_ltm(dev);
 
@@ -1427,22 +1487,8 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 
 	dev_dbg(&dev->dev, "%s nuking %s URBs\n", __func__,
 		skip_ep0 ? "non-ep0" : "all");
-	if (hcd->driver->check_bandwidth) {
-		/* First pass: Cancel URBs, leave endpoint pointers intact. */
-		for (i = skip_ep0; i < 16; ++i) {
-			usb_disable_endpoint(dev, i, false);
-			usb_disable_endpoint(dev, i + USB_DIR_IN, false);
-		}
-		/* Remove endpoints from the host controller internal state */
-		mutex_lock(hcd->bandwidth_mutex);
-		usb_hcd_alloc_bandwidth(dev, NULL, NULL, NULL);
-		mutex_unlock(hcd->bandwidth_mutex);
-		/* Second pass: remove endpoint pointers */
-	}
-	for (i = skip_ep0; i < 16; ++i) {
-		usb_disable_endpoint(dev, i, true);
-		usb_disable_endpoint(dev, i + USB_DIR_IN, true);
-	}
+
+	usb_disable_device_endpoints(dev, skip_ep0);
 }
 
 /**
@@ -1532,6 +1578,11 @@ void usb_enable_interface(struct usb_device *dev,
  * is submitted that needs that bandwidth.  Some other operating systems
  * allocate bandwidth early, when a configuration is chosen.
  *
+ * xHCI reserves bandwidth and configures the alternate setting in
+ * usb_hcd_alloc_bandwidth(). If it fails the original interface altsetting
+ * may be disabled. Drivers cannot rely on any particular alternate
+ * setting being in effect after a failure.
+ *
  * This call is synchronous, and may not be used in an interrupt context.
  * Also, drivers must not change altsettings while urbs are scheduled for
  * endpoints in that interface; all such urbs must first be completed
@@ -1577,6 +1628,12 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 			 alternate);
 		return -EINVAL;
 	}
+	/*
+	 * usb3 hosts configure the interface in usb_hcd_alloc_bandwidth,
+	 * including freeing dropped endpoint ring buffers.
+	 * Make sure the interface endpoints are flushed before that
+	 */
+	usb_disable_interface(dev, iface, false);
 
 	/* Make sure we have enough bandwidth for this alternate interface.
 	 * Remove the current alt setting and add the new alt setting.
@@ -1720,6 +1777,9 @@ EXPORT_SYMBOL_GPL(usb_set_interface);
  *
  * Returns zero on success, else a negative error code.
  * Return: Zero on success, else a negative error code.
+ *
+ * If this routine fails the device will probably be in an unusable state
+ * with endpoints disabled, and interfaces only partially enabled.
  */
 int usb_reset_configuration(struct usb_device *dev)
 {
@@ -1744,6 +1804,7 @@ int usb_reset_configuration(struct usb_device *dev)
 		usb_disable_endpoint(dev, i, true);
 		usb_disable_endpoint(dev, i + USB_DIR_IN, true);
 	}
+	usb_disable_device_endpoints(dev, 1); /* skip ep0*/
 
 	config = dev->actconfig;
 	retval = 0;
@@ -1756,34 +1817,10 @@ int usb_reset_configuration(struct usb_device *dev)
 		mutex_unlock(hcd->bandwidth_mutex);
 		return -ENOMEM;
 	}
-	/* Make sure we have enough bandwidth for each alternate setting 0 */
-	for (i = 0; i < config->desc.bNumInterfaces; i++) {
-		struct usb_interface *intf = config->interface[i];
-		struct usb_host_interface *alt;
 
-		alt = usb_altnum_to_altsetting(intf, 0);
-		if (!alt)
-			alt = &intf->altsetting[0];
-		if (alt != intf->cur_altsetting)
-			retval = usb_hcd_alloc_bandwidth(dev, NULL,
-					intf->cur_altsetting, alt);
-		if (retval < 0)
-			break;
-	}
-	/* If not, reinstate the old alternate settings */
+	/* xHCI adds all endpoints in usb_hcd_alloc_bandwidth */
+	retval = usb_hcd_alloc_bandwidth(dev, config, NULL, NULL);
 	if (retval < 0) {
-reset_old_alts:
-		for (i--; i >= 0; i--) {
-			struct usb_interface *intf = config->interface[i];
-			struct usb_host_interface *alt;
-
-			alt = usb_altnum_to_altsetting(intf, 0);
-			if (!alt)
-				alt = &intf->altsetting[0];
-			if (alt != intf->cur_altsetting)
-				usb_hcd_alloc_bandwidth(dev, NULL,
-						alt, intf->cur_altsetting);
-		}
 		usb_enable_lpm(dev);
 		mutex_unlock(hcd->bandwidth_mutex);
 		return retval;
@@ -1797,6 +1834,12 @@ reset_old_alts:
 
 	dev->toggle[0] = dev->toggle[1] = 0;
 		goto reset_old_alts;
+	if (retval < 0) {
+		usb_hcd_alloc_bandwidth(dev, NULL, NULL, NULL);
+		usb_enable_lpm(dev);
+		mutex_unlock(hcd->bandwidth_mutex);
+		return retval;
+	}
 	mutex_unlock(hcd->bandwidth_mutex);
 
 	/* re-init hc/hcd interface/endpoint state */

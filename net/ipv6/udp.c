@@ -742,6 +742,7 @@ static __inline__ void udpv6_err(struct sk_buff *skb,
 
 int udpv6_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 static int __udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
+int __udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	int rc;
 
@@ -828,7 +829,7 @@ int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	/*
 	 * UDP-Lite specific tests, ignored on UDP sockets (see net/ipv4/udp.c).
 	 */
-	if ((is_udplite & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
+	if ((up->pcflag & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
 
 		if (up->pcrlen == 0) {          /* full coverage was set  */
 			LIMIT_NETDEBUG(KERN_WARNING "UDPLITE6: partial coverage"
@@ -873,6 +874,8 @@ drop:
 		if (udp_lib_checksum_complete(skb))
 			goto csum_error;
 	}
+	if (udp_lib_checksum_complete(skb))
+		goto csum_error;
 
 	if (sk_rcvqueues_full(sk, sk->sk_rcvbuf)) {
 		UDP6_INC_STATS_BH(sock_net(sk),
@@ -1108,10 +1111,10 @@ int __udp6_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 
 	if (use_hash2) {
 		hash2_any = udp6_portaddr_hash(net, &in6addr_any, hnum) &
-			    udp_table.mask;
-		hash2 = udp6_portaddr_hash(net, daddr, hnum) & udp_table.mask;
+			    udptable->mask;
+		hash2 = udp6_portaddr_hash(net, daddr, hnum) & udptable->mask;
 start_lookup:
-		hslot = &udp_table.hash2[hash2];
+		hslot = &udptable->hash2[hash2];
 		offset = offsetof(typeof(*sk), __sk_common.skc_portaddr_node);
 	}
 

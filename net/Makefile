@@ -29,6 +29,7 @@ obj-$(CONFIG_BRIDGE)		+= bridge/
 obj-$(CONFIG_IPX)		+= ipx/
 obj-$(CONFIG_ATALK)		+= appletalk/
 obj-$(CONFIG_WAN_ROUTER)	+= wanrouter/
+obj-$(CONFIG_UNIX_SCM)		+= unix/
 obj-$(CONFIG_NET)		+= ipv6/
 obj-$(CONFIG_PACKET)		+= packet/
 obj-$(CONFIG_NET_KEY)		+= key/

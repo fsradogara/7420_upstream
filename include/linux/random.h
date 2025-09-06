@@ -133,27 +133,11 @@ static inline u32 prandom_u32_max(u32 ep_ro)
 }
 
 /*
- * Handle minimum values for seeds
+ * This is designed to be standalone for just prandom
+ * users, but for now we include it from <linux/random.h>
+ * for legacy reasons.
  */
-static inline u32 __seed(u32 x, u32 m)
-{
-	return (x < m) ? x + m : x;
-}
-
-/**
- * prandom_seed_state - set seed for prandom_u32_state().
- * @state: pointer to state structure to receive the seed.
- * @seed: arbitrary 64-bit value to use as a seed.
- */
-static inline void prandom_seed_state(struct rnd_state *state, u64 seed)
-{
-	u32 i = (seed >> 32) ^ (seed << 10) ^ seed;
-
-	state->s1 = __seed(i,   2U);
-	state->s2 = __seed(i,   8U);
-	state->s3 = __seed(i,  16U);
-	state->s4 = __seed(i, 128U);
-}
+#include <linux/prandom.h>
 
 #ifdef CONFIG_ARCH_RANDOM
 # include <asm/archrandom.h>
@@ -183,11 +167,5 @@ static inline int arch_has_random_seed(void)
 	return 0;
 }
 #endif
-
-/* Pseudo random number generator from numerical recipes. */
-static inline u32 next_pseudo_random32(u32 seed)
-{
-	return seed * 1664525 + 1013904223;
-}
 
 #endif /* _LINUX_RANDOM_H */

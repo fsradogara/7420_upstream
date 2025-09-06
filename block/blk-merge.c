@@ -408,6 +408,7 @@ void blk_recount_segments(struct request_queue *q, struct bio *bio)
 		seg_cnt = bio_segments(bio);
 	else
 		seg_cnt = bio->bi_vcnt;
+	unsigned short seg_cnt = bio_segments(bio);
 
 	if (test_bit(QUEUE_FLAG_NO_SG_MERGE, &q->queue_flags) &&
 			(seg_cnt < queue_max_segments(q)))

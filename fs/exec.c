@@ -282,6 +282,7 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 {
 	struct page *page;
 	int ret;
+	unsigned int gup_flags = FOLL_FORCE;
 
 #ifdef CONFIG_STACK_GROWSUP
 	if (write) {
@@ -291,8 +292,12 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 			return NULL;
 	}
 #endif
-	ret = get_user_pages(current, bprm->mm, pos,
-			1, write, 1, &page, NULL);
+
+	if (write)
+		gup_flags |= FOLL_WRITE;
+
+	ret = get_user_pages(current, bprm->mm, pos, 1, gup_flags,
+			&page, NULL);
 	if (ret <= 0)
 		return NULL;
 
@@ -1124,7 +1129,7 @@ static int exec_mmap(struct mm_struct *mm)
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
 	old_mm = current->mm;
-	mm_release(tsk, old_mm);
+	exec_mm_release(tsk, old_mm);
 
 	if (old_mm) {
 		sync_mm_rss(old_mm);
@@ -1409,11 +1414,10 @@ killed:
 	return -EAGAIN;
 }
 
-char *get_task_comm(char *buf, struct task_struct *tsk)
+char *__get_task_comm(char *buf, size_t buf_size, struct task_struct *tsk)
 {
-	/* buf must be at least sizeof(tsk->comm) in size */
 	task_lock(tsk);
-	strncpy(buf, tsk->comm, sizeof(tsk->comm));
+	strncpy(buf, tsk->comm, buf_size);
 	task_unlock(tsk);
 	return buf;
 }
@@ -1424,6 +1428,7 @@ void set_task_comm(struct task_struct *tsk, char *buf)
 	strlcpy(tsk->comm, buf, sizeof(tsk->comm));
 	task_unlock(tsk);
 EXPORT_SYMBOL_GPL(get_task_comm);
+EXPORT_SYMBOL_GPL(__get_task_comm);
 
 /*
  * These functions flushes out all traces of the currently running executable
@@ -1460,6 +1465,8 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 * to be lockless.
 	 */
 	set_mm_exe_file(bprm->mm, bprm->file);
+
+	would_dump(bprm, bprm->file);
 
 	/*
 	 * Release all of the old mmap stuff
@@ -1633,6 +1640,7 @@ int prepare_binprm(struct linux_binprm *bprm)
 	memset(bprm->buf,0,BINPRM_BUF_SIZE);
 	return kernel_read(bprm->file,0,bprm->buf,BINPRM_BUF_SIZE);
 	current->self_exec_id++;
+	WRITE_ONCE(current->self_exec_id, current->self_exec_id + 1);
 	flush_signal_handlers(current, 0);
 }
 EXPORT_SYMBOL(setup_new_exec);
@@ -2257,7 +2265,7 @@ out_kfree:
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	acct_update_integrals(current);
-	task_numa_free(current);
+	task_numa_free(current, false);
 	free_bprm(bprm);
 	kfree(pathbuf);
 	putname(filename);

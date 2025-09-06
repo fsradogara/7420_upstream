@@ -3845,6 +3845,7 @@ void dasd_generic_remove(struct ccw_device *cdev)
 	 * no quite down yet.
 	 */
 	dasd_set_target_state(device, DASD_STATE_NEW);
+	cdev->handler = NULL;
 	/* dasd_delete_device destroys the device reference. */
 	block = device->block;
 	device->block = NULL;

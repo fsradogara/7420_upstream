@@ -781,12 +781,8 @@ static int __init tlclk_init(void)
 {
 	int ret;
 
-	ret = register_chrdev(tlclk_major, "telco_clock", &tlclk_fops);
-	if (ret < 0) {
-		printk(KERN_ERR "tlclk: can't get major %d.\n", tlclk_major);
-		return ret;
-	}
-	tlclk_major = ret;
+	telclk_interrupt = (inb(TLCLK_REG7) & 0x0f);
+
 	alarm_events = kzalloc( sizeof(struct tlclk_alarms), GFP_KERNEL);
 	if (!alarm_events)
 		goto out1;
@@ -795,6 +791,14 @@ static int __init tlclk_init(void)
 		goto out1;
 	}
 
+	ret = register_chrdev(tlclk_major, "telco_clock", &tlclk_fops);
+	if (ret < 0) {
+		printk(KERN_ERR "tlclk: can't get major %d.\n", tlclk_major);
+		kfree(alarm_events);
+		return ret;
+	}
+	tlclk_major = ret;
+
 	/* Read telecom clock IRQ number (Set by BIOS) */
 	if (!request_region(TLCLK_BASE, 8, "telco_clock")) {
 		printk(KERN_ERR "tlclk: request_region 0x%X failed.\n",
@@ -802,7 +806,6 @@ static int __init tlclk_init(void)
 		ret = -EBUSY;
 		goto out2;
 	}
-	telclk_interrupt = (inb(TLCLK_REG7) & 0x0f);
 
 	if (0x0F == telclk_interrupt ) { /* not MCPBL0010 ? */
 		printk(KERN_ERR "telclk_interrup = 0x%x non-mcpbl0010 hw.\n",
@@ -844,8 +847,8 @@ out3:
 	release_region(TLCLK_BASE, 8);
 out2:
 	kfree(alarm_events);
-out1:
 	unregister_chrdev(tlclk_major, "telco_clock");
+out1:
 	return ret;
 }
 

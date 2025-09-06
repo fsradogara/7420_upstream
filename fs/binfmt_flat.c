@@ -938,9 +938,14 @@ err:
 
 static int load_flat_shared_library(int id, struct lib_info *libs)
 {
+	/*
+	 * This is a fake bprm struct; only the members "buf", "file" and
+	 * "filename" are actually used.
+	 */
 	struct linux_binprm bprm;
 	int res;
 	char buf[16];
+	loff_t pos = 0;
 
 	memset(&bprm, 0, sizeof(bprm));
 
@@ -977,11 +982,10 @@ static int load_flat_shared_library(int id, struct lib_info *libs)
 	res = prepare_binprm(&bprm);
 
 	if (!IS_ERR_VALUE(res))
+	res = kernel_read(bprm.file, pos, bprm.buf, BINPRM_BUF_SIZE);
+	if (res >= 0)
 		res = load_flat_file(&bprm, libs, id, NULL);
 
-	abort_creds(bprm.cred);
-
-out:
 	allow_write_access(bprm.file);
 	fput(bprm.file);
 

@@ -104,6 +104,9 @@ loads_done:
 	bnez	t0, trace_a_syscall
 
 syscall_common:
+	dsll	t0, v0, 3		# offset into table
+	ld	t2, (sys32_call_table - (__NR_O32_Linux * 8))(t0)
+
 	jalr	t2			# Do The Real Thing (TM)
 
 	li	t0, -EMAXERRNO - 1	# error?
@@ -145,7 +148,6 @@ trace_a_syscall:
 	sd	a6, PT_R10(sp)
 	sd	a7, PT_R11(sp)		# For indirect syscalls
 
-	move	s0, t2			# Save syscall pointer
 	move	a0, sp
 	li	a1, 0
 	jal	do_syscall_trace
@@ -163,15 +165,15 @@ trace_a_syscall:
 	subu	t1, v0,  __NR_O32_Linux
 	move	a1, v0
 	bnez	t1, 1f /* __NR_syscall at offset 0 */
-	lw	a1, PT_R4(sp) /* Arg1 for __NR_syscall case */
+	ld	a1, PT_R4(sp) /* Arg1 for __NR_syscall case */
 	.set	pop
 
 1:	jal	syscall_trace_enter
 
 	bltz	v0, 1f			# seccomp failed? Skip syscall
 
-	move	t2, s0
 	RESTORE_STATIC
+	ld	v0, PT_R2(sp)		# Restore syscall (maybe modified)
 	ld	a0, PT_R4(sp)		# Restore argument registers
 	ld	a1, PT_R5(sp)
 	ld	a2, PT_R6(sp)
@@ -192,6 +194,11 @@ trace_a_syscall:
 1:	sd	v0, PT_R2(sp)		# result
 
 	j	syscall_exit
+
+	dsubu	t0, v0, __NR_O32_Linux	# check (new) syscall number
+	sltiu	t0, t0, __NR_O32_Linux_syscalls + 1
+	beqz	t0, not_o32_scall
+
 	j	syscall_common
 
 1:	j	syscall_exit

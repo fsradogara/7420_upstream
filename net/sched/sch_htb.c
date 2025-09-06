@@ -1401,6 +1401,9 @@ static int htb_init(struct Qdisc *sch, struct nlattr *opt)
 	int err;
 	int i;
 
+	qdisc_watchdog_init(&q->watchdog, sch);
+	INIT_WORK(&q->work, htb_work_func);
+
 	if (!opt)
 		return -EINVAL;
 

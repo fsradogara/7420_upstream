@@ -385,16 +385,7 @@ struct wl3501_get_confirm {
 	u8	mib_value[100];
 };
 
-struct wl3501_join_req {
-	u16			    next_blk;
-	u8			    sig_id;
-	u8			    reserved;
-	struct iw_mgmt_data_rset    operational_rset;
-	u16			    reserved2;
-	u16			    timeout;
-	u16			    probe_delay;
-	u8			    timestamp[8];
-	u8			    local_time[8];
+struct wl3501_req {
 	u16			    beacon_period;
 	u16			    dtim_period;
 	u16			    cap_info;
@@ -405,6 +396,19 @@ struct wl3501_join_req {
 	struct iw_mgmt_cf_pset	    cf_pset;
 	struct iw_mgmt_ibss_pset    ibss_pset;
 	struct iw_mgmt_data_rset    bss_basic_rset;
+};
+
+struct wl3501_join_req {
+	u16			    next_blk;
+	u8			    sig_id;
+	u8			    reserved;
+	struct iw_mgmt_data_rset    operational_rset;
+	u16			    reserved2;
+	u16			    timeout;
+	u16			    probe_delay;
+	u8			    timestamp[8];
+	u8			    local_time[8];
+	struct wl3501_req	    req;
 };
 
 struct wl3501_join_confirm {
@@ -449,16 +453,7 @@ struct wl3501_scan_confirm {
 	u16			    status;
 	char			    timestamp[8];
 	char			    localtime[8];
-	u16			    beacon_period;
-	u16			    dtim_period;
-	u16			    cap_info;
-	u8			    bss_type;
-	u8			    bssid[ETH_ALEN];
-	struct iw_mgmt_essid_pset   ssid;
-	struct iw_mgmt_ds_pset	    ds_pset;
-	struct iw_mgmt_cf_pset	    cf_pset;
-	struct iw_mgmt_ibss_pset    ibss_pset;
-	struct iw_mgmt_data_rset    bss_basic_rset;
+	struct wl3501_req	    req;
 	u8			    rssi;
 };
 
@@ -477,8 +472,10 @@ struct wl3501_md_req {
 	u16	size;
 	u8	pri;
 	u8	service_class;
-	u8	daddr[ETH_ALEN];
-	u8	saddr[ETH_ALEN];
+	struct {
+		u8	daddr[ETH_ALEN];
+		u8	saddr[ETH_ALEN];
+	} addr;
 };
 
 struct wl3501_md_ind {
@@ -490,8 +487,10 @@ struct wl3501_md_ind {
 	u8	reception;
 	u8	pri;
 	u8	service_class;
-	u8	daddr[ETH_ALEN];
-	u8	saddr[ETH_ALEN];
+	struct {
+		u8	daddr[ETH_ALEN];
+		u8	saddr[ETH_ALEN];
+	} addr;
 };
 
 struct wl3501_md_confirm {

@@ -202,6 +202,9 @@ teql_destroy(struct Qdisc *sch)
 	struct teql_master *master = dat->m;
 
 	if ((prev = master->slaves) != NULL) {
+	if (!master)
+		return;
+
 	prev = master->slaves;
 	if (prev) {
 		do {

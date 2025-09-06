@@ -255,7 +255,7 @@ int ubifs_check_node(const struct ubifs_info *c, const void *buf, int lnum,
 int ubifs_check_node(const struct ubifs_info *c, const void *buf, int lnum,
 		     int offs, int quiet, int must_chk_crc)
 {
-	int err = -EINVAL, type, node_len;
+	int err = -EINVAL, type, node_len, dump_node = 1;
 	uint32_t crc, node_crc, magic;
 	const struct ubifs_ch *ch = buf;
 
@@ -317,10 +317,22 @@ out:
 		dbg_dump_node(c, buf);
 		dbg_dump_stack();
 		ubifs_err(c, "bad node length %d", node_len);
+	if (type == UBIFS_DATA_NODE && node_len > UBIFS_DATA_NODE_SZ)
+		dump_node = 0;
 out:
 	if (!quiet) {
 		ubifs_err(c, "bad node at LEB %d:%d", lnum, offs);
-		ubifs_dump_node(c, buf);
+		if (dump_node) {
+			ubifs_dump_node(c, buf);
+		} else {
+			int safe_len = min3(node_len, c->leb_size - offs,
+				(int)UBIFS_MAX_DATA_NODE_SZ);
+			pr_err("\tprevent out-of-bounds memory access\n");
+			pr_err("\ttruncated data node length      %d\n", safe_len);
+			pr_err("\tcorrupted data node:\n");
+			print_hex_dump(KERN_ERR, "\t", DUMP_PREFIX_OFFSET, 32, 1,
+					buf, safe_len, 0);
+		}
 		dump_stack();
 	}
 	return err;
@@ -346,7 +358,7 @@ void ubifs_pad(const struct ubifs_info *c, void *buf, int pad)
 {
 	uint32_t crc;
 
-	ubifs_assert(pad >= 0 && !(pad & 7));
+	ubifs_assert(pad >= 0);
 
 	if (pad >= UBIFS_PAD_NODE_SZ) {
 		struct ubifs_ch *ch = buf;
@@ -829,6 +841,10 @@ int ubifs_wbuf_write_nolock(struct ubifs_wbuf *wbuf, void *buf, int len)
 		 * write-buffer.
 		 */
 		memcpy(wbuf->buf + wbuf->used, buf, len);
+		if (aligned_len > len) {
+			ubifs_assert(aligned_len - len < 8);
+			ubifs_pad(c, wbuf->buf + wbuf->used + len, aligned_len - len);
+		}
 
 		if (aligned_len == wbuf->avail) {
 			dbg_io("flush wbuf to LEB %d:%d", wbuf->lnum,
@@ -960,7 +976,7 @@ int ubifs_wbuf_write_nolock(struct ubifs_wbuf *wbuf, void *buf, int len)
 	}
 
 	spin_lock(&wbuf->lock);
-	if (aligned_len)
+	if (aligned_len) {
 		/*
 		 * And now we have what's left and what does not take whole
 		 * min. I/O unit, so write it to the write-buffer and we are
@@ -968,6 +984,11 @@ int ubifs_wbuf_write_nolock(struct ubifs_wbuf *wbuf, void *buf, int len)
 		 * done.
 		 */
 		memcpy(wbuf->buf, buf + written, len);
+		if (aligned_len > len) {
+			ubifs_assert(aligned_len - len < 8);
+			ubifs_pad(c, wbuf->buf + len, aligned_len - len);
+		}
+	}
 
 	wbuf->offs = offs;
 	wbuf->used = aligned_len;

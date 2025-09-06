@@ -157,6 +157,7 @@ static struct resource iop13xx_tpmi_3_resources[] = {
 
 u64 iop13xx_tpmi_mask = DMA_64BIT_MASK;
 u64 iop13xx_tpmi_mask = DMA_BIT_MASK(64);
+u64 iop13xx_tpmi_mask = DMA_BIT_MASK(32);
 static struct platform_device iop13xx_tpmi_0_device = {
 	.name = "iop-tpmi",
 	.id = 0,
@@ -166,6 +167,7 @@ static struct platform_device iop13xx_tpmi_0_device = {
 		.dma_mask          = &iop13xx_tpmi_mask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -178,6 +180,7 @@ static struct platform_device iop13xx_tpmi_1_device = {
 		.dma_mask          = &iop13xx_tpmi_mask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -190,6 +193,7 @@ static struct platform_device iop13xx_tpmi_2_device = {
 		.dma_mask          = &iop13xx_tpmi_mask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -202,6 +206,7 @@ static struct platform_device iop13xx_tpmi_3_device = {
 		.dma_mask          = &iop13xx_tpmi_mask,
 		.coherent_dma_mask = DMA_64BIT_MASK,
 		.coherent_dma_mask = DMA_BIT_MASK(64),
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 

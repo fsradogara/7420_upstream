@@ -2270,6 +2270,11 @@ int jbd2_journal_load(journal_t *journal)
 		       journal->j_devname);
 		return -EFSCORRUPTED;
 	}
+	/*
+	 * clear JBD2_ABORT flag initialized in journal_init_common
+	 * here to update log tail information with the newest seq.
+	 */
+	journal->j_flags &= ~JBD2_ABORT;
 
 	/* OK, we've finished with the dynamic journal bits:
 	 * reinitialise the dynamic contents of the superblock in memory
@@ -2277,7 +2282,6 @@ int jbd2_journal_load(journal_t *journal)
 	if (journal_reset(journal))
 		goto recovery_error;
 
-	journal->j_flags &= ~JBD2_ABORT;
 	journal->j_flags |= JBD2_LOADED;
 	return 0;
 
@@ -2842,6 +2846,10 @@ static void __journal_abort_soft (journal_t *journal, int errno)
 		journal->j_flags |= JBD2_REC_ERR;
 		write_unlock(&journal->j_state_lock);
 	}
+	jbd2_journal_update_sb_errno(journal);
+	write_lock(&journal->j_state_lock);
+	journal->j_flags |= JBD2_REC_ERR;
+	write_unlock(&journal->j_state_lock);
 }
 
 /**
@@ -2882,11 +2890,6 @@ static void __journal_abort_soft (journal_t *journal, int errno)
  * transaction without having to complete the transaction to record the
  * failure to disk.  ext3_error, for example, now uses this
  * functionality.
- *
- * Errors which originate from within the journaling layer will NOT
- * supply an errno; a null errno implies that absolutely no further
- * writes are done to the journal (unless there are any already in
- * progress).
  *
  */
 

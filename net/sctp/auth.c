@@ -555,6 +555,7 @@ out_err:
 	/* Clean up any successfull allocations */
 	/* Clean up any successful allocations */
 	sctp_auth_destroy_hmacs(ep->auth_hmacs);
+	ep->auth_hmacs = NULL;
 	return -ENOMEM;
 }
 

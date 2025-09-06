@@ -79,6 +79,8 @@ extern void	l1_cleanup(void);
 extern int 	Isdnl2_Init(u_int *);
 extern void	Isdnl2_cleanup(void);
 
+extern int	Isdnl1_Init(u_int *);
+extern void	Isdnl1_cleanup(void);
 extern int	Isdnl2_Init(u_int *);
 extern void	Isdnl2_cleanup(void);
 

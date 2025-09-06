@@ -131,9 +131,16 @@ void __init config_mvme147(void)
 
 static irqreturn_t mvme147_timer_int (int irq, void *dev_id)
 {
+	irq_handler_t timer_routine = dev_id;
+	unsigned long flags;
+
+	local_irq_save(flags);
 	m147_pcc->t1_int_cntrl = PCC_TIMER_INT_CLR;
 	m147_pcc->t1_int_cntrl = PCC_INT_ENAB|PCC_LEVEL_TIMER1;
-	return tick_handler(irq, dev_id);
+	timer_routine(0, NULL);
+	local_irq_restore(flags);
+
+	return IRQ_HANDLED;
 }
 
 
@@ -143,6 +150,8 @@ void mvme147_sched_init (irq_handler_t timer_routine)
 	request_irq (PCC_IRQ_TIMER1, mvme147_timer_int,
 		IRQ_FLG_REPLACE, "timer 1", NULL);
 	if (request_irq(PCC_IRQ_TIMER1, mvme147_timer_int, 0, "timer 1", NULL))
+	if (request_irq(PCC_IRQ_TIMER1, mvme147_timer_int, 0, "timer 1",
+			timer_routine))
 		pr_err("Couldn't register timer interrupt\n");
 
 	/* Init the clock with a value */

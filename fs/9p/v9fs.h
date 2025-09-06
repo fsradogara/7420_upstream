@@ -156,6 +156,7 @@ void v9fs_session_cancel(struct v9fs_session_info *v9ses);
 	struct list_head slist; /* list of sessions registered with v9fs */
 	struct backing_dev_info bdi;
 	struct rw_semaphore rename_sem;
+	long session_lock_timeout; /* retry interval for blocking locks */
 };
 
 /* cache_validity flags */
@@ -163,7 +164,7 @@ void v9fs_session_cancel(struct v9fs_session_info *v9ses);
 
 struct v9fs_inode {
 #ifdef CONFIG_9P_FSCACHE
-	spinlock_t fscache_lock;
+	struct mutex fscache_lock;
 	struct fscache_cookie *fscache;
 #endif
 	struct p9_qid qid;

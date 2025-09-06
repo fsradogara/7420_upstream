@@ -931,6 +931,12 @@ static netdev_tx_t kaweth_start_xmit(struct sk_buff *skb,
 			spin_unlock_irq(&kaweth->device_lock);
 			return NETDEV_TX_OK;
 		}
+	if (skb_cow_head(skb, 2)) {
+		kaweth->stats.tx_errors++;
+		netif_start_queue(net);
+		spin_unlock_irq(&kaweth->device_lock);
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
 	}
 
 	private_header = (__le16 *)__skb_push(skb, 2);

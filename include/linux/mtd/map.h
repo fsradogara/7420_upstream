@@ -329,7 +329,7 @@ static inline int map_word_equal(struct map_info *map, map_word val1, map_word v
 ({									\
 	int i, ret = 1;							\
 	for (i = 0; i < map_words(map); i++) {				\
-		if (((val1).x[i] & (val2).x[i]) != (val2).x[i]) {	\
+		if (((val1).x[i] & (val2).x[i]) != (val3).x[i]) {	\
 			ret = 0;					\
 			break;						\
 		}							\

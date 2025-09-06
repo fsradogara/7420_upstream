@@ -166,7 +166,7 @@ out:
 	if (!err)
 		return err;
 
-	nand_release(&data->mtd);
+	nand_cleanup(&data->chip);
 out:
 	if (pdata->ctrl.remove)
 		pdata->ctrl.remove(pdev);

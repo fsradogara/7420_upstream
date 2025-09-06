@@ -117,6 +117,31 @@ int inet_csk_bind_conflict(const struct sock *sk,
 }
 EXPORT_SYMBOL_GPL(inet_csk_bind_conflict);
 
+void inet_csk_update_fastreuse(struct inet_bind_bucket *tb,
+			       struct sock *sk)
+{
+	kuid_t uid = sock_i_uid(sk);
+
+	if (hlist_empty(&tb->owners)) {
+		if (sk->sk_reuse && sk->sk_state != TCP_LISTEN)
+			tb->fastreuse = 1;
+		else
+			tb->fastreuse = 0;
+		if (sk->sk_reuseport) {
+			tb->fastreuseport = 1;
+			tb->fastuid = uid;
+		} else
+			tb->fastreuseport = 0;
+	} else {
+		if (tb->fastreuse &&
+		    (!sk->sk_reuse || sk->sk_state == TCP_LISTEN))
+			tb->fastreuse = 0;
+		if (tb->fastreuseport &&
+		    (!sk->sk_reuseport || !uid_eq(tb->fastuid, uid)))
+			tb->fastreuseport = 0;
+	}
+}
+
 /* Obtain a reference to a local port for the given sock,
  * if snum is zero it means select any available local port.
  */
@@ -300,6 +325,9 @@ tb_not_found:
 		    (!sk->sk_reuseport || !uid_eq(tb->fastuid, uid)))
 			tb->fastreuseport = 0;
 	}
+
+	inet_csk_update_fastreuse(tb, sk);
+
 success:
 	if (!inet_csk(sk)->icsk_bind_hash)
 		inet_bind_hash(sk, tb, snum);
@@ -1076,7 +1104,6 @@ static void inet_child_forget(struct sock *sk, struct request_sock *req,
 		tcp_sk(child)->fastopen_rsk = NULL;
 	}
 	inet_csk_destroy_sock(child);
-	reqsk_put(req);
 }
 
 struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
@@ -1169,6 +1196,7 @@ void inet_csk_listen_stop(struct sock *sk)
 		inet_csk_destroy_sock(child);
 
 		inet_child_forget(sk, req, child);
+		reqsk_put(req);
 		bh_unlock_sock(child);
 		local_bh_enable();
 		sock_put(child);

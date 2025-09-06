@@ -50,9 +50,6 @@ NESTED(handle_sysn32, PT_SIZE, sp)
 #endif
 	beqz	t0, not_n32_scall
 
-	dsll	t0, v0, 3		# offset into table
-	ld	t2, (sysn32_call_table - (__NR_N32_Linux * 8))(t0)
-
 	sd	a3, PT_R26(sp)		# save a3 for syscall restarting
 
 	li	t1, _TIF_SYSCALL_TRACE | _TIF_SYSCALL_AUDIT
@@ -62,6 +59,9 @@ NESTED(handle_sysn32, PT_SIZE, sp)
 	bnez	t0, n32_syscall_trace_entry
 
 syscall_common:
+	dsll	t0, v0, 3		# offset into table
+	ld	t2, (sysn32_call_table - (__NR_N32_Linux * 8))(t0)
+
 	jalr	t2			# Do The Real Thing (TM)
 
 	li	t0, -EMAXERRNO - 1	# error?
@@ -96,7 +96,6 @@ n32_syscall_exit_work:
 
 n32_syscall_trace_entry:
 	SAVE_STATIC
-	move	s0, t2
 	move	a0, sp
 	li	a1, 0
 	jal	do_syscall_trace
@@ -107,8 +106,8 @@ n32_syscall_trace_entry:
 
 	bltz	v0, 1f			# seccomp failed? Skip syscall
 
-	move	t2, s0
 	RESTORE_STATIC
+	ld	v0, PT_R2(sp)		# Restore syscall (maybe modified)
 	ld	a0, PT_R4(sp)		# Restore argument registers
 	ld	a1, PT_R5(sp)
 	ld	a2, PT_R6(sp)
@@ -127,6 +126,11 @@ n32_syscall_trace_entry:
 1:	sd	v0, PT_R2(sp)		# result
 
 	j	syscall_exit
+
+	dsubu	t2, v0, __NR_N32_Linux	# check (new) syscall number
+	sltiu   t0, t2, __NR_N32_Linux_syscalls + 1
+	beqz	t0, not_n32_scall
+
 	j	syscall_common
 
 1:	j	syscall_exit

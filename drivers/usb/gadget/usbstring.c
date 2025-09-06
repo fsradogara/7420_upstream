@@ -133,8 +133,9 @@ usb_gadget_get_string (struct usb_gadget_strings *table, int id, u8 *buf)
 	len = min ((size_t) 126, strlen (s->s));
 	memset (buf + 2, 0, 2 * len);	/* zero all the bytes */
 	len = utf8_to_utf16le(s->s, (__le16 *)&buf[2], len);
+	len = min((size_t)USB_MAX_STRING_LEN, strlen(s->s));
 	len = utf8s_to_utf16s(s->s, len, UTF16_LITTLE_ENDIAN,
-			(wchar_t *) &buf[2], 126);
+			(wchar_t *) &buf[2], USB_MAX_STRING_LEN);
 	if (len < 0)
 		return -EINVAL;
 	buf [0] = (len + 1) * 2;

@@ -138,6 +138,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	} else if (net_xmit_drop_count(ret)) {
 		q->stats.pdrop++;
 		sch->qstats.drops++;
+		qdisc_qstats_backlog_inc(sch, skb);
 		sch->q.qlen++;
 	} else if (net_xmit_drop_count(ret)) {
 		q->stats.pdrop++;
@@ -186,6 +187,7 @@ static struct sk_buff *red_dequeue(struct Qdisc *sch)
 static unsigned int red_drop(struct Qdisc* sch)
 	if (skb) {
 		qdisc_bstats_update(sch, skb);
+		qdisc_qstats_backlog_dec(sch, skb);
 		sch->q.qlen--;
 	} else {
 		if (!red_is_idling(&q->vars))
@@ -212,6 +214,7 @@ static unsigned int red_drop(struct Qdisc *sch)
 		q->stats.other++;
 		sch->qstats.drops++;
 		qdisc_qstats_drop(sch);
+		sch->qstats.backlog -= len;
 		sch->q.qlen--;
 		return len;
 	}
@@ -230,6 +233,7 @@ static void red_reset(struct Qdisc *sch)
 	struct red_sched_data *q = qdisc_priv(sch);
 
 	qdisc_reset(q->qdisc);
+	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 	red_restart(&q->parms);
 	red_restart(&q->vars);
@@ -257,6 +261,7 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 	struct Qdisc *child = NULL;
 	int err;
 	u32 max_P;
+	u8 *stab;
 
 	if (opt == NULL)
 		return -EINVAL;
@@ -272,7 +277,9 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 	max_P = tb[TCA_RED_MAX_P] ? nla_get_u32(tb[TCA_RED_MAX_P]) : 0;
 
 	ctl = nla_data(tb[TCA_RED_PARMS]);
-	if (!red_check_params(ctl->qth_min, ctl->qth_max, ctl->Wlog))
+	stab = nla_data(tb[TCA_RED_STAB]);
+	if (!red_check_params(ctl->qth_min, ctl->qth_max, ctl->Wlog,
+			      ctl->Scell_log, stab))
 		return -EINVAL;
 
 	if (ctl->limit > 0) {
@@ -304,7 +311,7 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 	red_set_parms(&q->parms,
 		      ctl->qth_min, ctl->qth_max, ctl->Wlog,
 		      ctl->Plog, ctl->Scell_log,
-		      nla_data(tb[TCA_RED_STAB]),
+		      stab,
 		      max_P);
 	red_set_vars(&q->vars);
 

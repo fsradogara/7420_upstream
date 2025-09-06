@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/mutex.h>
+#include <linux/rwsem.h>
 #include <linux/uaccess.h>
 #include <linux/usb.h>
 
@@ -76,6 +77,8 @@ struct usb_lcd {
 							   using up all RAM */
 	struct usb_anchor	submitted;		/* URBs to wait for
 							   before suspend */
+	struct rw_semaphore	io_rwsem;
+	unsigned long		disconnected:1;
 };
 #define to_lcd_dev(d) container_of(d, struct usb_lcd, kref)
 
@@ -172,6 +175,13 @@ static ssize_t lcd_read(struct file *file, char __user * buffer,
 			      usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
 	dev = file->private_data;
 
+	down_read(&dev->io_rwsem);
+
+	if (dev->disconnected) {
+		retval = -ENODEV;
+		goto out_up_io;
+	}
+
 	/* do a blocking bulk read to get data from the device */
 	retval = usb_bulk_msg(dev->udev,
 			      usb_rcvbulkpipe(dev->udev,
@@ -187,6 +197,9 @@ static ssize_t lcd_read(struct file *file, char __user * buffer,
 		else
 			retval = bytes_read;
 	}
+
+out_up_io:
+	up_read(&dev->io_rwsem);
 
 	return retval;
 }
@@ -303,11 +316,18 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer,
 	if (r < 0)
 		return -EINTR;
 
+	down_read(&dev->io_rwsem);
+
+	if (dev->disconnected) {
+		retval = -ENODEV;
+		goto err_up_io;
+	}
+
 	/* create a urb, and a buffer for it, and copy the data to the urb */
 	urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!urb) {
 		retval = -ENOMEM;
-		goto err_no_buf;
+		goto err_up_io;
 	}
 	
 	buf = usb_buffer_alloc(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
@@ -360,6 +380,7 @@ static ssize_t lcd_write(struct file *file, const char __user * user_buffer,
 	   the USB core will eventually free it entirely */
 	usb_free_urb(urb);
 
+	up_read(&dev->io_rwsem);
 exit:
 	return count;
 error_unanchor:
@@ -368,7 +389,8 @@ error:
 	usb_buffer_free(dev->udev, count, buf, urb->transfer_dma);
 	usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
 	usb_free_urb(urb);
-err_no_buf:
+err_up_io:
+	up_read(&dev->io_rwsem);
 	up(&dev->limit_sem);
 	return retval;
 }
@@ -424,6 +446,7 @@ static int lcd_probe(struct usb_interface *interface,
 	}
 	kref_init(&dev->kref);
 	sema_init(&dev->limit_sem, USB_LCD_CONCURRENT_WRITES);
+	init_rwsem(&dev->io_rwsem);
 	init_usb_anchor(&dev->submitted);
 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
@@ -562,6 +585,12 @@ static void lcd_disconnect(struct usb_interface *interface)
 
 	/* give back our minor */
 	usb_deregister_dev(interface, &lcd_class);
+
+	down_write(&dev->io_rwsem);
+	dev->disconnected = 1;
+	up_write(&dev->io_rwsem);
+
+	usb_kill_anchored_urbs(&dev->submitted);
 
 	/* decrement our usage count */
 	kref_put(&dev->kref, lcd_delete);

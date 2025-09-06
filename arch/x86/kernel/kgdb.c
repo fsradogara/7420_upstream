@@ -635,6 +635,7 @@ void kgdb_roundup_cpus(unsigned long flags)
 {
 	send_IPI_allbutself(APIC_DM_NMI);
 	apic->send_IPI_allbutself(APIC_DM_NMI);
+	apic->send_IPI_allbutself(NMI_VECTOR);
 }
 #endif
 

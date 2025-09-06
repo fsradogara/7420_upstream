@@ -298,7 +298,9 @@ int snd_mixart_send_msg(struct mixart_mgr *mgr, struct mixart_msg *request, int 
 	resp.data = resp_data;
 	resp.size = max_resp_size;
 
+	mutex_lock(&mgr->msg_lock);
 	err = get_msg(mgr, &resp, msg_frame);
+	mutex_unlock(&mgr->msg_lock);
 
 	if( request->message_id != resp.message_id )
 		snd_printk(KERN_ERR "REPONSE ERROR!\n");

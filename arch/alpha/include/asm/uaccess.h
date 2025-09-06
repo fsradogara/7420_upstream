@@ -390,16 +390,7 @@ __asm__ __volatile__("1: stb %r2,%1\n"				\
  * Complex access routines
  */
 
-/* This little bit of silliness is to get the GP loaded for a function
-   that ordinarily wouldn't.  Otherwise we could have it done by the macro
-   directly, which can be optimized the linker.  */
-#ifdef MODULE
-#define __module_address(sym)		"r"(sym),
-#define __module_call(ra, arg, sym)	"jsr $" #ra ",(%" #arg ")," #sym
-#else
-#define __module_address(sym)
-#define __module_call(ra, arg, sym)	"bsr $" #ra "," #sym " !samegp"
-#endif
+extern long __copy_user(void *to, const void *from, long len);
 
 extern void __copy_user(void);
 
@@ -442,11 +433,15 @@ __copy_tofrom_user(void *to, const void *from, long len, const void __user *vali
 ({									\
 	__chk_user_ptr(to);						\
 	__copy_tofrom_user_nocheck((__force void *)(to), (from), (n));	\
+#define __copy_to_user(to, from, n)			\
+({							\
+	__chk_user_ptr(to);				\
+	__copy_user((__force void *)(to), (from), (n));	\
 })
-#define __copy_from_user(to, from, n)					\
-({									\
-	__chk_user_ptr(from);						\
-	__copy_tofrom_user_nocheck((to), (__force void *)(from), (n));	\
+#define __copy_from_user(to, from, n)			\
+({							\
+	__chk_user_ptr(from);				\
+	__copy_user((to), (__force void *)(from), (n));	\
 })
 
 #define __copy_to_user_inatomic __copy_to_user
@@ -456,18 +451,19 @@ extern inline long
 copy_to_user(void __user *to, const void *from, long n)
 {
 	if (likely(__access_ok((unsigned long)to, n, get_fs())))
-		n = __copy_tofrom_user_nocheck((__force void *)to, from, n);
+		n = __copy_user((__force void *)to, from, n);
 	return n;
 }
 
 extern inline long
 copy_from_user(void *to, const void __user *from, long n)
 {
+	long res = n;
 	if (likely(__access_ok((unsigned long)from, n, get_fs())))
-		n = __copy_tofrom_user_nocheck(to, (__force void *)from, n);
-	else
-		memset(to, 0, n);
-	return n;
+		res = __copy_from_user_inatomic(to, from, n);
+	if (unlikely(res))
+		memset(to + (n - res), 0, res);
+	return res;
 }
 
 extern void __do_clear_user(void);
@@ -486,6 +482,7 @@ __clear_user(void __user *to, long len)
 		: "$1", "$2", "$3", "$4", "$5", "$28", "memory");
 	return __cl_len;
 }
+extern long __clear_user(void __user *to, long len);
 
 extern inline long
 clear_user(void __user *to, long len)

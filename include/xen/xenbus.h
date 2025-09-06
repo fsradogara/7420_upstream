@@ -60,6 +60,15 @@ struct xenbus_watch
 	/* Path being watched. */
 	const char *node;
 
+	unsigned int nr_pending;
+
+	/*
+	 * Called just before enqueing new event while a spinlock is held.
+	 * The event will be discarded if this callback returns false.
+	 */
+	bool (*will_handle)(struct xenbus_watch *,
+			    const char **vec, unsigned int len);
+
 	/* Callback (executed in a process context with no locks held). */
 	void (*callback)(struct xenbus_watch *,
 			 const char **vec, unsigned int len);
@@ -228,6 +237,8 @@ void xenbus_suspend_cancel(void);
 
 int xenbus_watch_path(struct xenbus_device *dev, const char *path,
 		      struct xenbus_watch *watch,
+		      bool (*will_handle)(struct xenbus_watch *,
+					  const char **, unsigned int),
 		      void (*callback)(struct xenbus_watch *,
 				       const char **, unsigned int));
 int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
@@ -250,7 +261,10 @@ int xenbus_unmap_ring(struct xenbus_device *dev,
 int xenbus_alloc_evtchn(struct xenbus_device *dev, int *port);
 int xenbus_bind_evtchn(struct xenbus_device *dev, int remote_port, int *port);
 __printf(4, 5)
+__printf(5, 6)
 int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
+			 bool (*will_handle)(struct xenbus_watch *,
+					     const char **, unsigned int),
 			 void (*callback)(struct xenbus_watch *,
 					  const char **, unsigned int),
 			 const char *pathfmt, ...);

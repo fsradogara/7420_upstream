@@ -76,6 +76,8 @@ struct mr6_table {
 #endif
 };
 
+#include <linux/nospec.h>
+
 struct ip6mr_rule {
 	struct fib_rule		common;
 };
@@ -2072,14 +2074,15 @@ static int ip6mr_sk_init(struct mr6_table *mrt, struct sock *sk)
 	if (likely(mrt->mroute6_sk == NULL)) {
 		mrt->mroute6_sk = sk;
 		net->ipv6.devconf_all->mc_forwarding++;
+	} else {
+		err = -EADDRINUSE;
+	}
+	write_unlock_bh(&mrt_lock);
+
+	if (!err)
 		inet6_netconf_notify_devconf(net, NETCONFA_MC_FORWARDING,
 					     NETCONFA_IFINDEX_ALL,
 					     net->ipv6.devconf_all);
-	}
-	else
-		err = -EADDRINUSE;
-	write_unlock_bh(&mrt_lock);
-
 	rtnl_unlock();
 
 	return err;
@@ -2108,11 +2111,11 @@ int ip6mr_sk_done(struct sock *sk)
 			write_lock_bh(&mrt_lock);
 			mrt->mroute6_sk = NULL;
 			net->ipv6.devconf_all->mc_forwarding--;
+			write_unlock_bh(&mrt_lock);
 			inet6_netconf_notify_devconf(net,
 						     NETCONFA_MC_FORWARDING,
 						     NETCONFA_IFINDEX_ALL,
 						     net->ipv6.devconf_all);
-			write_unlock_bh(&mrt_lock);
 
 			mroute_clean_tables(mrt, false);
 			err = 0;
@@ -2163,6 +2166,10 @@ int ip6_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, uns
 	mifi_t mifi;
 	struct net *net = sock_net(sk);
 	struct mr6_table *mrt;
+
+	if (sk->sk_type != SOCK_RAW ||
+	    inet_sk(sk)->inet_num != IPPROTO_ICMPV6)
+		return -EOPNOTSUPP;
 
 	mrt = ip6mr_get_table(net, raw6_sk(sk)->ip6mr_table ? : RT6_TABLE_DFLT);
 	if (!mrt)
@@ -2338,6 +2345,10 @@ int ip6_mroute_getsockopt(struct sock *sk, int optname, char __user *optval,
 	struct net *net = sock_net(sk);
 	struct mr6_table *mrt;
 
+	if (sk->sk_type != SOCK_RAW ||
+	    inet_sk(sk)->inet_num != IPPROTO_ICMPV6)
+		return -EOPNOTSUPP;
+
 	mrt = ip6mr_get_table(net, raw6_sk(sk)->ip6mr_table ? : RT6_TABLE_DFLT);
 	if (!mrt)
 		return -ENOENT;
@@ -2405,6 +2416,7 @@ int ip6mr_ioctl(struct sock *sk, int cmd, void __user *arg)
 		if (MIF_EXISTS(vr.mifi)) {
 		if (vr.mifi >= mrt->maxvif)
 			return -EINVAL;
+		vr.mifi = array_index_nospec(vr.mifi, mrt->maxvif);
 		read_lock(&mrt_lock);
 		vif = &mrt->vif6_table[vr.mifi];
 		if (MIF_EXISTS(mrt, vr.mifi)) {
@@ -2485,6 +2497,7 @@ int ip6mr_compat_ioctl(struct sock *sk, unsigned int cmd, void __user *arg)
 			return -EFAULT;
 		if (vr.mifi >= mrt->maxvif)
 			return -EINVAL;
+		vr.mifi = array_index_nospec(vr.mifi, mrt->maxvif);
 		read_lock(&mrt_lock);
 		vif = &mrt->vif6_table[vr.mifi];
 		if (MIF_EXISTS(mrt, vr.mifi)) {
@@ -2526,10 +2539,10 @@ int ip6mr_compat_ioctl(struct sock *sk, unsigned int cmd, void __user *arg)
 
 static inline int ip6mr_forward2_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
-	IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-			 IPSTATS_MIB_OUTFORWDATAGRAMS);
-	IP6_ADD_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-			 IPSTATS_MIB_OUTOCTETS, skb->len);
+	IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+		      IPSTATS_MIB_OUTFORWDATAGRAMS);
+	IP6_ADD_STATS(net, ip6_dst_idev(skb_dst(skb)),
+		      IPSTATS_MIB_OUTOCTETS, skb->len);
 	return dst_output(net, sk, skb);
 }
 

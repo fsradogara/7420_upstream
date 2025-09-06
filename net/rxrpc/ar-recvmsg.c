@@ -80,7 +80,7 @@ int rxrpc_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 				release_sock(&rx->sk);
 				if (continue_call)
 					rxrpc_put_call(continue_call);
-				return -ENODATA;
+				return -EAGAIN;
 			}
 		}
 

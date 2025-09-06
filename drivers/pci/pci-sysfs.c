@@ -503,7 +503,7 @@ static ssize_t remove_store(struct device *dev, struct device_attribute *attr,
 		pci_stop_and_remove_bus_device_locked(to_pci_dev(dev));
 	return count;
 }
-static struct device_attribute dev_remove_attr = __ATTR(remove,
+static struct device_attribute dev_remove_attr = __ATTR_IGNORE_LOCKDEP(remove,
 							(S_IWUSR|S_IWGRP),
 							NULL, remove_store);
 
@@ -1319,6 +1319,9 @@ static int pci_mmap_resource(struct kobject *kobj, struct bin_attribute *attr,
 
 	if (!pci_mmap_fits(pdev, i, vma))
 		return -EINVAL;
+	if (res->flags & IORESOURCE_MEM && iomem_is_exclusive(res->start))
+		return -EINVAL;
+
 	if (!pci_mmap_fits(pdev, i, vma, PCI_MMAP_SYSFS)) {
 		WARN(1, "process \"%s\" tried to map 0x%08lx bytes at page 0x%08lx on %s BAR %d (start 0x%16Lx, size 0x%16Lx)\n",
 			current->comm, vma->vm_end-vma->vm_start, vma->vm_pgoff,

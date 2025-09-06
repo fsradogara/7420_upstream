@@ -176,9 +176,6 @@ void xen_sysret64(void);
 void xen_adjust_exception_frame(void);
 
 __visible void xen_iret(void);
-#ifdef CONFIG_X86_32
-__visible void xen_sysexit(void);
-#endif
 __visible void xen_sysret32(void);
 __visible void xen_sysret64(void);
 __visible void xen_adjust_exception_frame(void);

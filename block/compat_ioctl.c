@@ -4,10 +4,10 @@
 #include <linux/cdrom.h>
 #include <linux/compat.h>
 #include <linux/elevator.h>
-#include <linux/fd.h>
 #include <linux/hdreg.h>
 #include <linux/syscalls.h>
 #include <linux/smp_lock.h>
+#include <linux/pr.h>
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <linux/types.h>
@@ -661,23 +661,6 @@ static int compat_blkdev_driver_ioctl(struct block_device *bdev, fmode_t mode,
 	case HDIO_DRIVE_CMD:
 	/* 0x330 is reserved -- it used to be HDIO_GETGEO_BIG */
 	case 0x330:
-	/* 0x02 -- Floppy ioctls */
-	case FDMSGON:
-	case FDMSGOFF:
-	case FDSETEMSGTRESH:
-	case FDFLUSH:
-	case FDWERRORCLR:
-	case FDSETMAXERRS:
-	case FDGETMAXERRS:
-	case FDGETDRVTYP:
-	case FDEJECT:
-	case FDCLRPRM:
-	case FDFMTBEG:
-	case FDFMTEND:
-	case FDRESET:
-	case FDTWADDLE:
-	case FDFMTTRK:
-	case FDRAWCMD:
 	/* CDROM stuff */
 	case CDROMPAUSE:
 	case CDROMRESUME:
@@ -926,6 +909,14 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKTRACETEARDOWN: /* compatible */
 		ret = blk_trace_ioctl(bdev, cmd, compat_ptr(arg));
 		return ret;
+	case IOC_PR_REGISTER:
+	case IOC_PR_RESERVE:
+	case IOC_PR_RELEASE:
+	case IOC_PR_PREEMPT:
+	case IOC_PR_PREEMPT_ABORT:
+	case IOC_PR_CLEAR:
+		return blkdev_ioctl(bdev, mode, cmd,
+				(unsigned long)compat_ptr(arg));
 	default:
 		if (disk->fops->compat_ioctl)
 			ret = disk->fops->compat_ioctl(bdev, mode, cmd, arg);

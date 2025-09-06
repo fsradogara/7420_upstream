@@ -39,7 +39,6 @@ static int sockstat6_seq_show(struct seq_file *seq, void *v)
 static int sockstat6_seq_show(struct seq_file *seq, void *v)
 {
 	struct net *net = seq->private;
-	unsigned int frag_mem = ip6_frag_mem(net);
 
 	seq_printf(seq, "TCP6: inuse %d\n",
 		       sock_prot_inuse_get(net, &tcpv6_prot));
@@ -58,6 +57,9 @@ static struct snmp_mib snmp6_ipstats_list[] = {
 /* ipv6 mib according to RFC 2465 */
 	SNMP_MIB_ITEM("Ip6InReceives", IPSTATS_MIB_INRECEIVES),
 	seq_printf(seq, "FRAG6: inuse %u memory %u\n", !!frag_mem, frag_mem);
+	seq_printf(seq, "FRAG6: inuse %u memory %lu\n",
+		   atomic_read(&net->ipv6.frags.rhashtable.nelems),
+		   frag_mem_limit(&net->ipv6.frags));
 	return 0;
 }
 

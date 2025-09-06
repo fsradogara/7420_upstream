@@ -256,6 +256,7 @@
 #include <asm/olpc.h>
 #include <asm/paravirt.h>
 #include <asm/reboot.h>
+#include <asm/nospec-branch.h>
 
 #if defined(CONFIG_APM_DISPLAY_BLANK) && defined(CONFIG_VT)
 extern int (*console_blank_hook)(int);
@@ -718,12 +719,14 @@ static long __apm_bios_call(void *_call)
 	gdt[0x40 / 8] = bad_bios_desc;
 
 	apm_irq_save(flags);
+	firmware_restrict_branch_speculation_start();
 	APM_DO_SAVE_SEGS;
 	apm_bios_call_asm(func, ebx_in, ecx_in, eax, ebx, ecx, edx, esi);
 	apm_bios_call_asm(call->func, call->ebx, call->ecx,
 			  &call->eax, &call->ebx, &call->ecx, &call->edx,
 			  &call->esi);
 	APM_DO_RESTORE_SEGS;
+	firmware_restrict_branch_speculation_end();
 	apm_irq_restore(flags);
 	gdt[0x40 / 8] = save_desc_40;
 	put_cpu();
@@ -798,10 +801,12 @@ static long __apm_bios_call_simple(void *_call)
 	gdt[0x40 / 8] = bad_bios_desc;
 
 	apm_irq_save(flags);
+	firmware_restrict_branch_speculation_start();
 	APM_DO_SAVE_SEGS;
 	error = apm_bios_call_simple_asm(call->func, call->ebx, call->ecx,
 					 &call->eax);
 	APM_DO_RESTORE_SEGS;
+	firmware_restrict_branch_speculation_end();
 	apm_irq_restore(flags);
 	gdt[0x40 / 8] = save_desc_40;
 	put_cpu();

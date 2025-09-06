@@ -1632,6 +1632,7 @@ hfsc_reset_qdisc(struct Qdisc *sch)
 	q->eligible = RB_ROOT;
 	INIT_LIST_HEAD(&q->droplist);
 	qdisc_watchdog_cancel(&q->watchdog);
+	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 }
 
@@ -1724,6 +1725,7 @@ hfsc_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	cl->bstats.bytes += qdisc_pkt_len(skb);
 	sch->bstats.packets++;
 	sch->bstats.bytes += qdisc_pkt_len(skb);
+	qdisc_qstats_backlog_inc(sch, skb);
 	sch->q.qlen++;
 
 	return NET_XMIT_SUCCESS;
@@ -1805,6 +1807,7 @@ hfsc_dequeue(struct Qdisc *sch)
 	sch->flags &= ~TCQ_F_THROTTLED;
 	qdisc_unthrottled(sch);
 	qdisc_bstats_update(sch, skb);
+	qdisc_qstats_backlog_dec(sch, skb);
 	sch->q.qlen--;
 
 	return skb;
@@ -1840,6 +1843,7 @@ hfsc_drop(struct Qdisc *sch)
 			cl->qstats.drops++;
 			sch->qstats.drops++;
 			qdisc_qstats_drop(sch);
+			sch->qstats.backlog -= len;
 			sch->q.qlen--;
 			return len;
 		}

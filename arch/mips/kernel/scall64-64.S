@@ -125,8 +125,8 @@ syscall_trace_entry:
 
 	bltz	v0, 1f			# seccomp failed? Skip syscall
 
-	move	v0, s0
 	RESTORE_STATIC
+	ld	v0, PT_R2(sp)		# Restore syscall (maybe modified)
 	ld	a0, PT_R4(sp)		# Restore argument registers
 	ld	a1, PT_R5(sp)
 	ld	a2, PT_R6(sp)

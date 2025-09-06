@@ -109,6 +109,7 @@ static int wait_for_more_packets(struct sock *sk, int *err, long *timeo_p,
 
 	if (!skb_queue_empty(&sk->sk_receive_queue))
 	if (sk->sk_receive_queue.prev != skb)
+	if (READ_ONCE(sk->sk_receive_queue.prev) != skb)
 		goto out;
 
 	/* Socket shut down? */

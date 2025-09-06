@@ -385,6 +385,8 @@ struct ocfs2_super
 	s16 s_inode_steal_slot;
 	atomic_t s_num_inodes_stolen;
 	s16 s_meta_steal_slot;
+	u16 s_inode_steal_slot;
+	u16 s_meta_steal_slot;
 	atomic_t s_num_inodes_stolen;
 	atomic_t s_num_meta_stolen;
 

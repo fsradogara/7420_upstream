@@ -118,7 +118,8 @@ static inline int verify_sec_ctx_len(struct nlattr **attrs)
 		return 0;
 
 	uctx = nla_data(rt);
-	if (uctx->len != (sizeof(struct xfrm_user_sec_ctx) + uctx->ctx_len))
+	if (uctx->len > nla_len(rt) ||
+	    uctx->len != (sizeof(struct xfrm_user_sec_ctx) + uctx->ctx_len))
 		return -EINVAL;
 
 	return 0;
@@ -165,6 +166,31 @@ static int verify_newsa_info(struct xfrm_usersa_info *p,
 	case AF_INET6:
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 #if IS_ENABLED(CONFIG_IPV6)
+		break;
+#else
+		err = -EAFNOSUPPORT;
+		goto out;
+#endif
+
+	default:
+		goto out;
+	}
+
+	switch (p->sel.family) {
+	case AF_UNSPEC:
+		break;
+
+	case AF_INET:
+		if (p->sel.prefixlen_d > 32 || p->sel.prefixlen_s > 32)
+			goto out;
+
+		break;
+
+	case AF_INET6:
+#if IS_ENABLED(CONFIG_IPV6)
+		if (p->sel.prefixlen_d > 128 || p->sel.prefixlen_s > 128)
+			goto out;
+
 		break;
 #else
 		err = -EAFNOSUPPORT;
@@ -587,6 +613,20 @@ static struct xfrm_state *xfrm_state_construct(struct net *net,
 	if ((err = attach_one_algo(&x->ealg, &x->props.ealgo,
 				   xfrm_ealg_get_byname,
 				   attrs[XFRMA_ALG_CRYPT])))
+	if (attrs[XFRMA_ENCAP]) {
+		x->encap = kmemdup(nla_data(attrs[XFRMA_ENCAP]),
+				   sizeof(*x->encap), GFP_KERNEL);
+		if (x->encap == NULL)
+			goto error;
+	}
+
+	if (attrs[XFRMA_COADDR]) {
+		x->coaddr = kmemdup(nla_data(attrs[XFRMA_COADDR]),
+				    sizeof(*x->coaddr), GFP_KERNEL);
+		if (x->coaddr == NULL)
+			goto error;
+	}
+
 	if (attrs[XFRMA_SA_EXTRA_FLAGS])
 		x->props.extra_flags = nla_get_u32(attrs[XFRMA_SA_EXTRA_FLAGS]);
 
@@ -607,13 +647,6 @@ static struct xfrm_state *xfrm_state_construct(struct net *net,
 				   attrs[XFRMA_ALG_COMP])))
 		goto error;
 
-	if (attrs[XFRMA_ENCAP]) {
-		x->encap = kmemdup(nla_data(attrs[XFRMA_ENCAP]),
-				   sizeof(*x->encap), GFP_KERNEL);
-		if (x->encap == NULL)
-			goto error;
-	}
-
 	if (attrs[XFRMA_TFCPAD])
 		x->tfcpad = nla_get_u32(attrs[XFRMA_TFCPAD]);
 
@@ -631,9 +664,12 @@ static struct xfrm_state *xfrm_state_construct(struct net *net,
 	if (err)
 		goto error;
 
-	if (attrs[XFRMA_SEC_CTX] &&
-	    security_xfrm_state_alloc(x, nla_data(attrs[XFRMA_SEC_CTX])))
-		goto error;
+	if (attrs[XFRMA_SEC_CTX]) {
+		err = security_xfrm_state_alloc(x,
+						nla_data(attrs[XFRMA_SEC_CTX]));
+		if (err)
+			goto error;
+	}
 
 	x->km.seq = p->seq;
 	x->replay_maxdiff = sysctl_xfrm_aevent_rseqth;
@@ -1021,7 +1057,8 @@ static int xfrm_dump_sa(struct sk_buff *skb, struct netlink_callback *cb)
 	struct sock *sk = cb->skb->sk;
 	struct net *net = sock_net(sk);
 
-	xfrm_state_walk_done(walk, net);
+	if (cb->args[0])
+		xfrm_state_walk_done(walk, net);
 	return 0;
 }
 
@@ -1051,8 +1088,6 @@ static int xfrm_dump_sa(struct sk_buff *skb, struct netlink_callback *cb)
 		u8 proto = 0;
 		int err;
 
-		cb->args[0] = 1;
-
 		err = nlmsg_parse(cb->nlh, 0, attrs, XFRMA_MAX,
 				  xfrma_policy);
 		if (err < 0)
@@ -1069,6 +1104,7 @@ static int xfrm_dump_sa(struct sk_buff *skb, struct netlink_callback *cb)
 			proto = nla_get_u8(attrs[XFRMA_PROTO]);
 
 		xfrm_state_walk_init(walk, proto, filter);
+		cb->args[0] = 1;
 	}
 
 	(void) xfrm_state_walk(net, walk, dump_one_state, &info);
@@ -1112,10 +1148,12 @@ static inline int xfrm_nlmsg_multicast(struct net *net, struct sk_buff *skb,
 {
 	struct sock *nlsk = rcu_dereference(net->xfrm.nlsk);
 
-	if (nlsk)
-		return nlmsg_multicast(nlsk, skb, pid, group, GFP_ATOMIC);
-	else
-		return -1;
+	if (!nlsk) {
+		kfree_skb(skb);
+		return -EPIPE;
+	}
+
+	return nlmsg_multicast(nlsk, skb, pid, group, GFP_ATOMIC);
 }
 
 static inline size_t xfrm_spdinfo_msgsize(void)
@@ -1524,11 +1562,17 @@ static int verify_newpolicy_info(struct xfrm_userpolicy_info *p)
 
 	switch (p->sel.family) {
 	case AF_INET:
+		if (p->sel.prefixlen_d > 32 || p->sel.prefixlen_s > 32)
+			return -EINVAL;
+
 		break;
 
 	case AF_INET6:
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 #if IS_ENABLED(CONFIG_IPV6)
+		if (p->sel.prefixlen_d > 128 || p->sel.prefixlen_s > 128)
+			return -EINVAL;
+
 		break;
 #else
 		return  -EAFNOSUPPORT;
@@ -1542,7 +1586,7 @@ static int verify_newpolicy_info(struct xfrm_userpolicy_info *p)
 	ret = verify_policy_dir(p->dir);
 	if (ret)
 		return ret;
-	if (p->index && ((p->index & XFRM_POLICY_MAX) != p->dir))
+	if (p->index && (xfrm_policy_id2dir(p->index) != p->dir))
 		return -EINVAL;
 
 	return 0;
@@ -1607,8 +1651,16 @@ static int validate_tmpl(int nr, struct xfrm_user_tmpl *ut, u16 family)
 		if (!ut[i].family)
 			ut[i].family = family;
 
-		if ((ut[i].mode == XFRM_MODE_TRANSPORT) &&
-		    (ut[i].family != prev_family))
+		switch (ut[i].mode) {
+		case XFRM_MODE_TUNNEL:
+		case XFRM_MODE_BEET:
+			break;
+		default:
+			if (ut[i].family != prev_family)
+				return -EINVAL;
+			break;
+		}
+		if (ut[i].mode >= XFRM_MODE_MAX)
 			return -EINVAL;
 
 		prev_family = ut[i].family;
@@ -1625,20 +1677,8 @@ static int validate_tmpl(int nr, struct xfrm_user_tmpl *ut, u16 family)
 			return -EINVAL;
 		}
 
-		switch (ut[i].id.proto) {
-		case IPPROTO_AH:
-		case IPPROTO_ESP:
-		case IPPROTO_COMP:
-#if IS_ENABLED(CONFIG_IPV6)
-		case IPPROTO_ROUTING:
-		case IPPROTO_DSTOPTS:
-#endif
-		case IPSEC_PROTO_ANY:
-			break;
-		default:
+		if (!xfrm_id_proto_valid(ut[i].id.proto))
 			return -EINVAL;
-		}
-
 	}
 
 	return 0;
@@ -1862,9 +1902,11 @@ static inline size_t userpolicy_type_attrsize(void)
 #ifdef CONFIG_XFRM_SUB_POLICY
 static int copy_to_user_policy_type(u8 type, struct sk_buff *skb)
 {
-	struct xfrm_userpolicy_type upt = {
-		.type = type,
-	};
+	struct xfrm_userpolicy_type upt;
+
+	/* Sadly there are two holes in struct xfrm_userpolicy_type */
+	memset(&upt, 0, sizeof(upt));
+	upt.type = type;
 
 	return nla_put(skb, XFRMA_POLICY_TYPE, sizeof(upt), &upt);
 }
@@ -2574,6 +2616,9 @@ static int xfrm_add_acquire(struct sk_buff *skb, struct nlmsghdr *nlh,
 	xfrm_mark_get(attrs, &mark);
 
 	err = verify_newpolicy_info(&ua->policy);
+	if (err)
+		goto free_state;
+	err = verify_sec_ctx_len(attrs);
 	if (err)
 		goto bad_policy;
 

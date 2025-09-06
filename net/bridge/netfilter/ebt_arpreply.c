@@ -97,6 +97,9 @@ static struct ebt_target reply_target __read_mostly = {
 	.name		= EBT_ARPREPLY_TARGET,
 	.target		= ebt_target_reply,
 	.check		= ebt_target_reply_check,
+	if (ebt_invalid_target(info->target))
+		return -EINVAL;
+
 	return 0;
 }
 

@@ -587,6 +587,7 @@ static void access_flags_to_mode(__le32 ace_flags, int type, umode_t *pmode,
 
 	cFYI(DBG2, ("access flags 0x%x mode now 0x%x", flags, *pmode));
 	cifs_dbg(NOISY, "access flags 0x%x mode now 0x%x\n", flags, *pmode);
+	cifs_dbg(NOISY, "access flags 0x%x mode now %04o\n", flags, *pmode);
 	return;
 }
 
@@ -617,6 +618,7 @@ static void mode_to_access_flags(umode_t mode, umode_t bits_to_use,
 
 	cFYI(DBG2, ("mode: 0x%x, access flags now 0x%x", mode, *pace_flags));
 	cifs_dbg(NOISY, "mode: 0x%x, access flags now 0x%x\n",
+	cifs_dbg(NOISY, "mode: %04o, access flags now 0x%x\n",
 		 mode, *pace_flags);
 	return;
 }

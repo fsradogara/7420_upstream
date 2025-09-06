@@ -1025,6 +1025,17 @@ static bool chk_code_allowed(u16 code_to_probe)
 	return codes[code_to_probe];
 }
 
+static bool bpf_check_basics_ok(const struct sock_filter *filter,
+				unsigned int flen)
+{
+	if (filter == NULL)
+		return false;
+	if (flen == 0 || flen > BPF_MAXINSNS)
+		return false;
+
+	return true;
+}
+
 /**
  *	bpf_check_classic - verify socket filter code
  *	@filter: filter to verify
@@ -1445,7 +1456,7 @@ int bpf_prog_create(struct bpf_prog **pfp, struct sock_fprog_kern *fprog)
 	struct bpf_prog *fp;
 
 	/* Make sure new filter is there and in the right amounts. */
-	if (fprog->filter == NULL)
+	if (!bpf_check_basics_ok(fprog->filter, fprog->len))
 		return -EINVAL;
 
 	fp = bpf_prog_alloc(bpf_prog_size(fprog->len), 0);
@@ -1492,7 +1503,7 @@ int bpf_prog_create_from_user(struct bpf_prog **pfp, struct sock_fprog *fprog,
 	int err;
 
 	/* Make sure new filter is there and in the right amounts. */
-	if (fprog->filter == NULL)
+	if (!bpf_check_basics_ok(fprog->filter, fprog->len))
 		return -EINVAL;
 
 	fp = bpf_prog_alloc(bpf_prog_size(fprog->len), 0);
@@ -1576,7 +1587,6 @@ int __sk_attach_filter(struct sock_fprog *fprog, struct sock *sk,
 	int err;
 
 	unsigned int fsize = bpf_classic_proglen(fprog);
-	unsigned int bpf_fsize = bpf_prog_size(fprog->len);
 	struct bpf_prog *prog;
 	int err;
 
@@ -1584,7 +1594,7 @@ int __sk_attach_filter(struct sock_fprog *fprog, struct sock *sk,
 		return -EPERM;
 
 	/* Make sure new filter is there and in the right amounts. */
-	if (fprog->filter == NULL)
+	if (!bpf_check_basics_ok(fprog->filter, fprog->len))
 		return -EINVAL;
 
 	fp = sock_kmalloc(sk, fsize+sizeof(*fp), GFP_KERNEL);
@@ -1614,6 +1624,7 @@ int __sk_attach_filter(struct sock_fprog *fprog, struct sock *sk,
 	return 0;
 }
 	prog = bpf_prog_alloc(bpf_fsize, 0);
+	prog = bpf_prog_alloc(bpf_prog_size(fprog->len), 0);
 	if (!prog)
 		return -ENOMEM;
 

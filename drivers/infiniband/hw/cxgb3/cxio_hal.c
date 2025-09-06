@@ -345,6 +345,7 @@ int cxio_destroy_cq(struct cxio_rdev *rdev_p, struct t3_cq *cq)
 			  (1UL << (cq->size_log2))
 			  * sizeof(struct t3_cqe), cq->queue,
 			  pci_unmap_addr(cq, mapping));
+			  * sizeof(struct t3_cqe) + 1, cq->queue,
 			  dma_unmap_addr(cq, mapping));
 	cxio_hal_put_cqid(rdev_p->rscp, cq->cqid);
 	return err;

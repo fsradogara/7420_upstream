@@ -604,8 +604,9 @@ void sctp_assoc_set_primary(struct sctp_association *asoc,
 void sctp_assoc_rm_peer(struct sctp_association *asoc,
 			struct sctp_transport *peer)
 {
-	struct list_head	*pos;
-	struct sctp_transport	*transport;
+	struct sctp_transport *transport;
+	struct list_head *pos;
+	struct sctp_chunk *ch;
 
 	SCTP_DEBUG_PRINTK_IPADDR("sctp_assoc_rm_peer:association %p addr: ",
 				 " port: %d\n",
@@ -667,7 +668,6 @@ void sctp_assoc_rm_peer(struct sctp_association *asoc,
 	 */
 	if (!list_empty(&peer->transmitted)) {
 		struct sctp_transport *active = asoc->peer.active_path;
-		struct sctp_chunk *ch;
 
 		/* Reset the transport of each chunk on this list */
 		list_for_each_entry(ch, &peer->transmitted,
@@ -688,6 +688,10 @@ void sctp_assoc_rm_peer(struct sctp_association *asoc,
 					jiffies + active->rto))
 				sctp_transport_hold(active);
 	}
+
+	list_for_each_entry(ch, &asoc->outqueue.out_chunk_list, list)
+		if (ch->transport == peer)
+			ch->transport = NULL;
 
 	asoc->peer.transport_count--;
 
@@ -1640,7 +1644,7 @@ static struct sctp_transport *sctp_trans_elect_best(struct sctp_transport *curr,
 	if (score_curr > score_best)
 		return curr;
 	else if (score_curr == score_best)
-		return sctp_trans_elect_tie(curr, best);
+		return sctp_trans_elect_tie(best, curr);
 	else
 		return best;
 }
@@ -1966,6 +1970,7 @@ int sctp_assoc_set_bind_addr_from_ep(struct sctp_association *asoc,
 	sctp_scope_t scope;
 				     sctp_scope_t scope, gfp_t gfp)
 {
+	struct sock *sk = asoc->base.sk;
 	int flags;
 
 	/* Use scoping rules to determine the subset of addresses from
@@ -1973,6 +1978,9 @@ int sctp_assoc_set_bind_addr_from_ep(struct sctp_association *asoc,
 	 */
 	scope = sctp_scope(&asoc->peer.active_path->ipaddr);
 	flags = (PF_INET6 == asoc->base.sk->sk_family) ? SCTP_ADDR6_ALLOWED : 0;
+	flags = (PF_INET6 == sk->sk_family) ? SCTP_ADDR6_ALLOWED : 0;
+	if (!inet_v6_ipv6only(sk))
+		flags |= SCTP_ADDR4_ALLOWED;
 	if (asoc->peer.ipv4_address)
 		flags |= SCTP_ADDR4_PEERSUPP;
 	if (asoc->peer.ipv6_address)

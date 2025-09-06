@@ -471,6 +471,7 @@ usage(void)
  * #elif that we don't understand and therefore must keep, we edit the
  * latter into a #if to keep the nesting correct.
  * latter into a #if to keep the nesting correct. We use strncpy() to
+ * latter into a #if to keep the nesting correct. We use memcpy() to
  * overwrite the 4 byte token "elif" with "if  " without a '\0' byte.
  *
  * When we find a true #elif in a group, the following block will
@@ -530,7 +531,7 @@ static void Mtrue (void) { keywordedit("else\n");  state(IS_TRUE_MIDDLE); }
 static void Melif (void) { keywordedit("endif\n"); state(IS_FALSE_TRAILER); }
 static void Melse (void) { keywordedit("endif\n"); state(IS_FALSE_ELSE); }
 /* modify this line */
-static void Mpass (void) { strncpy(keyword, "if  ", 4); Pelif(); }
+static void Mpass (void) { memcpy(keyword, "if  ", 4); Pelif(); }
 static void Mtrue (void) { keywordedit("else");  state(IS_TRUE_MIDDLE); }
 static void Melif (void) { keywordedit("endif"); state(IS_FALSE_TRAILER); }
 static void Melse (void) { keywordedit("endif"); state(IS_FALSE_ELSE); }

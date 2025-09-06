@@ -1952,6 +1952,7 @@ ia64_mca_cpu_init(void *cpu_data)
 			data = page_address(alloc_pages_node(numa_node_id(),
 					GFP_KERNEL, get_order(sz)));
 			data = (void *)__get_free_pages(GFP_KERNEL,
+			data = (void *)__get_free_pages(GFP_ATOMIC,
 							get_order(sz));
 		if (!data)
 			panic("Could not allocate MCA memory for cpu %d\n",

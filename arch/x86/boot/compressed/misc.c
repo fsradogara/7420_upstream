@@ -33,6 +33,7 @@
 #include <asm/bootparam.h>
 #include "misc.h"
 #include "../string.h"
+#include <asm/bootparam_utils.h>
 
 /* WARNING!!
  * This code is compiled with -fPIC and it is relocated dynamically

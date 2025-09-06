@@ -670,7 +670,7 @@ int mmc_send_status(struct mmc_card *card, u32 *status)
 		timeout_ms = MMC_OPS_TIMEOUT_MS;
 
 	/* Must check status to be sure of no errors. */
-	timeout = jiffies + msecs_to_jiffies(timeout_ms);
+	timeout = jiffies + msecs_to_jiffies(timeout_ms) + 1;
 	do {
 		if (send_status) {
 			err = __mmc_send_status(card, &status, ignore_crc);

@@ -216,6 +216,7 @@ void inet_listen_wlock(struct inet_hashinfo *hashinfo)
 				return -ENOMEM;
 			}
 		}
+		inet_csk_update_fastreuse(tb, child);
 	}
 	inet_bind_hash(child, tb, port);
 	spin_unlock(&head->lock);

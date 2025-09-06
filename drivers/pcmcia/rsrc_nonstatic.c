@@ -1021,6 +1021,8 @@ static struct resource *__nonstatic_find_io_region(struct pcmcia_socket *s,
 
 	if (align == 0)
 		align = 0x10000;
+	if (!res)
+		return NULL;
 
 	data.mask = align - 1;
 	data.offset = base & data.mask;
@@ -1150,6 +1152,9 @@ static struct resource *nonstatic_find_mem_region(u_long base, u_long num,
 	struct pcmcia_align_data data;
 	unsigned long min, max;
 	int ret, i, j;
+
+	if (!res)
+		return NULL;
 
 	low = low || !(s->features & SS_CAP_PAGE_REGS);
 

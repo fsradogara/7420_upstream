@@ -350,7 +350,7 @@ module_init(sharpsl_nand_init);
 	return 0;
 
 err_add:
-	nand_release(&sharpsl->mtd);
+	nand_cleanup(this);
 
 err_scan:
 	iounmap(sharpsl->io);

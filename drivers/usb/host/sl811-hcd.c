@@ -1400,6 +1400,10 @@ sl811h_hub_control(
 		DBG("GetPortStatus %08x\n", sl811->port1);
 		dev_dbg(hcd->self.controller, "GetPortStatus %08x\n",
 			sl811->port1);
+		if (__is_defined(VERBOSE) ||
+		    *(u16*)(buf+2)) /* only if wPortChange is interesting */
+			dev_dbg(hcd->self.controller, "GetPortStatus %08x\n",
+				sl811->port1);
 		break;
 	case SetPortFeature:
 		if (wIndex != 1 || wLength != 0)

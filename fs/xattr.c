@@ -566,7 +566,7 @@ getxattr(struct dentry *d, const char __user *name, void __user *value,
 	if (error > 0) {
 		if ((strcmp(kname, XATTR_NAME_POSIX_ACL_ACCESS) == 0) ||
 		    (strcmp(kname, XATTR_NAME_POSIX_ACL_DEFAULT) == 0))
-			posix_acl_fix_xattr_to_user(kvalue, size);
+			posix_acl_fix_xattr_to_user(kvalue, error);
 		if (size && copy_to_user(value, kvalue, error))
 			error = -EFAULT;
 	} else if (error == -ERANGE && size >= XATTR_SIZE_MAX) {
@@ -997,6 +997,8 @@ generic_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 
 	if (!buffer) {
 		for_each_xattr_handler(handlers, handler) {
+			if (!handler->list)
+				continue;
 			size += handler->list(handler, dentry, NULL, 0,
 					      NULL, 0);
 		}
@@ -1005,6 +1007,8 @@ generic_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 
 		for_each_xattr_handler(handlers, handler) {
 			size = handler->list(inode, buf, buffer_size, NULL, 0);
+			if (!handler->list)
+				continue;
 			size = handler->list(handler, dentry, buf, buffer_size,
 					     NULL, 0);
 			if (size > buffer_size)

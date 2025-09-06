@@ -603,6 +603,7 @@ ip6t_do_table(struct sk_buff *skb,
 	((struct ip6t_entry *)table_base)->comefrom = NETFILTER_LINK_POISON;
 #endif
 	read_unlock_bh(&table->lock);
+	acpar.fragoff = 0;
 	acpar.hotdrop = false;
 	acpar.net     = state->net;
 	acpar.in      = state->in;
@@ -1818,6 +1819,7 @@ get_entries(struct net *net, struct ip6t_get_entries __user *uptr,
 			 *len, sizeof(get) + get.size);
 		return -EINVAL;
 	}
+	get.name[sizeof(get.name) - 1] = '\0';
 
 	t = xt_find_table_lock(net, AF_INET6, get.name);
 	if (t && !IS_ERR(t)) {
@@ -2566,6 +2568,8 @@ translate_compat_table(struct net *net,
 	if (!newinfo)
 		goto out_unlock;
 
+	memset(newinfo->entries, 0, size);
+
 	newinfo->number = compatr->num_entries;
 	for (i = 0; i < NF_INET_NUMHOOKS; i++) {
 		newinfo->hook_entry[i] = compatr->hook_entry[i];
@@ -2831,6 +2835,7 @@ compat_get_entries(struct net *net, struct compat_ip6t_get_entries __user *uptr,
 			 *len, sizeof(get) + get.size);
 		return -EINVAL;
 	}
+	get.name[sizeof(get.name) - 1] = '\0';
 
 	xt_compat_lock(AF_INET6);
 	t = xt_find_table_lock(net, AF_INET6, get.name);
@@ -3180,6 +3185,7 @@ static struct xt_match ip6t_builtin_mt[] __read_mostly = {
 		.checkentry = icmp6_checkentry,
 		.proto      = IPPROTO_ICMPV6,
 		.family     = NFPROTO_IPV6,
+		.me	    = THIS_MODULE,
 	},
 };
 

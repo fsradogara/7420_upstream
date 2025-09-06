@@ -645,15 +645,16 @@ int zfcp_status_read_refill(struct zfcp_adapter *adapter)
 		if (zfcp_fsf_status_read(adapter)) {
 			if (atomic_read(&adapter->stat_miss) >= 16) {
 				zfcp_erp_adapter_reopen(adapter, 0, 103, NULL);
+	while (atomic_add_unless(&adapter->stat_miss, -1, 0))
 		if (zfcp_fsf_status_read(adapter->qdio)) {
+			atomic_inc(&adapter->stat_miss); /* undo add -1 */
 			if (atomic_read(&adapter->stat_miss) >=
 			    adapter->stat_read_buf_num) {
 				zfcp_erp_adapter_reopen(adapter, 0, "axsref1");
 				return 1;
 			}
 			break;
-		} else
-			atomic_dec(&adapter->stat_miss);
+		}
 	return 0;
 }
 

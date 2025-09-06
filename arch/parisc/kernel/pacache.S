@@ -362,6 +362,7 @@ ENTRY(copy_user_page_asm)
 	.macro	tlb_unlock	la,flags,tmp
 #ifdef CONFIG_SMP
 	ldi		1,\tmp
+	sync
 	stw		\tmp,0(\la)
 	mtsm		\flags
 #endif

@@ -193,6 +193,7 @@ void br_stp_rcv(const struct stp_proto *proto, struct sk_buff *skb,
 		goto out;
 
 	if (!ether_addr_equal(dest, br->group_addr))
+	if (!ether_addr_equal(eth_hdr(skb)->h_dest, br->group_addr))
 		goto out;
 
 	if (p->flags & BR_BPDU_GUARD) {

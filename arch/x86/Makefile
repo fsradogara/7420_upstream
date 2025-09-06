@@ -13,6 +13,16 @@ else
 endif
 
 core-$(CONFIG_KVM) += arch/x86/kvm/
+# For gcc stack alignment is specified with -mpreferred-stack-boundary,
+# clang has the option -mstack-alignment for that purpose.
+ifneq ($(call cc-option, -mpreferred-stack-boundary=4),)
+      cc_stack_align4 := -mpreferred-stack-boundary=2
+      cc_stack_align8 := -mpreferred-stack-boundary=3
+else ifneq ($(call cc-option, -mstack-alignment=16),)
+      cc_stack_align4 := -mstack-alignment=4
+      cc_stack_align8 := -mstack-alignment=8
+endif
+
 # How to compile the 16-bit code.  Note we always compile for -march=i386;
 # that way we can complain to the user if the CPU is insufficient.
 #
@@ -26,10 +36,13 @@ REALMODE_CFLAGS	:= $(M16_CFLAGS) -g -Os -D__KERNEL__ \
 		   -DDISABLE_BRANCH_PROFILING \
 		   -Wall -Wstrict-prototypes -march=i386 -mregparm=3 \
 		   -fno-strict-aliasing -fomit-frame-pointer -fno-pic \
-		   -mno-mmx -mno-sse \
-		   $(call cc-option, -ffreestanding) \
-		   $(call cc-option, -fno-stack-protector) \
-		   $(call cc-option, -mpreferred-stack-boundary=2)
+		   -mno-mmx -mno-sse $(call cc-option,-fcf-protection=none)
+
+REALMODE_CFLAGS += $(call __cc-option, $(CC), $(REALMODE_CFLAGS), -ffreestanding)
+REALMODE_CFLAGS += $(call __cc-option, $(CC), $(REALMODE_CFLAGS), -fno-stack-protector)
+REALMODE_CFLAGS += $(call __cc-option, $(CC), $(REALMODE_CFLAGS), -Wno-address-of-packed-member)
+REALMODE_CFLAGS += $(call __cc-option, $(CC), $(REALMODE_CFLAGS), $(cc_stack_align4))
+REALMODE_CFLAGS += $(CLANG_FLAGS)
 export REALMODE_CFLAGS
 
 # BITS is used as extension for files which are available in a 32 bit
@@ -38,7 +51,7 @@ export REALMODE_CFLAGS
 export BITS
 
 ifdef CONFIG_X86_NEED_RELOCS
-        LDFLAGS_vmlinux := --emit-relocs
+        LDFLAGS_vmlinux := --emit-relocs --discard-none
 endif
 
 #
@@ -50,6 +63,9 @@ endif
 #
 KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow
 KBUILD_CFLAGS += $(call cc-option,-mno-avx,)
+
+# Intel CET isn't enabled in the kernel
+KBUILD_CFLAGS += $(call cc-option,-fcf-protection=none)
 
 ifeq ($(CONFIG_X86_32),y)
         BITS := 32
@@ -72,8 +88,10 @@ ifeq ($(CONFIG_X86_32),y)
         # with nonstandard options
         KBUILD_CFLAGS += -fno-pic
 
-        # prevent gcc from keeping the stack 16 byte aligned
-        KBUILD_CFLAGS += $(call cc-option,-mpreferred-stack-boundary=2)
+        # Align the stack to the register width instead of using the default
+        # alignment of 16 bytes. This reduces stack usage and the number of
+        # alignment instructions.
+        KBUILD_CFLAGS += $(call cc-option,$(cc_stack_align4))
 
         # Disable unit-at-a-time mode on pre-gcc-4.0 compilers, it makes gcc use
         # a lot more stack due to the lack of sharing of stacklots:
@@ -104,17 +122,23 @@ else
         KBUILD_CFLAGS += -m64
 
         # Align jump targets to 1 byte, not the default 16 bytes:
-        KBUILD_CFLAGS += -falign-jumps=1
+        KBUILD_CFLAGS += $(call cc-option,-falign-jumps=1)
 
         # Pack loops tightly as well:
-        KBUILD_CFLAGS += -falign-loops=1
+        KBUILD_CFLAGS += $(call cc-option,-falign-loops=1)
 
         # Don't autogenerate traditional x87 instructions
         KBUILD_CFLAGS += $(call cc-option,-mno-80387)
         KBUILD_CFLAGS += $(call cc-option,-mno-fp-ret-in-387)
 
-	# Use -mpreferred-stack-boundary=3 if supported.
-	KBUILD_CFLAGS += $(call cc-option,-mpreferred-stack-boundary=3)
+        # By default gcc and clang use a stack alignment of 16 bytes for x86.
+        # However the standard kernel entry on x86-64 leaves the stack on an
+        # 8-byte boundary. If the compiler isn't informed about the actual
+        # alignment it will generate extra alignment instructions for the
+        # default alignment which keep the stack *mis*aligned.
+        # Furthermore an alignment to the register width reduces stack usage
+        # and the number of alignment instructions.
+        KBUILD_CFLAGS += $(call cc-option,$(cc_stack_align8))
 
 	# Use -mskip-rax-setup if supported.
 	KBUILD_CFLAGS += $(call cc-option,-mskip-rax-setup)

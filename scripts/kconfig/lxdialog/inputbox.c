@@ -166,7 +166,8 @@ do_resize:
 					instr[scroll + input_x] = '\0';
 					mvwaddch(dialog, box_y, input_x + box_x, ' ');
 			case KEY_BACKSPACE:
-			case 127:
+			case 8:   /* ^H */
+			case 127: /* ^? */
 				if (pos) {
 					wattrset(dialog, dlg.inputbox.atr);
 					if (input_x == 0) {

@@ -67,6 +67,9 @@ static void cache_init(struct cache_head *h, struct cache_detail *detail)
 	h->last_refresh = now;
 }
 
+static void cache_fresh_unlocked(struct cache_head *head,
+				struct cache_detail *detail);
+
 struct cache_head *sunrpc_cache_lookup(struct cache_detail *detail,
 				       struct cache_head *key, int hash)
 {
@@ -157,7 +160,10 @@ static void cache_fresh_unlocked(struct cache_head *head,
 		cache_revisit_request(head);
 		queue_loose(detail, head);
 	if (freeme)
+	if (freeme) {
+		cache_fresh_unlocked(freeme, detail);
 		cache_put(freeme, detail);
+	}
 	return new;
 }
 EXPORT_SYMBOL_GPL(sunrpc_cache_lookup);

@@ -286,6 +286,8 @@ static ssize_t chp_status_write(struct device *dev,
 		error = -EINVAL;
 
 	return error < 0 ? error : count;
+	/* Wait until previous actions have settled. */
+	css_wait_for_slow_path();
 
 	if (!strncasecmp(cmd, "on", 2) || !strcmp(cmd, "1")) {
 		mutex_lock(&cp->lock);

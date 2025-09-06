@@ -160,7 +160,8 @@ int trackpoint_detect(struct psmouse *psmouse, int set_properties);
 inline int trackpoint_detect(struct psmouse *psmouse, int set_properties)
 int trackpoint_detect(struct psmouse *psmouse, bool set_properties);
 #else
-inline int trackpoint_detect(struct psmouse *psmouse, bool set_properties)
+static inline int trackpoint_detect(struct psmouse *psmouse,
+				    bool set_properties)
 {
 	return -ENOSYS;
 }

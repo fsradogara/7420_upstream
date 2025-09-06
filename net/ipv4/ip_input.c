@@ -565,6 +565,7 @@ inhdr_error:
 		goto drop;
 	}
 
+	iph = ip_hdr(skb);
 	skb->transport_header = skb->network_header + iph->ihl*4;
 
 	/* Remove any debris in the socket control block */

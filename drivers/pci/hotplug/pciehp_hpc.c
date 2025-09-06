@@ -1618,7 +1618,7 @@ int pcie_init_notification(struct controller *ctrl)
 	return 0;
 }
 
-static void pcie_shutdown_notification(struct controller *ctrl)
+void pcie_shutdown_notification(struct controller *ctrl)
 {
 	pcie_disable_notification(ctrl);
 	pciehp_free_irq(ctrl);
@@ -1672,7 +1672,7 @@ static void pcie_cleanup_slot(struct controller *ctrl)
 	flush_scheduled_work();
 	flush_workqueue(pciehp_wq);
 	struct slot *slot = ctrl->slot;
-	cancel_delayed_work(&slot->work);
+
 	destroy_workqueue(slot->wq);
 	kfree(slot);
 }
@@ -1858,7 +1858,6 @@ void pcie_release_ctrl(struct controller *ctrl)
 		destroy_workqueue(pciehp_wq);
 void pciehp_release_ctrl(struct controller *ctrl)
 {
-	pcie_shutdown_notification(ctrl);
 	pcie_cleanup_slot(ctrl);
 	kfree(ctrl);
 }

@@ -485,7 +485,12 @@
 	MEM_KEEP(exit.text)						\
 		*(.text.unlikely)
 		*(.text.hot .text .text.fixup .text.unlikely)		\
+		*(.text.hot .text.hot.*)				\
+		*(.text .text.fixup)					\
+		*(.text.unlikely .text.unlikely.*)			\
+		*(.text.unknown .text.unknown.*)			\
 		*(.ref.text)						\
+		*(.text.asan.* .text.tsan.*)				\
 	MEM_KEEP(init.text)						\
 	MEM_KEEP(exit.text)						\
 

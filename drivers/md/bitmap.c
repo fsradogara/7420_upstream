@@ -2172,7 +2172,7 @@ __acquires(bitmap->lock)
 	if (bitmap->bp[page].hijacked ||
 	    bitmap->bp[page].map == NULL)
 		csize = ((sector_t)1) << (bitmap->chunkshift +
-					  PAGE_COUNTER_SHIFT - 1);
+					  PAGE_COUNTER_SHIFT);
 	else
 		csize = ((sector_t)1) << bitmap->chunkshift;
 	*blocks = csize - (offset & (csize - 1));
@@ -2673,7 +2673,7 @@ void bitmap_flush(struct mddev *mddev)
 /*
  * free memory that was allocated
  */
-static void bitmap_free(struct bitmap *bitmap)
+static void md_bitmap_free(struct bitmap *bitmap)
 {
 	unsigned long k, pages;
 	struct bitmap_page *bp;
@@ -2733,7 +2733,7 @@ void bitmap_destroy(struct mddev *mddev)
 	if (bitmap->sysfs_can_clear)
 		sysfs_put(bitmap->sysfs_can_clear);
 
-	bitmap_free(bitmap);
+	md_bitmap_free(bitmap);
 }
 
 /*
@@ -2916,7 +2916,7 @@ EXPORT_SYMBOL(bitmap_cond_end_sync);
 
 	return bitmap;
  error:
-	bitmap_free(bitmap);
+	md_bitmap_free(bitmap);
 	return ERR_PTR(err);
 }
 
@@ -3015,7 +3015,7 @@ int bitmap_copy_from_slot(struct mddev *mddev, int slot,
 	*low = lo;
 	*high = hi;
 err:
-	bitmap_free(bitmap);
+	md_bitmap_free(bitmap);
 	return rv;
 }
 EXPORT_SYMBOL_GPL(bitmap_copy_from_slot);

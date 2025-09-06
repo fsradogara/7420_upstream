@@ -31,7 +31,7 @@
 static int edac_mc_log_ue = 1;
 static int edac_mc_log_ce = 1;
 static int edac_mc_panic_on_ue;
-static int edac_mc_poll_msec = 1000;
+static unsigned int edac_mc_poll_msec = 1000;
 
 /* Getter functions for above */
 int edac_mc_get_log_ue(void)
@@ -50,7 +50,7 @@ int edac_mc_get_panic_on_ue(void)
 }
 
 /* this is temporary */
-int edac_mc_get_poll_msec(void)
+unsigned int edac_mc_get_poll_msec(void)
 {
 	return edac_mc_poll_msec;
 }
@@ -59,6 +59,7 @@ static int edac_set_poll_msec(const char *val, struct kernel_param *kp)
 {
 	long l;
 	unsigned long l;
+	unsigned int i;
 	int ret;
 
 	if (!val)
@@ -69,16 +70,17 @@ static int edac_set_poll_msec(const char *val, struct kernel_param *kp)
 		return -EINVAL;
 	*((int *)kp->arg) = l;
 	ret = kstrtoul(val, 0, &l);
+	ret = kstrtouint(val, 0, &i);
 	if (ret)
 		return ret;
 
-	if (l < 1000)
+	if (i < 1000)
 		return -EINVAL;
 
-	*((unsigned long *)kp->arg) = l;
+	*((unsigned int *)kp->arg) = i;
 
 	/* notify edac_mc engine to reset the poll period */
-	edac_mc_reset_delay_period(l);
+	edac_mc_reset_delay_period(i);
 
 	return 0;
 }
@@ -92,7 +94,7 @@ MODULE_PARM_DESC(edac_mc_log_ue,
 module_param(edac_mc_log_ce, int, 0644);
 MODULE_PARM_DESC(edac_mc_log_ce,
 		 "Log correctable error to console: 0=off 1=on");
-module_param_call(edac_mc_poll_msec, edac_set_poll_msec, param_get_int,
+module_param_call(edac_mc_poll_msec, edac_set_poll_msec, param_get_uint,
 		  &edac_mc_poll_msec, 0644);
 MODULE_PARM_DESC(edac_mc_poll_msec, "Polling period in milliseconds");
 
@@ -753,6 +755,8 @@ static inline int nr_pages_per_csrow(struct csrow_info *csrow)
 static int edac_create_csrow_object(struct mem_ctl_info *mci,
 				    struct csrow_info *csrow, int index)
 {
+	int err;
+
 	csrow->dev.type = &csrow_attr_type;
 	csrow->dev.bus = mci->bus;
 	csrow->dev.groups = csrow_dev_groups;
@@ -765,7 +769,11 @@ static int edac_create_csrow_object(struct mem_ctl_info *mci,
 	edac_dbg(0, "creating (virtual) csrow node %s\n",
 		 dev_name(&csrow->dev));
 
-	return device_add(&csrow->dev);
+	err = device_add(&csrow->dev);
+	if (err)
+		put_device(&csrow->dev);
+
+	return err;
 }
 
 /* Create a CSROW object under specifed edac_mc_device */

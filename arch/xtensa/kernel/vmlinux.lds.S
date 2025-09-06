@@ -158,6 +158,7 @@ SECTIONS
 	_einittext = .;
   }
   EXCEPTION_TABLE(16)
+  NOTES
   /* Data section */
 
   _sdata = .;

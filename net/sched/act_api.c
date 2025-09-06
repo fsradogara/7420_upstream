@@ -1455,10 +1455,15 @@ static int
 tcf_action_add(struct net *net, struct nlattr *nla, struct nlmsghdr *n,
 	       u32 portid, int ovr)
 {
-	int ret = 0;
+	int loop, ret;
 	LIST_HEAD(actions);
 
-	ret = tcf_action_init(net, nla, NULL, NULL, ovr, 0, &actions);
+	for (loop = 0; loop < 10; loop++) {
+		ret = tcf_action_init(net, nla, NULL, NULL, ovr, 0, &actions);
+		if (ret != -EAGAIN)
+			break;
+	}
+
 	if (ret)
 		goto done;
 
@@ -1524,10 +1529,7 @@ replay:
 		ret = tcf_action_add(tca[TCA_ACT_TAB], n, pid, ovr);
 		if (n->nlmsg_flags & NLM_F_REPLACE)
 			ovr = 1;
-replay:
 		ret = tcf_action_add(net, tca[TCA_ACT_TAB], n, portid, ovr);
-		if (ret == -EAGAIN)
-			goto replay;
 		break;
 	case RTM_DELACTION:
 		ret = tca_action_gd(tca[TCA_ACT_TAB], n, pid, RTM_DELACTION);

@@ -467,8 +467,10 @@ static int elo_connect(struct serio *serio, struct serio_driver *drv)
 			input_set_abs_params(input_dev, ABS_Y, 0, 255, 0, 0);
 			break;
 	case 0: /* 10-byte protocol */
-		if (elo_setup_10(elo))
+		if (elo_setup_10(elo)) {
+			err = -EIO;
 			goto fail3;
+		}
 
 		break;
 

@@ -1733,13 +1733,10 @@ static int __init doc_probe(unsigned long physadr)
 		   added it.  This is handled without incident by
 		   del_mtd_device, as far as I can tell. */
 	if ((ret = nand_scan(mtd, numchips)) || (ret = doc->late_init(mtd))) {
-		/* DBB note: i believe nand_release is necessary here, as
+		/* DBB note: i believe nand_cleanup is necessary here, as
 		   buffers may have been allocated in nand_base.  Check with
 		   Thomas. FIX ME! */
-		/* nand_release will call mtd_device_unregister, but we
-		   haven't yet added it.  This is handled without incident by
-		   mtd_device_unregister, as far as I can tell. */
-		nand_release(mtd);
+		nand_cleanup(nand);
 		kfree(mtd);
 		goto fail;
 	}
