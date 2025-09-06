@@ -422,6 +422,7 @@ void unregister_node(struct node *node)
 }
 
 struct node node_devices[MAX_NUMNODES];
+	compaction_unregister_node(node);
 	hugetlb_unregister_node(node);		/* no-op, if memoryless node */
 
 	device_unregister(&node->dev);

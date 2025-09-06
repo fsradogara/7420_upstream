@@ -2751,6 +2751,7 @@ unsigned int get_random_int(void)
 
 	hash = get_locked_var(hash_entropy_int_lock, get_random_int_hash);
 	hash = get_cpu_var(get_random_int_hash);
+	hash = get_locked_var(hash_entropy_int_lock, get_random_int_hash);
 
 	hash[0] += current->pid + jiffies + random_get_entropy();
 	md5_transform(hash, random_int_secret);
@@ -2774,6 +2775,7 @@ unsigned long get_random_long(void)
 
 	hash = get_locked_var(hash_entropy_int_lock, get_random_int_hash);
 	hash = get_cpu_var(get_random_int_hash);
+	hash = get_locked_var(hash_entropy_int_lock, get_random_int_hash);
 
 	hash[0] += current->pid + jiffies + random_get_entropy();
 	md5_transform(hash, random_int_secret);

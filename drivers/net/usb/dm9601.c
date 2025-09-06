@@ -345,6 +345,7 @@ static int dm9601_mdio_read(struct net_device *netdev, int phy_id, int loc)
 	struct usbnet *dev = netdev_priv(netdev);
 
 	__le16 res;
+	int err;
 
 	if (phy_id) {
 		devdbg(dev, "Only internal phy supported");
@@ -352,7 +353,11 @@ static int dm9601_mdio_read(struct net_device *netdev, int phy_id, int loc)
 		return 0;
 	}
 
-	dm_read_shared_word(dev, 1, loc, &res);
+	err = dm_read_shared_word(dev, 1, loc, &res);
+	if (err < 0) {
+		netdev_err(dev->net, "MDIO read error: %d\n", err);
+		return 0;
+	}
 
 	devdbg(dev,
 	       "dm9601_mdio_read() phy_id=0x%02x, loc=0x%02x, returns=0x%04x",

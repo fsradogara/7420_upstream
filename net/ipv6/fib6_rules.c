@@ -129,8 +129,12 @@ static int fib6_rule_action(struct fib_rule *rule, struct flowi *flp,
 					       ip6_dst_idev(&rt->u.dst)->dev,
 					       &flp->fl6_dst, srcprefs,
 
-			if (ipv6_dev_get_saddr(net,
-					       ip6_dst_idev(&rt->dst)->dev,
+			struct inet6_dev *idev = ip6_dst_idev(&rt->dst);
+
+			if (!idev)
+				goto again;
+
+			if (ipv6_dev_get_saddr(net, idev->dev,
 					       &flp6->daddr,
 					       rt6_flags2srcprefs(flags),
 					       &saddr))
@@ -344,6 +348,11 @@ static size_t fib6_rule_nlmsg_payload(struct fib_rule *rule)
 }
 
 static struct fib_rules_ops fib6_rules_ops_template = {
+static void fib6_rule_flush_cache(struct fib_rules_ops *ops)
+{
+	rt_genid_bump_ipv6(ops->fro_net);
+}
+
 static const struct fib_rules_ops __net_initconst fib6_rules_ops_template = {
 	.family			= AF_INET6,
 	.rule_size		= sizeof(struct fib6_rule),
@@ -359,6 +368,7 @@ static const struct fib_rules_ops __net_initconst fib6_rules_ops_template = {
 	.compare		= fib6_rule_compare,
 	.fill			= fib6_rule_fill,
 	.nlmsg_payload		= fib6_rule_nlmsg_payload,
+	.flush_cache		= fib6_rule_flush_cache,
 	.nlgroup		= RTNLGRP_IPV6_RULE,
 	.policy			= fib6_rule_policy,
 	.owner			= THIS_MODULE,

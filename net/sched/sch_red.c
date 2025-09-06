@@ -66,6 +66,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
 	struct red_sched_data *q = qdisc_priv(sch);
 	struct Qdisc *child = q->qdisc;
+	unsigned int len;
 	int ret;
 
 	q->parms.qavg = red_calc_qavg(&q->parms, child->qstats.backlog);
@@ -130,6 +131,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		break;
 	}
 
+	len = qdisc_pkt_len(skb);
 	ret = qdisc_enqueue(skb, child);
 	if (likely(ret == NET_XMIT_SUCCESS)) {
 		sch->bstats.bytes += qdisc_pkt_len(skb);
@@ -139,6 +141,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		q->stats.pdrop++;
 		sch->qstats.drops++;
 		qdisc_qstats_backlog_inc(sch, skb);
+		sch->qstats.backlog += len;
 		sch->q.qlen++;
 	} else if (net_xmit_drop_count(ret)) {
 		q->stats.pdrop++;

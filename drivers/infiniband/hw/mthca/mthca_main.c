@@ -474,6 +474,7 @@ static int mthca_init_icm(struct mthca_dev *mdev,
 			  "aborting.\n", status);
 		return -EINVAL;
 	}
+	u64 aux_pages = 0;
 	int err;
 
 	err = mthca_SET_ICM_SIZE(mdev, icm_size, &aux_pages);

@@ -807,6 +807,7 @@ struct b43_phy {
 };
 
 	} data __packed;
+	} __packed data;
 } __packed;
 
 
@@ -1381,6 +1382,22 @@ void b43dbg(struct b43_wl *wl, const char *fmt, ...)
 # define b43dbg(wl, fmt...) do { /* nothing */ } while (0)
 #endif /* DEBUG */
 	return dev->__using_pio_transfers;
+}
+
+static inline void b43_wake_queue(struct b43_wldev *dev, int queue_prio)
+{
+	if (dev->qos_enabled)
+		ieee80211_wake_queue(dev->wl->hw, queue_prio);
+	else
+		ieee80211_wake_queue(dev->wl->hw, 0);
+}
+
+static inline void b43_stop_queue(struct b43_wldev *dev, int queue_prio)
+{
+	if (dev->qos_enabled)
+		ieee80211_stop_queue(dev->wl->hw, queue_prio);
+	else
+		ieee80211_stop_queue(dev->wl->hw, 0);
 }
 
 /* Message printing */

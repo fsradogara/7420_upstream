@@ -395,6 +395,7 @@ struct b43legacy_iv {
 	} data __attribute__((__packed__));
 } __attribute__((__packed__));
 	} data __packed;
+	} __packed data;
 } __packed;
 
 #define B43legacy_PHYMODE(phytype)	(1 << (phytype))

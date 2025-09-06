@@ -184,6 +184,8 @@ struct pnp_dev *pnp_alloc_dev(struct pnp_protocol *protocol, int id,
 		return NULL;
 	}
 
+	dev_set_name(&dev->dev, "%02x:%02x", dev->protocol->number, dev->number);
+
 	return dev;
 }
 

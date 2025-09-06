@@ -276,6 +276,8 @@ DECLARE_EVENT_CLASS(writeback_class,
 		__entry->cgroup_ino = __trace_wb_assign_cgroup(wb);
 		strscpy_pad(__entry->name, bdi_dev_name(wb->bdi), 32);
 		__trace_wb_assign_cgroup(__get_str(cgroup), wb);
+		strscpy_pad(__entry->name, bdi_dev_name(wb->bdi), 32);
+		__entry->cgroup_ino = __trace_wb_assign_cgroup(wb);
 	),
 	TP_printk("bdi %s: cgroup_ino=%u",
 		  __entry->name,

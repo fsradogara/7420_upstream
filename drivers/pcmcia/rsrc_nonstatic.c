@@ -1454,6 +1454,8 @@ static void nonstatic_release_resource_db(struct pcmcia_socket *s)
 		kfree(p);
 	}
 	mutex_unlock(&rsrc_mutex);
+
+	kfree(data);
 }
 
 

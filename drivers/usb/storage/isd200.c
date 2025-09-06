@@ -1350,6 +1350,7 @@ static int isd200_get_inquiry_data( struct us_data *us )
 	struct hd_driveid *id = info->id;
 
 	US_DEBUGP("Entering isd200_get_inquiry_data\n");
+	int retStatus;
 	u16 *id = info->id;
 
 	usb_stor_dbg(us, "Entering isd200_get_inquiry_data\n");
@@ -1414,6 +1415,13 @@ static int isd200_get_inquiry_data( struct us_data *us )
 
 				isd200_fix_driveid(id);
 				isd200_dump_driveid(us, id);
+
+				/* Prevent division by 0 in isd200_scsi_to_ata() */
+				if (id[ATA_ID_HEADS] == 0 || id[ATA_ID_SECTORS] == 0) {
+					usb_stor_dbg(us, "   Invalid ATA Identify data\n");
+					retStatus = ISD200_ERROR;
+					goto Done;
+				}
 
 				memset(&info->InquiryData, 0, sizeof(info->InquiryData));
 
@@ -1486,6 +1494,7 @@ static int isd200_get_inquiry_data( struct us_data *us )
 	}
 
 	US_DEBUGP("Leaving isd200_get_inquiry_data %08X\n", retStatus);
+ Done:
 	usb_stor_dbg(us, "Leaving isd200_get_inquiry_data %08X\n", retStatus);
 
 	return(retStatus);
@@ -1847,13 +1856,17 @@ int isd200_Initialization(struct us_data *us)
 	US_DEBUGP("ISD200 Initialization...\n");
 static int isd200_Initialization(struct us_data *us)
 {
+	int rc = 0;
+
 	usb_stor_dbg(us, "ISD200 Initialization...\n");
 
 	/* Initialize ISD200 info struct */
 
 	if (isd200_init_info(us) == ISD200_ERROR) {
 		US_DEBUGP("ERROR Initializing ISD200 Info struct\n");
+	if (isd200_init_info(us) < 0) {
 		usb_stor_dbg(us, "ERROR Initializing ISD200 Info struct\n");
+		rc = -ENOMEM;
 	} else {
 		/* Get device specific data */
 
@@ -1861,12 +1874,15 @@ static int isd200_Initialization(struct us_data *us)
 			US_DEBUGP("ISD200 Initialization Failure\n");
 		else
 			US_DEBUGP("ISD200 Initialization complete\n");
+		if (isd200_get_inquiry_data(us) != ISD200_GOOD) {
 			usb_stor_dbg(us, "ISD200 Initialization Failure\n");
-		else
+			rc = -EINVAL;
+		} else {
 			usb_stor_dbg(us, "ISD200 Initialization complete\n");
+		}
 	}
 
-	return 0;
+	return rc;
 }
 
 

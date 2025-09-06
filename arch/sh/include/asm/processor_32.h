@@ -79,6 +79,7 @@ extern struct sh_cpuinfo cpu_data[];
 #define SR_FD		0x00008000
 #define SR_MD		0x40000000
 
+#define SR_USER_MASK	0x00000303	// M, Q, S, T bits
 /*
  * DSP structure and data
  */

@@ -66,6 +66,7 @@ srmcons_do_receive_chars(struct tty_port *port)
 	if (count)
 		tty_schedule_flip(tty);
 		tty_schedule_flip(port);
+		tty_flip_buffer_push(port);
 
 	return count;
 }

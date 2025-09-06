@@ -405,10 +405,9 @@ static int __init setup_kmac(char *s)
 	printk(KERN_INFO "korina mac = %s\n", s);
 	parse_mac_addr(s);
 	if (!mac_pton(s, korina_dev0_data.mac)) {
+	if (!mac_pton(s, korina_dev0_data.mac))
 		printk(KERN_ERR "Invalid mac\n");
-		return -EINVAL;
-	}
-	return 0;
+	return 1;
 }
 
 __setup("kmac=", setup_kmac);

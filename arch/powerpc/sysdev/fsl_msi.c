@@ -888,10 +888,12 @@ static struct of_platform_driver fsl_of_msi_driver = {
 	.name = "fsl-msi",
 	.match_table = fsl_of_msi_ids,
 	.probe = fsl_of_msi_probe,
+#ifdef CONFIG_EPAPR_PARAVIRT
 static const struct fsl_msi_feature vmpic_msi_feature = {
 	.fsl_pic_ip = FSL_PIC_IP_VMPIC,
 	.msiir_offset = 0,
 };
+#endif
 
 static const struct of_device_id fsl_of_msi_ids[] = {
 	{

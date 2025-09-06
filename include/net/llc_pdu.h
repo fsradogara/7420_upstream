@@ -272,6 +272,7 @@ static inline void llc_pdu_decode_sa(struct sk_buff *skb, u8 *sa)
 		memcpy(sa, tr_hdr(skb)->saddr, ETH_ALEN);
 		*sa &= 0x7F;
 	}
+	memcpy(sa, eth_hdr(skb)->h_source, ETH_ALEN);
 }
 
 /**
@@ -287,6 +288,7 @@ static inline void llc_pdu_decode_da(struct sk_buff *skb, u8 *da)
 		memcpy(da, eth_hdr(skb)->h_dest, ETH_ALEN);
 	else if (skb->protocol == htons(ETH_P_TR_802_2))
 		memcpy(da, tr_hdr(skb)->daddr, ETH_ALEN);
+	memcpy(da, eth_hdr(skb)->h_dest, ETH_ALEN);
 }
 
 /**

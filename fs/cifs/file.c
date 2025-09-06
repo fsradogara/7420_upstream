@@ -5335,6 +5335,7 @@ io_error:
 	unlock_page(page);
 
 read_complete:
+	unlock_page(page);
 	return rc;
 }
 

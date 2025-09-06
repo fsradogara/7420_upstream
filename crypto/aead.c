@@ -55,8 +55,7 @@ static int setkey_unaligned(struct crypto_aead *tfm, const u8 *key,
 	memcpy(alignbuffer, key, keylen);
 	ret = aead->setkey(tfm, alignbuffer, keylen);
 	ret = crypto_aead_alg(tfm)->setkey(tfm, alignbuffer, keylen);
-	memset(alignbuffer, 0, keylen);
-	kfree(buffer);
+	kzfree(buffer);
 	return ret;
 }
 

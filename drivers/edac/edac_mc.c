@@ -249,6 +249,7 @@ void *edac_align_ptr(void **p, unsigned size, int n_elems)
 
 	r = size % align;
 	r = (unsigned long)p % align;
+	r = (unsigned long)ptr % align;
 
 	if (r == 0)
 		return (char *)ptr;

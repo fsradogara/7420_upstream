@@ -1207,6 +1207,7 @@ void ocfs2_journal_shutdown(struct ocfs2_super *osb)
 		mlog(0, "Shutting down journal: must wait on %d "
 		     "running transactions!\n",
 		     num_running_trans);
+	num_running_trans = atomic_read(&(journal->j_num_trans));
 	trace_ocfs2_journal_shutdown(num_running_trans);
 
 	/* Do a commit_cache here. It will flush our journal, *and*
@@ -1226,12 +1227,14 @@ void ocfs2_journal_shutdown(struct ocfs2_super *osb)
 		osb->commit_task = NULL;
 	}
 
-	BUG_ON(atomic_read(&(osb->journal->j_num_trans)) != 0);
+	BUG_ON(atomic_read(&(journal->j_num_trans)) != 0);
 
 	if (ocfs2_mount_local(osb)) {
 		journal_lock_updates(journal->j_journal);
 		status = journal_flush(journal->j_journal);
 		journal_unlock_updates(journal->j_journal);
+	if (ocfs2_mount_local(osb) &&
+	    (journal->j_journal->j_flags & JBD2_LOADED)) {
 		jbd2_journal_lock_updates(journal->j_journal);
 		status = jbd2_journal_flush(journal->j_journal);
 		jbd2_journal_unlock_updates(journal->j_journal);

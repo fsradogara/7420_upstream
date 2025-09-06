@@ -304,7 +304,6 @@ static void gru_free_cpu_resources(void *cb, void *dsr)
 static void gru_free_cpu_resources(void *cb, void *dsr)
 {
 	gru_unlock_kernel_context(uv_numa_blade_id());
-	preempt_enable();
 }
 
 /*

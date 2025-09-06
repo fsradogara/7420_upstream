@@ -1134,9 +1134,12 @@ static void put_pi_state(struct futex_pi_state *pi_state)
 
 		rt_mutex_proxy_unlock(&pi_state->pi_mutex, pi_state->owner);
 		raw_spin_lock_irq(&pi_state->pi_mutex.wait_lock);
+		unsigned long flags;
+
+		raw_spin_lock_irqsave(&pi_state->pi_mutex.wait_lock, flags);
 		pi_state_update_owner(pi_state, NULL);
-		raw_spin_unlock_irq(&pi_state->pi_mutex.wait_lock);
 		rt_mutex_proxy_unlock(&pi_state->pi_mutex);
+		raw_spin_unlock_irqrestore(&pi_state->pi_mutex.wait_lock, flags);
 	}
 
 	if (current->pi_state_cache)
@@ -1900,7 +1903,6 @@ static int wake_futex_pi(u32 __user *uaddr, u32 uval, struct futex_pi_state *pi_
 	bool deboost = false;
 	WAKE_Q(wake_q);
 	WAKE_Q(wake_sleeper_q);
-	bool deboost;
 	int ret = 0;
 
 	if (!pi_state)
@@ -2065,7 +2067,8 @@ static int unlock_futex_pi(u32 __user *uaddr, u32 uval)
 		 * not fail.
 		 */
 		pi_state_update_owner(pi_state, new_owner);
-		deboost = __rt_mutex_futex_unlock(&pi_state->pi_mutex, &wake_q);
+		deboost = __rt_mutex_futex_unlock(&pi_state->pi_mutex, &wake_q,
+						  &wake_sleeper_q);
 	}
 
 out_unlock:
@@ -2073,6 +2076,7 @@ out_unlock:
 
 	if (deboost) {
 		wake_up_q(&wake_q);
+		wake_up_q_sleeper(&wake_sleeper_q);
 		rt_mutex_adjust_prio(current);
 	}
 
@@ -2868,7 +2872,7 @@ out:
 				 * tried to enqueue it on the rtmutex.
 				 */
 				this->pi_state = NULL;
-				free_pi_state(pi_state);
+				put_pi_state(pi_state);
 				continue;
 			} else if (ret) {
 				/* -EDEADLK */
@@ -4088,7 +4092,7 @@ retry_private:
 	 * We must add ourselves to the rt_mutex waitlist while holding hb->lock
 	 * such that the hb and rt_mutex wait lists match.
 	 */
-	rt_mutex_init_waiter(&rt_waiter);
+	rt_mutex_init_waiter(&rt_waiter, false);
 	ret = rt_mutex_start_proxy_lock(&q.pi_state->pi_mutex, &rt_waiter, current);
 	if (ret) {
 		if (ret == 1)
@@ -4346,19 +4350,30 @@ pi_faulted:
 
 		get_pi_state(pi_state);
 		/*
-		 * Since modifying the wait_list is done while holding both
-		 * hb->lock and wait_lock, holding either is sufficient to
-		 * observe it.
-		 *
 		 * By taking wait_lock while still holding hb->lock, we ensure
 		 * there is no point where we hold neither; and therefore
 		 * wake_futex_pi() must observe a state consistent with what we
 		 * observed.
+		 *
+		 * In particular; this forces __rt_mutex_start_proxy() to
+		 * complete such that we're guaranteed to observe the
+		 * rt_waiter. Also see the WARN in wake_futex_pi().
 		 */
 		raw_spin_lock_irq(&pi_state->pi_mutex.wait_lock);
+		/*
+		 * Magic trickery for now to make the RT migrate disable
+		 * logic happy. The following spin_unlock() happens with
+		 * interrupts disabled so the internal migrate_enable()
+		 * won't undo the migrate_disable() which was issued when
+		 * locking hb->lock.
+		 */
+		migrate_disable();
 		spin_unlock(&hb->lock);
 
+		/* drops pi_state->pi_mutex.wait_lock */
 		ret = wake_futex_pi(uaddr, uval, pi_state);
+
+		migrate_enable();
 
 		put_pi_state(pi_state);
 
@@ -4377,10 +4392,8 @@ pi_faulted:
 		 * A unconditional UNLOCK_PI op raced against a waiter
 		 * setting the FUTEX_WAITERS bit. Try again.
 		 */
-		if (ret == -EAGAIN) {
-			put_futex_key(&key);
-			goto retry;
-		}
+		if (ret == -EAGAIN)
+			goto pi_retry;
 		/*
 		 * wake_futex_pi has detected invalid state. Tell user
 		 * space.
@@ -4410,6 +4423,11 @@ out_unlock:
 out_putkey:
 	put_futex_key(&key);
 	return ret;
+
+pi_retry:
+	put_futex_key(&key);
+	cond_resched();
+	goto retry;
 
 pi_faulted:
 	put_futex_key(&key);
@@ -4644,7 +4662,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 			free_pi_state(q.pi_state);
 			spin_unlock(&hb2->lock);
 			put_pi_state(q.pi_state);
-			spin_unlock(q.lock_ptr);
+			spin_unlock(&hb2->lock);
 			/*
 			 * Adjust the return value. It's either -EFAULT or
 			 * success (1) but the caller expects 0 for success.

@@ -460,7 +460,7 @@ static struct macio_dev * macio_add_one_device(struct macio_chip *chip,
 		printk(KERN_DEBUG"macio: device registration error for %s!\n",
 		       dev->ofdev.dev.bus_id);
 		       dev_name(&dev->ofdev.dev));
-		kfree(dev);
+		put_device(&dev->ofdev.dev);
 		return NULL;
 	}
 

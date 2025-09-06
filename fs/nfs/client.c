@@ -598,9 +598,11 @@ found_client:
 	error = wait_event_killable(nfs_client_active_wq,
 				clp->cl_cons_state != NFS_CS_INITING);
 static bool nfs_client_init_is_complete(const struct nfs_client *clp)
+bool nfs_client_init_is_complete(const struct nfs_client *clp)
 {
 	return clp->cl_cons_state <= NFS_CS_READY;
 }
+EXPORT_SYMBOL_GPL(nfs_client_init_is_complete);
 
 int nfs_wait_client_init_complete(const struct nfs_client *clp)
 {

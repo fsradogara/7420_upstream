@@ -623,6 +623,7 @@ int b43_pio_tx(struct b43_wldev *dev, struct sk_buff *skb)
 		ieee80211_stop_queue(dev->wl->hw, skb_get_queue_mapping(skb));
 		q->stopped = 1;
 		goto out_unlock;
+		b43_stop_queue(dev, skb_get_queue_mapping(skb));
 		q->stopped = true;
 		goto out;
 	}
@@ -669,6 +670,7 @@ out_unlock:
 }
 
 /* Called with IRQs disabled. */
+		b43_stop_queue(dev, skb_get_queue_mapping(skb));
 		q->stopped = true;
 	}
 
@@ -733,6 +735,7 @@ void b43_pio_get_tx_stats(struct b43_wldev *dev,
 		stats[i].limit = B43_PIO_MAX_NR_TXPACKETS;
 		stats[i].count = q->nr_tx_packets;
 		spin_unlock_irqrestore(&q->lock, flags);
+		b43_wake_queue(dev, q->queue_prio);
 		q->stopped = false;
 	}
 }

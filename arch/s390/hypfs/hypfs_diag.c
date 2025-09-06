@@ -644,6 +644,7 @@ __init int hypfs_diag_init(void)
 	}
 	return rc;
 		pr_err("The hardware system does not support hypfs\n");
+		pr_info("The hardware system does not support hypfs\n");
 		return -ENODATA;
 	}
 	if (diag204_info_type == INFO_EXT) {

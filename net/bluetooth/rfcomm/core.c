@@ -2161,6 +2161,7 @@ static struct rfcomm_session *rfcomm_process_rx(struct rfcomm_session *s)
 
 static inline void rfcomm_accept_connection(struct rfcomm_session *s)
 		if (!skb_linearize(skb)) {
+		if (!skb_linearize(skb) && sk->sk_state != BT_CLOSED) {
 			s = rfcomm_recv_frame(s, skb);
 			if (!s)
 				break;

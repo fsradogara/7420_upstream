@@ -894,6 +894,7 @@ static void ubd_device_release(struct device *dev)
 {
 	struct ubd *ubd_dev = dev->driver_data;
 	struct ubd *ubd_dev = dev_get_drvdata(dev);
+	struct ubd *ubd_dev = container_of(dev, struct ubd, pdev.dev);
 
 	blk_cleanup_queue(ubd_dev->queue);
 	*ubd_dev = ((struct ubd) DEFAULT_UBD);

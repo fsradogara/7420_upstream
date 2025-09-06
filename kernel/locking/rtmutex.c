@@ -999,7 +999,7 @@ static inline void rt_spin_lock_fastlock(struct rt_mutex *lock,
 		migrate_disable();
 
 	if (likely(rt_mutex_cmpxchg_acquire(lock, NULL, current)))
-		rt_mutex_deadlock_account_lock(lock, current);
+		return;
 	else
 		slowfn(lock, do_mig_dis);
 }
@@ -1007,10 +1007,8 @@ static inline void rt_spin_lock_fastlock(struct rt_mutex *lock,
 static inline int rt_spin_lock_fastunlock(struct rt_mutex *lock,
 					   int  (*slowfn)(struct rt_mutex *lock))
 {
-	if (likely(rt_mutex_cmpxchg_release(lock, current, NULL))) {
-		rt_mutex_deadlock_account_unlock(current);
+	if (likely(rt_mutex_cmpxchg_release(lock, current, NULL)))
 		return 0;
-	}
 	return slowfn(lock);
 }
 #ifdef CONFIG_SMP
@@ -1162,8 +1160,6 @@ static int noinline __sched rt_spin_lock_slowunlock(struct rt_mutex *lock)
 
 	debug_rt_mutex_unlock(lock);
 
-	rt_mutex_deadlock_account_unlock(current);
-
 	if (!rt_mutex_has_waiters(lock)) {
 		lock->owner = NULL;
 		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
@@ -1190,8 +1186,6 @@ static int noinline __sched rt_spin_lock_slowunlock_no_deboost(struct rt_mutex *
 	raw_spin_lock_irqsave(&lock->wait_lock, flags);
 
 	debug_rt_mutex_unlock(lock);
-
-	rt_mutex_deadlock_account_unlock(current);
 
 	if (!rt_mutex_has_waiters(lock)) {
 		lock->owner = NULL;
@@ -1651,12 +1645,13 @@ void rt_mutex_adjust_pi(struct task_struct *task)
 				   next_lock, NULL, task);
 }
 
-void rt_mutex_init_waiter(struct rt_mutex_waiter *waiter)
+void rt_mutex_init_waiter(struct rt_mutex_waiter *waiter, bool savestate)
 {
 	debug_rt_mutex_init_waiter(waiter);
 	RB_CLEAR_NODE(&waiter->pi_tree_entry);
 	RB_CLEAR_NODE(&waiter->tree_entry);
 	waiter->task = NULL;
+	waiter->savestate = savestate;
 }
 
 /**
@@ -1712,6 +1707,7 @@ __rt_mutex_slowlock(struct rt_mutex *lock, int state,
 }
 
 static void rt_mutex_handle_deadlock(int res, int detect_deadlock,
+				     struct rt_mutex *lock,
 				     struct rt_mutex_waiter *w)
 {
 	/*
@@ -1721,6 +1717,7 @@ static void rt_mutex_handle_deadlock(int res, int detect_deadlock,
 	if (res != -EDEADLOCK || detect_deadlock)
 		return;
 
+	raw_spin_unlock_irq(&lock->wait_lock);
 	/*
 	 * Yell lowdly and stop the task right here.
 	 */
@@ -1865,7 +1862,7 @@ rt_mutex_slowlock(struct rt_mutex *lock, int state,
 			remove_waiter(lock, &waiter);
 		/* ww_mutex want to report EDEADLK/EALREADY, let them */
 		if (!ww_ctx)
-			rt_mutex_handle_deadlock(ret, chwalk, &waiter);
+			rt_mutex_handle_deadlock(ret, chwalk, lock, &waiter);
 	} else if (ww_ctx) {
 		ww_mutex_account_lock(lock, ww_ctx);
 	}
@@ -2090,6 +2087,10 @@ rt_mutex_fastunlock(struct rt_mutex *lock,
 	deboost = slowfn(lock, &wake_q);
 
 	wake_up_q(&wake_q);
+	deboost = slowfn(lock, &wake_q, &wake_sleeper_q);
+
+	wake_up_q(&wake_q);
+	wake_up_q_sleeper(&wake_sleeper_q);
 
 	/* Undo pi boosting if necessary: */
 	if (deboost)
@@ -2230,6 +2231,9 @@ bool __sched rt_mutex_futex_unlock(struct rt_mutex *lock,
 				   struct wake_q_head *wq_sleeper)
 bool __sched __rt_mutex_futex_unlock(struct rt_mutex *lock,
 				    struct wake_q_head *wake_q)
+bool __sched __rt_mutex_futex_unlock(struct rt_mutex *lock,
+				     struct wake_q_head *wake_q,
+				     struct wake_q_head *wq_sleeper)
 {
 	lockdep_assert_held(&lock->wait_lock);
 
@@ -2240,17 +2244,18 @@ bool __sched __rt_mutex_futex_unlock(struct rt_mutex *lock,
 		return false; /* done */
 	}
 
-	mark_wakeup_next_waiter(wake_q, lock);
+	mark_wakeup_next_waiter(wake_q, wq_sleeper, lock);
 	return true; /* deboost and wakeups */
 }
 
 void __sched rt_mutex_futex_unlock(struct rt_mutex *lock)
 {
 	WAKE_Q(wake_q);
+	WAKE_Q(wake_sleeper_q);
 	bool deboost;
 
 	raw_spin_lock_irq(&lock->wait_lock);
-	deboost = __rt_mutex_futex_unlock(lock, &wake_q);
+	deboost = __rt_mutex_futex_unlock(lock, &wake_q, &wake_sleeper_q);
 	raw_spin_unlock_irq(&lock->wait_lock);
 
 	if (deboost) {
@@ -2258,6 +2263,8 @@ void __sched rt_mutex_futex_unlock(struct rt_mutex *lock)
 		rt_mutex_adjust_prio(current);
 	}
 	return rt_mutex_slowunlock(lock, wqh, wq_sleeper);
+	if (deboost)
+		rt_mutex_slowunlock(lock, &wake_q, &wake_sleeper_q);
 }
 
 /**
@@ -2330,30 +2337,34 @@ void rt_mutex_proxy_unlock(struct rt_mutex *lock)
 }
 
 /**
- * rt_mutex_start_proxy_lock() - Start lock acquisition for another task
+ * __rt_mutex_start_proxy_lock() - Start lock acquisition for another task
  * @lock:		the rt_mutex to take
  * @waiter:		the pre-initialized rt_mutex_waiter
  * @task:		the task to prepare
+ *
+ * Starts the rt_mutex acquire; it enqueues the @waiter and does deadlock
+ * detection. It does not wait, see rt_mutex_wait_proxy_lock() for that.
+ *
+ * NOTE: does _NOT_ remove the @waiter on failure; must either call
+ * rt_mutex_wait_proxy_lock() or rt_mutex_cleanup_proxy_lock() after this.
  *
  * Returns:
  *  0 - task blocked on lock
  *  1 - acquired the lock for task, caller should wake it up
  * <0 - error
  *
- * Special API call for FUTEX_REQUEUE_PI support.
+ * Special API call for PI-futex support.
  */
-int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
+int __rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 			      struct rt_mutex_waiter *waiter,
 			      struct task_struct *task)
 {
 	int ret;
 
-	raw_spin_lock_irq(&lock->wait_lock);
+	lockdep_assert_held(&lock->wait_lock);
 
-	if (try_to_take_rt_mutex(lock, task, NULL)) {
-		raw_spin_unlock_irq(&lock->wait_lock);
+	if (try_to_take_rt_mutex(lock, task, NULL))
 		return 1;
-	}
 
 #ifdef CONFIG_PREEMPT_RT_FULL
 	/*
@@ -2377,7 +2388,6 @@ int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 	raw_spin_lock(&task->pi_lock);
 	if (task->pi_blocked_on) {
 		raw_spin_unlock(&task->pi_lock);
-		raw_spin_unlock_irq(&lock->wait_lock);
 		return -EAGAIN;
 	}
 	task->pi_blocked_on = PI_REQUEUE_INPROGRESS;
@@ -2398,12 +2408,41 @@ int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 		ret = 0;
 	}
 
+	debug_rt_mutex_print_deadlock(waiter);
+
+	return ret;
+}
+
+/**
+ * rt_mutex_start_proxy_lock() - Start lock acquisition for another task
+ * @lock:		the rt_mutex to take
+ * @waiter:		the pre-initialized rt_mutex_waiter
+ * @task:		the task to prepare
+ *
+ * Starts the rt_mutex acquire; it enqueues the @waiter and does deadlock
+ * detection. It does not wait, see rt_mutex_wait_proxy_lock() for that.
+ *
+ * NOTE: unlike __rt_mutex_start_proxy_lock this _DOES_ remove the @waiter
+ * on failure.
+ *
+ * Returns:
+ *  0 - task blocked on lock
+ *  1 - acquired the lock for task, caller should wake it up
+ * <0 - error
+ *
+ * Special API call for PI-futex support.
+ */
+int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
+			      struct rt_mutex_waiter *waiter,
+			      struct task_struct *task)
+{
+	int ret;
+
+	raw_spin_lock_irq(&lock->wait_lock);
+	ret = __rt_mutex_start_proxy_lock(lock, waiter, task);
 	if (ret && rt_mutex_has_waiters(lock))
 		remove_waiter(lock, waiter);
-
 	raw_spin_unlock_irq(&lock->wait_lock);
-
-	debug_rt_mutex_print_deadlock(waiter);
 
 	return ret;
 }
@@ -2456,6 +2495,7 @@ int rt_mutex_wait_proxy_lock(struct rt_mutex *lock,
 	set_current_state(TASK_INTERRUPTIBLE);
 
 	/* sleep on the mutex */
+	set_current_state(TASK_INTERRUPTIBLE);
 	ret = __rt_mutex_slowlock(lock, TASK_INTERRUPTIBLE, to, waiter, NULL);
 	/* sleep on the mutex */
 	set_current_state(TASK_INTERRUPTIBLE);
@@ -2465,6 +2505,7 @@ int rt_mutex_wait_proxy_lock(struct rt_mutex *lock,
 	 * have to fix that up.
 	 */
 	fixup_rt_mutex_waiters(lock);
+
 	raw_spin_unlock_irq(&lock->wait_lock);
 
 	return ret;
